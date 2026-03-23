@@ -116,14 +116,16 @@ export function CourseGalleryCard({
   return (
     <article
       className={cn(
-        'flex h-full cursor-pointer flex-col overflow-hidden rounded-[20px] border border-white/[0.08]',
-        'bg-gradient-to-b from-slate-900/80 to-slate-950/90 shadow-[0_20px_50px_rgba(0,0,0,0.18)] backdrop-blur-[12px]',
-        'transition-[transform,border-color,background-color] duration-[260ms] ease-out',
-        'hover:-translate-y-2 hover:border-[rgba(140,163,255,0.28)] hover:from-[rgba(20,26,41,0.88)] hover:to-[rgba(20,26,41,0.95)]',
+        'apple-glass group flex h-full cursor-pointer flex-col overflow-hidden rounded-[24px]',
+        'transition-[transform,box-shadow,border-color] duration-300 ease-out',
+        'hover:-translate-y-1.5 hover:shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:hover:shadow-[0_22px_56px_rgba(0,0,0,0.42)]',
       )}
     >
       {/* 封面区 — NotebookCard CardMedia h:188 + 渐变遮罩 */}
-      <div ref={thumbRef} className="relative h-[188px] w-full shrink-0 overflow-hidden bg-[#0b0d13]">
+      <div
+        ref={thumbRef}
+        className="relative h-[188px] w-full shrink-0 overflow-hidden bg-slate-200/60 dark:bg-slate-900/60"
+      >
         <div className="pointer-events-none absolute inset-0">
           {slide && thumbWidth > 0 ? (
             <ThumbnailSlide
@@ -142,7 +144,7 @@ export function CourseGalleryCard({
           )}
         </div>
         <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[rgba(8,10,16,0.1)] via-[rgba(8,10,16,0.18)] to-[rgba(8,10,16,0.76)]"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/5 via-black/[0.1] to-black/[0.28] dark:from-black/10 dark:via-black/20 dark:to-black/[0.42]"
           aria-hidden
         />
         <div
@@ -154,7 +156,7 @@ export function CourseGalleryCard({
           {showCoverBadge ? (
             <span
               className={cn(
-                'max-w-[40%] truncate rounded-md border border-white/10 bg-[rgba(11,13,19,0.55)] px-2.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-md sm:max-w-[55%]',
+                'max-w-[40%] truncate rounded-md border border-white/70 bg-white/75 px-2.5 py-0.5 text-[11px] font-medium text-slate-700 backdrop-blur-md dark:border-white/15 dark:bg-black/30 dark:text-slate-100 sm:max-w-[55%]',
               )}
             >
               {badge?.trim()}
@@ -168,7 +170,7 @@ export function CourseGalleryCard({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="size-7 rounded-md border border-white/15 bg-[rgba(11,13,19,0.55)] text-white backdrop-blur-md hover:bg-white/15 hover:text-white"
+                    className="size-7 rounded-md border border-white/65 bg-white/75 text-slate-700 backdrop-blur-md hover:bg-white/90 hover:text-slate-900 dark:border-white/15 dark:bg-black/30 dark:text-slate-100 dark:hover:bg-black/45 dark:hover:text-white"
                     aria-label="移动到其他课程"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -196,7 +198,7 @@ export function CourseGalleryCard({
             ) : null}
             <span
               className={cn(
-                'shrink-0 rounded-md border border-white/[0.08] bg-white/[0.08] px-2.5 py-0.5 text-[11px] text-white/[0.78] backdrop-blur-sm',
+                'shrink-0 rounded-md border border-white/65 bg-white/75 px-2.5 py-0.5 text-[11px] text-slate-700 backdrop-blur-sm dark:border-white/15 dark:bg-black/30 dark:text-slate-100',
               )}
             >
               {rightTopLabel}
@@ -211,8 +213,10 @@ export function CourseGalleryCard({
           <div className="flex min-w-0 flex-1 items-center gap-3 pr-1">
             <div
               className={cn(
-                'size-12 shrink-0 overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.06]',
-                coverAvatarUrl?.trim() ? 'ring-1 ring-white/10' : 'flex items-center justify-center',
+                'size-12 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white/65 dark:border-white/10 dark:bg-white/5',
+                coverAvatarUrl?.trim()
+                  ? 'ring-1 ring-slate-200/80 dark:ring-white/10'
+                  : 'flex items-center justify-center',
               )}
               aria-hidden={coverAvatarUrl?.trim() ? undefined : true}
             >
@@ -224,38 +228,42 @@ export function CourseGalleryCard({
                   className="size-full object-cover object-center"
                 />
               ) : (
-                <BookOpen className="size-6 text-white/70" strokeWidth={1.5} />
+                <BookOpen className="size-6 text-slate-500 dark:text-slate-300" strokeWidth={1.5} />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="truncate text-lg font-bold leading-tight tracking-tight text-white">
+              <h3 className="truncate text-lg font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
                 {course.name}
               </h3>
               {showNotebookCourseMeta && (parentCourseName?.trim() || schoolLine?.trim()) ? (
                 <div className="mt-1 space-y-0.5">
                   {parentCourseName?.trim() ? (
                     <p
-                      className="truncate text-[12px] leading-snug text-white/[0.55]"
+                      className="truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"
                       title={parentCourseName.trim()}
                     >
-                      <span className="text-white/40">课程</span>{' '}
-                      <span className="font-medium text-white/[0.78]">{parentCourseName.trim()}</span>
+                      <span className="text-slate-400 dark:text-slate-500">课程</span>{' '}
+                      <span className="font-medium text-slate-700 dark:text-slate-200">
+                        {parentCourseName.trim()}
+                      </span>
                     </p>
                   ) : null}
                   {schoolLine?.trim() ? (
                     <p
-                      className="truncate text-[12px] leading-snug text-white/[0.55]"
+                      className="truncate text-[12px] leading-snug text-slate-500 dark:text-slate-400"
                       title={schoolLine.trim()}
                     >
-                      <span className="text-white/40">学校</span>{' '}
-                      <span className="font-medium text-white/[0.78]">{schoolLine.trim()}</span>
+                      <span className="text-slate-400 dark:text-slate-500">学校</span>{' '}
+                      <span className="font-medium text-slate-700 dark:text-slate-200">
+                        {schoolLine.trim()}
+                      </span>
                     </p>
                   ) : null}
                 </div>
               ) : null}
               <p
                 className={cn(
-                  'text-[13px] text-white/[0.48]',
+                  'text-[13px] text-slate-500 dark:text-slate-400',
                   showNotebookCourseMeta && (parentCourseName?.trim() || schoolLine?.trim())
                     ? 'mt-1.5'
                     : 'mt-1',
@@ -272,7 +280,7 @@ export function CourseGalleryCard({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="size-8 shrink-0 rounded-lg text-white/70 hover:bg-white/10 hover:text-white"
+                  className="size-8 shrink-0 rounded-lg text-slate-500 hover:bg-slate-900/5 hover:text-slate-800 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
                   aria-label="编辑"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -287,7 +295,7 @@ export function CourseGalleryCard({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="size-8 shrink-0 rounded-lg text-red-300/90 hover:bg-red-500/15 hover:text-red-200"
+                  className="size-8 shrink-0 rounded-lg text-red-500/80 hover:bg-red-500/10 hover:text-red-600 dark:text-red-300/90 dark:hover:bg-red-500/15 dark:hover:text-red-200"
                   aria-label="删除"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -302,7 +310,7 @@ export function CourseGalleryCard({
         </div>
 
         <p
-          className="line-clamp-3 min-h-[4.875rem] text-[13px] leading-[1.8] text-white/[0.68]"
+          className="line-clamp-3 min-h-[4.875rem] text-[13px] leading-[1.8] text-slate-600 dark:text-slate-300"
           title={description}
         >
           {description}
@@ -313,13 +321,13 @@ export function CourseGalleryCard({
             {tags.slice(0, 8).map((tag, i) => (
               <span
                 key={`${i}-${tag}`}
-                className="rounded-full border border-violet-400/25 bg-violet-500/15 px-2 py-0.5 text-[10.5px] font-medium text-violet-100/95"
+                className="rounded-full border border-violet-200/80 bg-violet-50/85 px-2 py-0.5 text-[10.5px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-950/35 dark:text-violet-200"
               >
                 {tag}
               </span>
             ))}
             {tags.length > 8 ? (
-              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10.5px] text-white/55">
+              <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[10.5px] text-slate-500 dark:border-white/15 dark:text-slate-400">
                 +{tags.length - 8}
               </span>
             ) : null}
@@ -327,12 +335,12 @@ export function CourseGalleryCard({
         ) : null}
 
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[11px] text-white/[0.76]">
-            <School className="size-3.5 shrink-0 opacity-90" strokeWidth={1.75} />
+          <span className="inline-flex items-center gap-1 rounded-md border border-slate-200/90 bg-white/80 px-2 py-0.5 text-[11px] text-slate-600 dark:border-white/12 dark:bg-white/5 dark:text-slate-300">
+            <School className="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
             {course.sceneCount} {countUnit}
           </span>
-          <span className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] bg-transparent px-2 py-0.5 text-[11px] text-white/[0.62]">
-            <Network className="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
+          <span className="inline-flex items-center gap-1 rounded-md border border-slate-200/80 bg-transparent px-2 py-0.5 text-[11px] text-slate-500 dark:border-white/10 dark:text-slate-400">
+            <Network className="size-3.5 shrink-0 opacity-75" strokeWidth={1.75} />
             OpenMAIC
           </span>
         </div>
@@ -343,11 +351,7 @@ export function CourseGalleryCard({
             e.stopPropagation();
             onAction();
           }}
-          className={cn(
-            'apple-btn mt-5 w-full rounded-full py-2.5 text-sm font-semibold text-white',
-            'bg-gradient-to-r from-[#007AFF] to-[#5856D6]',
-            'hover:from-[#0A84FF] hover:to-[#6360E0] hover:shadow-[0_4px_16px_rgba(0,122,255,0.35)]',
-          )}
+          className="apple-btn apple-btn-primary mt-5 w-full rounded-full py-2.5 text-sm font-semibold"
         >
           {actionLabel}
         </button>
