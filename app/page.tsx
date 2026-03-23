@@ -1,14 +1,24 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect } from 'react';
+import AOS from 'aos';
+import 'aos/dist/aos.css';
+import { motion } from 'motion/react';
 import {
   ArrowRight,
   Blocks,
   Bot,
+  ChevronDown,
   Compass,
   FileText,
+  Gem,
   GraduationCap,
   Layers,
   MessageCircle,
   Sparkles,
+  Timer,
+  TrendingUp,
   WandSparkles,
 } from 'lucide-react';
 
@@ -53,10 +63,25 @@ const scenes = [
 ];
 
 export default function HomePage() {
+  useEffect(() => {
+    AOS.init({
+      duration: 900,
+      easing: 'ease-out-cubic',
+      once: false,
+      offset: 80,
+      mirror: true,
+    });
+  }, []);
+
   return (
-    <div className="relative min-h-dvh overflow-x-hidden apple-mesh-bg">
+    <div className="relative min-h-dvh scroll-smooth overflow-x-hidden apple-mesh-bg">
       <header className="sticky top-0 z-40 border-b border-white/45 bg-white/70 backdrop-blur-xl dark:border-white/10 dark:bg-[#0d0d10]/65">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 md:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: -14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55 }}
+          className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 md:px-8"
+        >
           <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold tracking-tight">
             <span className="inline-flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-[#007AFF] to-[#5856D6] text-white">
               <Sparkles className="size-4" />
@@ -91,13 +116,13 @@ export default function HomePage() {
               注册
             </Link>
           </div>
-        </div>
+        </motion.div>
       </header>
 
       <main>
         <section className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-6xl items-center px-4 py-16 md:px-8">
           <div className="grid w-full items-center gap-10 lg:grid-cols-[1.05fr_0.95fr]">
-            <div>
+            <motion.div initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
               <p className="mb-4 inline-flex items-center rounded-full border border-white/60 bg-white/70 px-3 py-1 text-xs font-medium text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
                 AI 互动课堂平台
               </p>
@@ -127,34 +152,62 @@ export default function HomePage() {
                   立即登录
                 </Link>
               </div>
-            </div>
-            <div className="apple-glass rounded-[28px] p-6 md:p-8">
+              <motion.div
+                className="mt-6 inline-flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"
+                animate={{ y: [0, 6, 0] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+              >
+                向下滚动查看完整能力
+                <ChevronDown className="size-4" />
+              </motion.div>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 18 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.75, delay: 0.15 }}
+              className="apple-glass rounded-[28px] p-6 md:p-8"
+            >
               <div className="grid grid-cols-1 gap-3">
-                <div className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5">
+                <motion.div
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.55, delay: 0.3 }}
+                  className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5"
+                >
                   <p className="text-xs text-slate-500 dark:text-slate-400">课程空间</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                     AI 导论 · 12 个笔记本
                   </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5">
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.55, delay: 0.45 }}
+                  className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5"
+                >
                   <p className="text-xs text-slate-500 dark:text-slate-400">智能体协作</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                     教学 Agent / 提问 Agent / 复盘 Agent
                   </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5">
+                </motion.div>
+                <motion.div
+                  initial={{ opacity: 0, x: 16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.55, delay: 0.6 }}
+                  className="rounded-2xl border border-slate-200/80 bg-white/75 p-4 dark:border-white/10 dark:bg-white/5"
+                >
                   <p className="text-xs text-slate-500 dark:text-slate-400">学习闭环</p>
                   <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
                     生成 → 互动 → 追问 → 复盘
                   </p>
-                </div>
+                </motion.div>
               </div>
-            </div>
+            </motion.div>
           </div>
         </section>
 
         <section id="features" className="mx-auto min-h-screen w-full max-w-6xl px-4 py-16 md:px-8">
-          <div className="mb-10">
+          <div className="mb-10" data-aos="fade-up">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl">
               核心功能
             </h2>
@@ -163,10 +216,15 @@ export default function HomePage() {
             </p>
           </div>
           <div className="grid gap-5 md:grid-cols-3">
-            {featureCards.map((item) => {
+            {featureCards.map((item, idx) => {
               const Icon = item.icon;
               return (
-                <article key={item.title} className="apple-glass rounded-[24px] p-6">
+                <article
+                  key={item.title}
+                  data-aos="zoom-in-up"
+                  data-aos-delay={idx * 120}
+                  className="apple-glass rounded-[24px] p-6 transition-transform duration-300 hover:-translate-y-1.5"
+                >
                   <div className="mb-4 inline-flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#007AFF]/15 to-[#5856D6]/15 text-[#2365e7] dark:text-[#82adff]">
                     <Icon className="size-5" />
                   </div>
@@ -179,20 +237,25 @@ export default function HomePage() {
         </section>
 
         <section id="workflow" className="mx-auto min-h-screen w-full max-w-6xl px-4 py-16 md:px-8">
-          <div className="mb-10">
+          <div className="mb-10" data-aos="fade-right">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl">
               三步进入互动课堂
             </h2>
           </div>
           <div className="grid gap-5 md:grid-cols-3">
-            {steps.map((step) => (
-              <div key={step.title} className="apple-glass rounded-[24px] p-6">
+            {steps.map((step, idx) => (
+              <div
+                key={step.title}
+                data-aos="fade-up"
+                data-aos-delay={idx * 100}
+                className="apple-glass rounded-[24px] p-6"
+              >
                 <p className="text-xs font-medium text-[#007AFF] dark:text-[#82adff]">{step.title}</p>
                 <p className="mt-2 text-sm leading-relaxed text-slate-700 dark:text-slate-300">{step.desc}</p>
               </div>
             ))}
           </div>
-          <div className="mt-8 apple-glass rounded-[24px] p-6">
+          <div className="mt-8 apple-glass rounded-[24px] p-6" data-aos="fade-left">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <span className="inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/75 px-3 py-1 dark:border-white/10 dark:bg-white/5">
                 <FileText className="size-4" /> 课程结构自动生成
@@ -208,12 +271,20 @@ export default function HomePage() {
         </section>
 
         <section id="scenes" className="mx-auto min-h-screen w-full max-w-6xl px-4 py-16 md:px-8">
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl">
+          <h2
+            className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl"
+            data-aos="fade-up"
+          >
             适用场景
           </h2>
           <div className="mt-8 grid gap-4 md:grid-cols-2">
-            {scenes.map((scene) => (
-              <div key={scene} className="apple-glass rounded-[20px] p-5">
+            {scenes.map((scene, idx) => (
+              <div
+                key={scene}
+                data-aos="flip-left"
+                data-aos-delay={idx * 80}
+                className="apple-glass rounded-[20px] p-5"
+              >
                 <p className="text-sm font-medium text-slate-800 dark:text-slate-100">{scene}</p>
               </div>
             ))}
@@ -221,7 +292,7 @@ export default function HomePage() {
         </section>
 
         <section className="mx-auto min-h-screen w-full max-w-6xl px-4 py-16 md:px-8">
-          <div className="apple-glass rounded-[28px] p-8 md:p-10">
+          <div className="apple-glass rounded-[28px] p-8 md:p-10" data-aos="zoom-in">
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-4xl">
               为什么团队选择 OpenMAIC
             </h2>
@@ -249,7 +320,23 @@ export default function HomePage() {
         </section>
 
         <section id="cta" className="mx-auto min-h-screen w-full max-w-6xl px-4 py-16 md:px-8">
-          <div className="apple-glass flex min-h-[60vh] flex-col items-center justify-center rounded-[28px] p-8 text-center md:p-12">
+          <motion.div
+            className="apple-glass relative flex min-h-[60vh] flex-col items-center justify-center overflow-hidden rounded-[28px] p-8 text-center md:p-12"
+            initial={{ opacity: 0, y: 26 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: false, amount: 0.35 }}
+            transition={{ duration: 0.65 }}
+          >
+            <motion.div
+              className="pointer-events-none absolute -top-24 -left-24 size-52 rounded-full bg-[#007AFF]/20 blur-3xl"
+              animate={{ x: [0, 20, -10, 0], y: [0, -10, 12, 0] }}
+              transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+            />
+            <motion.div
+              className="pointer-events-none absolute -right-24 -bottom-24 size-56 rounded-full bg-[#5856D6]/18 blur-3xl"
+              animate={{ x: [0, -16, 8, 0], y: [0, 14, -8, 0] }}
+              transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+            />
             <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white md:text-5xl">
               现在就创建你的第一门 AI 互动课程
             </h2>
@@ -271,7 +358,21 @@ export default function HomePage() {
                 我已有账号
               </Link>
             </div>
-          </div>
+            <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                <Timer className="mx-auto mb-1 size-4 text-[#007AFF]" />
+                5 分钟快速启动
+              </div>
+              <div className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                <TrendingUp className="mx-auto mb-1 size-4 text-[#007AFF]" />
+                持续积累学习资产
+              </div>
+              <div className="rounded-xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+                <Gem className="mx-auto mb-1 size-4 text-[#007AFF]" />
+                可扩展课程模板
+              </div>
+            </div>
+          </motion.div>
         </section>
       </main>
     </div>
