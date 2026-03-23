@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
 import { signIn, useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -120,6 +121,16 @@ export default function LoginPage() {
               </h1>
               <p className="text-sm text-[#86868b] dark:text-[#a1a1a6]">
                 使用 Google 或 GitHub 账号登录；登录后默认进入「我的课程」，也可从侧栏前往商城。
+              </p>
+              <p className="text-xs text-[#8e8e93] dark:text-[#8f8f98]">
+                还没有账号？
+                <Link href="/register" className="ml-1 font-medium text-[#007AFF] hover:underline">
+                  去注册
+                </Link>
+                <span className="mx-1">·</span>
+                <Link href="/" className="font-medium text-[#007AFF] hover:underline">
+                  返回首页
+                </Link>
               </p>
             </motion.div>
 
