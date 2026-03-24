@@ -173,7 +173,7 @@ export async function runCourseSideChatLoop(params: RunCourseSideChatParams): Pr
 
   let directorState: DirectorState | undefined;
   let turnCount = 0;
-  let working = cloneMessages(initialMessages);
+  const working = cloneMessages(initialMessages);
   let consecutiveEmptyTurns = 0;
 
   while (turnCount < maxTurns && !signal.aborted) {

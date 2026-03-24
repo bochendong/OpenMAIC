@@ -26,9 +26,9 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { USER_AVATAR } from '@/lib/types/roundtable';
-import type { ChatMessageMetadata } from '@/lib/types/chat';
+import type { ChatMessageMetadata, MessageAction } from '@/lib/types/chat';
 import type { NotebookKnowledgeReference } from '@/lib/types/notebook-message';
-import { sendMessageToNotebook } from '@/lib/notebook/send-message';
+import { applyNotebookPlan, planNotebookMessage, type NotebookPlanResult } from '@/lib/notebook/send-message';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import {
   listAgentsForCourse,
@@ -41,7 +41,11 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/h
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { SettingsSection } from '@/lib/types/settings';
 import { loadContactMessages, saveContactMessages } from '@/lib/utils/contact-chat-storage';
-import { listStagesByCourse, loadStageData } from '@/lib/utils/stage-storage';
+import {
+  listStagesByCourse,
+  loadStageData,
+  type StageListItem,
+} from '@/lib/utils/stage-storage';
 import {
   createAgentTask,
   listChildTasks,
@@ -54,7 +58,7 @@ import {
   COURSE_ORCHESTRATOR_NAME,
 } from '@/lib/constants/course-chat';
 import type { ProtocolMessageEnvelope } from '@/lib/types/agent-chat-protocol';
-import { CreateNotebookComposer } from '@/components/create/create-notebook-composer';
+import { runNotebookGenerationTask } from '@/lib/create/run-notebook-generation-task';
 
 type NotebookChatMessage =
   | {
@@ -92,6 +96,20 @@ type OrchestratorChildTaskView = {
   lastEnvelope?: ProtocolMessageEnvelope;
 };
 
+const NOTEBOOK_CHAT_PREVIEW_EVENT = 'openmaic-notebook-chat-updated';
+
+type NotebookRouteDecision =
+  | { type: 'create' }
+  | { type: 'single'; notebook: StageListItem }
+  | { type: 'multi'; notebooks: StageListItem[] };
+
+type NotebookSubtaskResult = {
+  notebook: StageListItem;
+  answer: string;
+  appliedLabel?: string;
+  knowledgeGap: boolean;
+};
+
 function messageText(m: UIMessage<ChatMessageMetadata>) {
   return m.parts
     .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
@@ -99,7 +117,15 @@ function messageText(m: UIMessage<ChatMessageMetadata>) {
     .join('');
 }
 
-function formatAppliedSummary(result: Awaited<ReturnType<typeof sendMessageToNotebook>>) {
+function formatAppliedSummary(result: {
+  applied?:
+    | {
+        insertedPageRange?: string;
+        updatedPages?: number[];
+        deletedPages?: number[];
+      }
+    | null;
+}) {
   const a = result.applied;
   if (!a) return '';
   const bits: string[] = [];
@@ -107,6 +133,94 @@ function formatAppliedSummary(result: Awaited<ReturnType<typeof sendMessageToNot
   if (a.updatedPages?.length) bits.push(`已更新页：${a.updatedPages.join(', ')}`);
   if (a.deletedPages?.length) bits.push(`已删除页：${a.deletedPages.join(', ')}`);
   return bits.join(' · ') || '';
+}
+
+function hasNotebookWrites(plan: Pick<NotebookPlanResult, 'operations'>): boolean {
+  return (
+    (plan.operations.insert?.length || 0) > 0 ||
+    (plan.operations.update?.length || 0) > 0 ||
+    (plan.operations.delete?.length || 0) > 0
+  );
+}
+
+function buildChatMessage(
+  text: string,
+  options: {
+    senderName: string;
+    senderAvatar?: string | null;
+    originalRole?: ChatMessageMetadata['originalRole'];
+    actions?: MessageAction[];
+  },
+): UIMessage<ChatMessageMetadata> {
+  const now = Date.now();
+  return {
+    id: `msg-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    role: options.originalRole === 'user' ? 'user' : 'assistant',
+    parts: [{ type: 'text', text }],
+    metadata: {
+      senderName: options.senderName,
+      senderAvatar: options.senderAvatar || undefined,
+      originalRole: options.originalRole || 'agent',
+      createdAt: now,
+      actions: options.actions,
+    },
+  };
+}
+
+function tokenizeForMatch(input: string): string[] {
+  const lowered = input.toLowerCase();
+  const zhTokens = lowered.match(/[\u4e00-\u9fff]{2,}/g) || [];
+  const latinTokens = lowered.match(/[a-z0-9][a-z0-9-]{1,}/g) || [];
+  return Array.from(new Set([...zhTokens, ...latinTokens]));
+}
+
+function scoreNotebookMatch(message: string, notebook: StageListItem): number {
+  const haystack = [notebook.name, notebook.description || '', ...(notebook.tags || [])]
+    .join(' ')
+    .toLowerCase();
+  const tokens = tokenizeForMatch(message);
+  let score = 0;
+  for (const token of tokens) {
+    if (haystack.includes(token)) score += token.length >= 4 ? 3 : 2;
+  }
+  if (!tokens.length && haystack.includes(message.toLowerCase().trim())) score += 2;
+  return score;
+}
+
+function decideNotebookRoute(message: string, notebooks: StageListItem[]): NotebookRouteDecision {
+  const text = message.trim();
+  if (!text) return { type: 'create' };
+  const createIntent =
+    notebooks.length === 0 ||
+    /(创建|新建|生成|做一个|搭一个|帮我做|帮我建|准备一套|给我一套|做成课件|生成笔记本)/i.test(text);
+  if (createIntent) return { type: 'create' };
+
+  const ranked = notebooks
+    .map((notebook) => ({ notebook, score: scoreNotebookMatch(text, notebook) }))
+    .sort((a, b) => b.score - a.score || b.notebook.updatedAt - a.notebook.updatedAt);
+
+  const broadIntent = /(总结|综合|比较|对比|串联|跨|多个|协作|整体|全局|一起)/i.test(text);
+  const positive = ranked.filter((item) => item.score > 0);
+
+  if (
+    broadIntent ||
+    (positive.length >= 2 &&
+      (positive[1].score >= positive[0].score || positive[0].score <= 2))
+  ) {
+    return { type: 'multi', notebooks: (positive.length ? positive : ranked).slice(0, 3).map((x) => x.notebook) };
+  }
+
+  return { type: 'single', notebook: (positive[0] || ranked[0]).notebook };
+}
+
+function actionHref(actionId: string): string | null {
+  if (actionId.startsWith('open-notebook:')) {
+    return `/chat?notebook=${encodeURIComponent(actionId.replace('open-notebook:', ''))}`;
+  }
+  if (actionId.startsWith('open-agent:')) {
+    return `/chat?agent=${encodeURIComponent(actionId.replace('open-agent:', ''))}`;
+  }
+  return null;
 }
 
 function isImageAvatarUrl(src: string | undefined | null): boolean {
@@ -335,8 +449,6 @@ export function ChatPageClient() {
   };
   const searchParams = useSearchParams();
   const courseId = useCurrentCourseStore((s) => s.id);
-  const courseName = useCurrentCourseStore((s) => s.name);
-
   const notebookId = searchParams.get('notebook');
   const agentId = searchParams.get('agent');
 
@@ -425,16 +537,10 @@ export function ChatPageClient() {
     let cancelled = false;
     setPickContactDone(false);
     (async () => {
-      const nbs = await listStagesByCourse(courseId);
-      const ags = await listAgentsForCourse(courseId);
+      await listStagesByCourse(courseId);
+      await listAgentsForCourse(courseId);
       if (cancelled) return;
-      if (nbs[0]) {
-        router.replace(`/chat?notebook=${encodeURIComponent(nbs[0].id)}`);
-      } else if (ags[0]) {
-        router.replace(`/chat?agent=${encodeURIComponent(ags[0].id)}`);
-      } else {
-        router.replace(`/chat?agent=${encodeURIComponent(COURSE_ORCHESTRATOR_ID)}`);
-      }
+      router.replace(`/chat?agent=${encodeURIComponent(COURSE_ORCHESTRATOR_ID)}`);
       setPickContactDone(true);
     })();
     return () => {
@@ -659,6 +765,134 @@ export function ChatPageClient() {
     }
   };
 
+  const persistNotebookConversation = useCallback(
+    async (
+      notebook: StageListItem,
+      question: string,
+      assistant: Omit<Extract<NotebookChatMessage, { role: 'assistant' }>, 'role' | 'at'>,
+    ) => {
+      if (!courseId) return;
+      try {
+        const existing = await loadContactMessages<NotebookChatMessage>(courseId, 'notebook', notebook.id);
+        const next: NotebookChatMessage[] = [
+          ...existing,
+          { role: 'user', text: question, at: Date.now() },
+          { role: 'assistant', at: Date.now(), ...assistant },
+        ];
+        await saveContactMessages<NotebookChatMessage>({
+          courseId,
+          kind: 'notebook',
+          targetId: notebook.id,
+          targetName: notebook.name,
+          messages: next,
+        });
+        window.dispatchEvent(
+          new CustomEvent(NOTEBOOK_CHAT_PREVIEW_EVENT, {
+            detail: { courseId, notebookId: notebook.id },
+          }),
+        );
+      } catch {
+        /* ignore notebook sync errors for orchestrator delegation */
+      }
+    },
+    [courseId],
+  );
+
+  const runNotebookSubtask = useCallback(
+    async (
+      notebook: StageListItem,
+      question: string,
+      parentTaskId: string | null,
+      appendAgentMessage?: (message: UIMessage<ChatMessageMetadata>) => void,
+    ): Promise<NotebookSubtaskResult> => {
+      const childTaskId =
+        courseId && parentTaskId
+          ? await createAgentTask({
+              courseId,
+              parentTaskId,
+              contactKind: 'notebook',
+              contactId: notebook.id,
+              title: `子任务：${notebook.name}`,
+              detail: '正在查看现有内容并判断是否需要补充 slides…',
+              status: 'running',
+            })
+          : null;
+
+      try {
+        const plan = await planNotebookMessage(notebook.id, question, {
+          allowWrite: true,
+          preferWebSearch: true,
+        });
+        const shouldGenerateSlides = hasNotebookWrites(plan);
+        let appliedLabel: string | undefined;
+
+        if (shouldGenerateSlides) {
+          appendAgentMessage?.(
+            buildChatMessage(`我发现《${notebook.name}》里还缺少这部分知识点，已开始生成补充 slides。`, {
+              senderName: notebook.name,
+              senderAvatar: notebook.avatarUrl,
+            }),
+          );
+          if (childTaskId) {
+            await updateAgentTask(childTaskId, {
+              detail: '发现知识缺口，正在生成补充 slides…',
+              status: 'running',
+            });
+          }
+          const applied = await applyNotebookPlan(notebook.id, plan);
+          appliedLabel = formatAppliedSummary({ applied }) || undefined;
+        }
+
+        const answer = shouldGenerateSlides
+          ? `${plan.answer}\n\n${appliedLabel ? `已补充内容：${appliedLabel}。` : '已补充相关 slides。'}现在可以开始听讲/查看新增内容了。`
+          : plan.answer;
+
+        const assistantPayload: Omit<
+          Extract<NotebookChatMessage, { role: 'assistant' }>,
+          'role' | 'at'
+        > = {
+          answer,
+          references: plan.references || [],
+          knowledgeGap: plan.knowledgeGap,
+          prerequisiteHints: plan.prerequisiteHints,
+          webSearchUsed: plan.webSearchUsed,
+          appliedLabel,
+        };
+        await persistNotebookConversation(notebook, question, assistantPayload);
+
+        if (childTaskId) {
+          await updateAgentTask(childTaskId, {
+            detail: shouldGenerateSlides ? `已完成并补充内容：${appliedLabel || '新增 slides'}` : '已完成现有内容解答',
+            status: 'done',
+          });
+        }
+
+        return {
+          notebook,
+          answer,
+          appliedLabel,
+          knowledgeGap: plan.knowledgeGap,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (childTaskId) {
+          await updateAgentTask(childTaskId, {
+            detail: message.slice(0, 300),
+            status: 'failed',
+          });
+        }
+        appendAgentMessage?.(
+          buildChatMessage(`《${notebook.name}》处理失败：${message}`, {
+            senderName: notebook.name,
+            senderAvatar: notebook.avatarUrl,
+          }),
+        );
+        throw error;
+      }
+    },
+    [courseId, persistNotebookConversation],
+  );
+
   const handleSendNotebook = async () => {
     const text = draft.trim();
     if (!text || !notebookId || sending) return;
@@ -701,30 +935,65 @@ export function ChatPageClient() {
             ? { role: 'user' as const, content: m.text, at: m.at }
             : { role: 'assistant' as const, content: m.answer, at: m.at },
         );
-      const result = await sendMessageToNotebook(notebookId, text, {
-        applyChanges: applyNotebookWrites,
+      const plan = await planNotebookMessage(notebookId, text, {
+        allowWrite: applyNotebookWrites,
         preferWebSearch: true,
         conversation,
         attachments: pendingAttachments,
       });
-      const appliedLabel = formatAppliedSummary(result);
+      const shouldGenerateSlides = applyNotebookWrites && hasNotebookWrites(plan);
+      let appliedLabel = '';
+
+      if (taskId) {
+        await updateAgentTask(taskId, {
+          detail: shouldGenerateSlides ? '发现知识缺口，正在补充 slides…' : '正在整理现有内容回答…',
+          status: 'running',
+        });
+      }
+
+      if (shouldGenerateSlides) {
+        setNbThread((t) => [
+          ...t,
+          {
+            role: 'assistant',
+            answer: '我发现当前笔记本还缺少相关知识点，已开始生成补充 slides，请稍等。',
+            references: [],
+            knowledgeGap: true,
+            at: Date.now(),
+          },
+        ]);
+        const applied = await applyNotebookPlan(notebookId, plan);
+        appliedLabel = formatAppliedSummary({ applied });
+        void reloadNotebookScenes();
+      }
+
+      const finalAnswer =
+        shouldGenerateSlides && applyNotebookWrites
+          ? `${plan.answer}\n\n${appliedLabel ? `已补充内容：${appliedLabel}。` : '已补充相关 slides。'}现在可以开始听讲/查看新增内容了。`
+          : !applyNotebookWrites && hasNotebookWrites(plan)
+            ? `${plan.answer}\n\n检测到这次问题适合补充 slides；如果需要我自动生成，请开启下方“允许根据回答写入笔记本”。`
+            : plan.answer;
       const assistantMsg: NotebookChatMessage = {
         role: 'assistant',
-        answer: result.answer,
-        references: result.references || [],
-        knowledgeGap: result.knowledgeGap,
-        prerequisiteHints: result.prerequisiteHints,
-        webSearchUsed: result.webSearchUsed,
+        answer: finalAnswer,
+        references: plan.references || [],
+        knowledgeGap: plan.knowledgeGap,
+        prerequisiteHints: plan.prerequisiteHints,
+        webSearchUsed: plan.webSearchUsed,
         appliedLabel: appliedLabel || undefined,
         at: Date.now(),
       };
       setNbThread((t) => [...t, assistantMsg]);
-      void reloadNotebookScenes();
       setPendingAttachments([]);
       if (taskId) {
         await updateAgentTask(taskId, {
           status: 'done',
-          detail: result.knowledgeGap ? '已完成（含知识缺口建议）' : '已完成',
+          detail:
+            shouldGenerateSlides && applyNotebookWrites
+              ? `已完成并补充内容：${appliedLabel || '新增 slides'}`
+              : plan.knowledgeGap
+                ? '已完成（含知识缺口建议）'
+                : '已完成',
         });
       }
     } catch (e) {
@@ -750,7 +1019,6 @@ export function ChatPageClient() {
   const handleSendAgent = async () => {
     const text = draft.trim();
     if (!text || !agentId || !selectedAgent || sending) return;
-    if (selectedAgent.id === COURSE_ORCHESTRATOR_ID) return;
     const mc = getCurrentModelConfig();
     if (!mc.isServerConfigured) {
       window.alert('系统模型尚未配置，请联系管理员。');
@@ -761,23 +1029,252 @@ export function ChatPageClient() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const now = Date.now();
-    const userMessage: UIMessage<ChatMessageMetadata> = {
-      id: `user-${now}`,
-      role: 'user',
-      parts: [{ type: 'text', text }],
-      metadata: {
-        senderName: nickname.trim() || '我',
-        senderAvatar: userAvatar || USER_AVATAR,
-        originalRole: 'user',
-        createdAt: now,
-      },
-    };
+    const userMessage = buildChatMessage(text, {
+      senderName: nickname.trim() || '我',
+      senderAvatar: userAvatar || USER_AVATAR,
+      originalRole: 'user',
+    });
 
-    const nextThread = [...agThread, userMessage];
+    let nextThread = [...agThread, userMessage];
     setAgThread(nextThread);
     setDraft('');
     setSending(true);
+
+    const appendAgentMessage = (message: UIMessage<ChatMessageMetadata>) => {
+      nextThread = [...nextThread, message];
+      setAgThread(nextThread);
+    };
+
+    if (selectedAgent.id === COURSE_ORCHESTRATOR_ID) {
+      let parentTaskId: string | null = null;
+      if (courseId) {
+        try {
+          parentTaskId = await createAgentTask({
+            courseId,
+            contactKind: 'agent',
+            contactId: COURSE_ORCHESTRATOR_ID,
+            title: `总控任务：${text.slice(0, 36)}`,
+            detail: '正在判断该需求应该走创建、单笔记本还是多笔记本协作流…',
+            status: 'running',
+          });
+        } catch (error) {
+          throw error;
+        }
+      }
+      if (parentTaskId) setActiveOrchestratorTaskId(parentTaskId);
+
+      try {
+        const notebooks = courseId ? await listStagesByCourse(courseId) : [];
+        const decision = decideNotebookRoute(text, notebooks);
+
+        if (decision.type === 'create') {
+          appendAgentMessage(
+            buildChatMessage('笔记本已经开始创建了。你可以在右侧「进行中」里看到我当前正在忙的内容。', {
+              senderName: COURSE_ORCHESTRATOR_NAME,
+              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+              originalRole: 'teacher',
+            }),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail: '已开始创建笔记本，正在生成大纲与页面…',
+              status: 'running',
+            });
+          }
+
+          let lastProgressStage = '';
+          let lastSceneReported = -1;
+          const created = await runNotebookGenerationTask({
+            courseId: courseId || undefined,
+            requirement: text,
+            language: 'zh-CN',
+            webSearch: true,
+            userNickname: nickname.trim() || undefined,
+            signal: controller.signal,
+            onProgress: (progress) => {
+              if (parentTaskId) {
+                void updateAgentTask(parentTaskId, {
+                  detail: progress.detail,
+                  status: progress.stage === 'completed' ? 'done' : 'running',
+                });
+              }
+              if (progress.stage === 'scene') {
+                if (progress.completed === 0 || progress.completed === progress.total || progress.completed - lastSceneReported >= 3) {
+                  lastSceneReported = progress.completed;
+                  appendAgentMessage(
+                    buildChatMessage(progress.detail, {
+                      senderName: COURSE_ORCHESTRATOR_NAME,
+                      senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+                      originalRole: 'teacher',
+                    }),
+                  );
+                }
+                return;
+              }
+              if (progress.stage !== lastProgressStage && progress.stage !== 'completed') {
+                lastProgressStage = progress.stage;
+                appendAgentMessage(
+                  buildChatMessage(progress.detail, {
+                    senderName: COURSE_ORCHESTRATOR_NAME,
+                    senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+                    originalRole: 'teacher',
+                  }),
+                );
+              }
+            },
+          });
+
+          appendAgentMessage(
+            buildChatMessage(`笔记本「${created.stage.name}」已创建完成。现在可以直接打开它开始提问、查看内容或听讲。`, {
+              senderName: COURSE_ORCHESTRATOR_NAME,
+              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+              originalRole: 'teacher',
+              actions: [
+                {
+                  id: `open-notebook:${created.stage.id}`,
+                  label: '打开笔记本',
+                  variant: 'highlight',
+                },
+              ],
+            }),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail: `创建完成：${created.stage.name}`,
+              status: 'done',
+            });
+          }
+        } else if (decision.type === 'single') {
+          appendAgentMessage(
+            buildChatMessage(`我已将这个需求交给《${decision.notebook.name}》处理，并会把处理过程同步在这里。`, {
+              senderName: COURSE_ORCHESTRATOR_NAME,
+              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+              originalRole: 'teacher',
+            }),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail: `已路由到《${decision.notebook.name}》，正在执行单笔记本任务…`,
+              status: 'running',
+            });
+          }
+          const result = await runNotebookSubtask(decision.notebook, text, parentTaskId, appendAgentMessage);
+          appendAgentMessage(
+            buildChatMessage(result.answer, {
+              senderName: decision.notebook.name,
+              senderAvatar: decision.notebook.avatarUrl,
+            }),
+          );
+          appendAgentMessage(
+            buildChatMessage(`《${decision.notebook.name}》已处理完成。你也可以直接进入该笔记本继续追问。`, {
+              senderName: COURSE_ORCHESTRATOR_NAME,
+              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+              originalRole: 'teacher',
+              actions: [
+                {
+                  id: `open-notebook:${decision.notebook.id}`,
+                  label: '打开该笔记本',
+                  variant: 'highlight',
+                },
+              ],
+            }),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail: `单笔记本任务已完成：${decision.notebook.name}`,
+              status: 'done',
+            });
+          }
+        } else {
+          appendAgentMessage(
+            buildChatMessage(
+              `我已升级为多笔记本协作流。\n\n目标总结：${text}\n\n参与笔记本：${decision.notebooks.map((n) => `《${n.name}》`).join('、')}`,
+              {
+                senderName: COURSE_ORCHESTRATOR_NAME,
+                senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+                originalRole: 'teacher',
+              },
+            ),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail: `已发起 ${decision.notebooks.length} 个笔记本协作子任务…`,
+              status: 'running',
+            });
+          }
+
+          const results: NotebookSubtaskResult[] = [];
+          for (const notebook of decision.notebooks) {
+            try {
+              const result = await runNotebookSubtask(notebook, text, parentTaskId, appendAgentMessage);
+              results.push(result);
+              appendAgentMessage(
+                buildChatMessage(result.answer, {
+                  senderName: notebook.name,
+                  senderAvatar: notebook.avatarUrl,
+                }),
+              );
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              appendAgentMessage(
+                buildChatMessage(`《${notebook.name}》暂时未能完成：${message}`, {
+                  senderName: notebook.name,
+                  senderAvatar: notebook.avatarUrl,
+                }),
+              );
+            }
+          }
+
+          const mergedText =
+            results.length > 0
+              ? `多笔记本协作已完成。我已综合 ${results.length} 个笔记本的结果：\n\n${results
+                  .map(
+                    (result, index) =>
+                      `${index + 1}. 《${result.notebook.name}》\n${result.answer}${result.appliedLabel ? `\n补充内容：${result.appliedLabel}` : ''}`,
+                  )
+                  .join('\n\n')}`
+              : '多笔记本协作已结束，但暂时没有可用结果，请稍后重试。';
+
+          appendAgentMessage(
+            buildChatMessage(mergedText, {
+              senderName: COURSE_ORCHESTRATOR_NAME,
+              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
+              originalRole: 'teacher',
+              actions: results.map((result) => ({
+                id: `open-notebook:${result.notebook.id}`,
+                label: `打开《${result.notebook.name}》`,
+                variant: 'highlight',
+              })),
+            }),
+          );
+          if (parentTaskId) {
+            await updateAgentTask(parentTaskId, {
+              detail:
+                results.length > 0
+                  ? `多笔记本协作已完成（${results.length} 个结果）`
+                  : '多笔记本协作结束，但没有产出结果',
+              status: 'done',
+            });
+          }
+        }
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        const msg = e instanceof Error ? e.message : String(e);
+        appendAgentMessage(
+          buildChatMessage(`总控任务失败：${msg}`, {
+            senderName: '系统',
+            originalRole: 'agent',
+          }),
+        );
+        if (parentTaskId) {
+          await updateAgentTask(parentTaskId, { status: 'failed', detail: msg.slice(0, 300) });
+        }
+      } finally {
+        if (abortRef.current === controller) abortRef.current = null;
+        setSending(false);
+      }
+      return;
+    }
 
     const agentConfigs = selectedAgent.id.startsWith('default-')
       ? undefined
@@ -833,15 +1330,6 @@ export function ChatPageClient() {
     if (mode === 'agent' && selectedAgent) return selectedAgent.name;
     return '选择联系人';
   }, [courseId, mode, stageMeta, selectedAgent]);
-
-  const subtitle =
-    mode === 'notebook'
-      ? '笔记本 · 问答与页引用'
-      : mode === 'agent'
-        ? isCourseOrchestrator
-          ? '课程总控 · 新建笔记本（与创建页相同流程）'
-          : '课程 Agent'
-        : '';
 
   if (!courseId) {
     return (
@@ -1026,6 +1514,29 @@ export function ChatPageClient() {
                       <p className="mb-1 text-[10px] font-medium opacity-70">{meta.senderName}</p>
                     ) : null}
                     <p className="whitespace-pre-wrap break-words">{text}</p>
+                    {!isUser && meta?.actions?.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {meta.actions.map((action) => {
+                          const href = actionHref(action.id);
+                          return href ? (
+                            <Link
+                              key={action.id}
+                              href={href}
+                              className="rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-[11px] font-medium text-violet-700 transition-colors hover:bg-violet-500/15 dark:text-violet-200"
+                            >
+                              {action.label}
+                            </Link>
+                          ) : (
+                            <span
+                              key={action.id}
+                              className="rounded-full border border-slate-900/[0.08] bg-black/[0.03] px-3 py-1 text-[11px] font-medium text-muted-foreground dark:border-white/[0.08] dark:bg-white/[0.04]"
+                            >
+                              {action.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -1041,9 +1552,6 @@ export function ChatPageClient() {
       </div>
 
       <footer className="shrink-0 border-t border-slate-900/[0.06] px-4 pb-4 pt-3 dark:border-white/[0.06]">
-        {mode === 'agent' && isCourseOrchestrator && courseId ? (
-          <CreateNotebookComposer courseId={courseId} compact />
-        ) : (
         <ComposerInputShell>
           {mode === 'notebook' && pendingAttachments.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 border-b border-border/40 px-3 py-2">
@@ -1167,7 +1675,6 @@ export function ChatPageClient() {
             </button>
           </div>
         </ComposerInputShell>
-        )}
       </footer>
 
       <Dialog
