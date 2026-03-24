@@ -17,6 +17,7 @@ import type { Scene, SlideContent } from '@/lib/types/stage';
 type SendMessageOptions = {
   applyChanges?: boolean;
   preferWebSearch?: boolean;
+  allowWrite?: boolean;
   conversation?: Array<{
     role: 'user' | 'assistant';
     content: string;
@@ -38,6 +39,9 @@ type SendMessageResult = SendNotebookMessageResponse & {
     deletedPages: number[];
   };
 };
+
+export type NotebookPlanResult = SendNotebookMessageResponse;
+export type NotebookApplySummary = NonNullable<SendMessageResult['applied']>;
 
 function htmlEscape(text: string): string {
   return text
@@ -161,23 +165,22 @@ function syncOpenStage(stageId: string, scenes: Scene[]): void {
   st.setScenes(scenes);
 }
 
-export async function sendMessageToNotebook(
+async function loadNotebookRequestPayload(
   stageId: string,
   message: string,
   options: SendMessageOptions = {},
-): Promise<SendMessageResult> {
+): Promise<SendNotebookMessageRequest> {
   const loaded = await loadStageData(stageId);
   if (!loaded?.stage) throw new Error('未找到目标笔记本');
   const stage = loaded.stage;
-  let scenes = loaded.scenes.slice().sort((a, b) => a.order - b.order);
+  const scenes = loaded.scenes.slice().sort((a, b) => a.order - b.order);
   const course = stage.courseId ? await getCourse(stage.courseId) : undefined;
   const notebookScenes = scenes.map(toSceneBrief);
 
-  const mc = getCurrentModelConfig();
   const settings = useSettingsStore.getState();
   const wsApiKey = settings.webSearchProvidersConfig?.[settings.webSearchProviderId]?.apiKey;
 
-  const payload: SendNotebookMessageRequest = {
+  return {
     message,
     conversation: options.conversation?.slice(-12),
     attachments: options.attachments?.slice(-6),
@@ -198,11 +201,20 @@ export async function sendMessageToNotebook(
         }
       : undefined,
     options: {
-      allowWrite: options.applyChanges ?? true,
+      allowWrite: options.allowWrite ?? options.applyChanges ?? true,
       preferWebSearch: options.preferWebSearch ?? true,
       webSearchApiKey: wsApiKey || undefined,
     },
   };
+}
+
+export async function planNotebookMessage(
+  stageId: string,
+  message: string,
+  options: SendMessageOptions = {},
+): Promise<NotebookPlanResult> {
+  const payload = await loadNotebookRequestPayload(stageId, message, options);
+  const mc = getCurrentModelConfig();
 
   const resp = await backendFetch('/api/notebooks/send-message', {
     method: 'POST',
@@ -220,40 +232,47 @@ export async function sendMessageToNotebook(
     const data = await resp.json().catch(() => ({ error: '请求失败' }));
     throw new Error(data.error || `请求失败: ${resp.status}`);
   }
-  const data = (await resp.json()) as { success: true } & SendMessageResult;
+  const data = (await resp.json()) as { success: true } & NotebookPlanResult;
 
-  const result: SendMessageResult = {
+  return {
     answer: data.answer,
     references: data.references || [],
     knowledgeGap: data.knowledgeGap,
     operations: data.operations || { insert: [], update: [], delete: [] },
     webSearchUsed: data.webSearchUsed,
     prerequisiteHints: data.prerequisiteHints,
-    applied: {
-      updatedPages: [],
-      deletedPages: [],
-    },
+  };
+}
+
+export async function applyNotebookPlan(
+  stageId: string,
+  plan: Pick<NotebookPlanResult, 'operations'>,
+): Promise<NotebookApplySummary> {
+  const loaded = await loadStageData(stageId);
+  if (!loaded?.stage) throw new Error('未找到目标笔记本');
+  const stage = loaded.stage;
+  let scenes = loaded.scenes.slice().sort((a, b) => a.order - b.order);
+
+  const applied: NotebookApplySummary = {
+    updatedPages: [],
+    deletedPages: [],
   };
 
-  if (!(options.applyChanges ?? true)) {
-    return result;
-  }
-
   // Delete first (from high to low order)
-  const deleteOrders = Array.from(
-    new Set((result.operations.delete || []).map((d) => d.order).filter((x) => x > 0)),
-  ).sort((a, b) => b - a);
+  const deleteOrders = Array.from(new Set((plan.operations.delete || []).map((d) => d.order).filter((x) => x > 0))).sort(
+    (a, b) => b - a,
+  );
   for (const order1 of deleteOrders) {
     const scene = scenes.find((s) => s.order === order1 - 1);
     if (!scene) continue;
     scenes = scenes.filter((s) => s.id !== scene.id);
-    result.applied!.deletedPages.push(order1);
+    applied.deletedPages.push(order1);
   }
 
   let currentScenes = reindexScenesInMemory(scenes);
 
   // Updates
-  for (const upd of result.operations.update || []) {
+  for (const upd of plan.operations.update || []) {
     const target = currentScenes.find((s) => s.order === upd.order - 1);
     if (!target) continue;
     const patch: Partial<Scene> = {};
@@ -283,14 +302,14 @@ export async function sendMessageToNotebook(
         ? ({ ...s, ...patch, updatedAt: Date.now() } as Scene)
         : s,
     );
-    result.applied!.updatedPages.push(upd.order);
+    applied.updatedPages.push(upd.order);
   }
 
   currentScenes = reindexScenesInMemory(currentScenes);
 
   // Inserts
   const insertOrders: number[] = [];
-  for (const ins of result.operations.insert || []) {
+  for (const ins of plan.operations.insert || []) {
     const afterIdx = Math.max(0, Math.min(ins.afterOrder, currentScenes.length));
     currentScenes = currentScenes.map((s) =>
       s.order >= afterIdx ? ({ ...s, order: s.order + 1, updatedAt: Date.now() } as Scene) : s,
@@ -317,7 +336,7 @@ export async function sendMessageToNotebook(
   if (insertOrders.length > 0) {
     const min = Math.min(...insertOrders);
     const max = Math.max(...insertOrders);
-    result.applied!.insertedPageRange = min === max ? `${min}` : `${min}-${max}`;
+    applied.insertedPageRange = min === max ? `${min}` : `${min}-${max}`;
   }
 
   await saveStageData(stageId, {
@@ -330,5 +349,27 @@ export async function sendMessageToNotebook(
     chats: loaded.chats,
   });
   syncOpenStage(stageId, currentScenes);
+  return applied;
+}
+
+export async function sendMessageToNotebook(
+  stageId: string,
+  message: string,
+  options: SendMessageOptions = {},
+): Promise<SendMessageResult> {
+  const plan = await planNotebookMessage(stageId, message, options);
+  const result: SendMessageResult = {
+    ...plan,
+    applied: {
+      updatedPages: [],
+      deletedPages: [],
+    },
+  };
+
+  if (!(options.applyChanges ?? true)) {
+    return result;
+  }
+
+  result.applied = await applyNotebookPlan(stageId, plan);
   return result;
 }

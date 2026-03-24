@@ -376,6 +376,22 @@ function writeGeneratedAgents(
   sessionStorage.setItem(`${GENERATED_AGENTS_KEY_PREFIX}${stageId}`, JSON.stringify(agents));
 }
 
+export function persistGeneratedAgentsForStage(
+  stageId: string,
+  agents: Array<{
+    id: string;
+    name: string;
+    role: string;
+    persona: string;
+    avatar: string;
+    color: string;
+    priority: number;
+  }>,
+): void {
+  const records = agents.map((a) => ({ ...a, stageId, createdAt: Date.now() }));
+  writeGeneratedAgents(stageId, records);
+}
+
 /**
  * Load generated agents for a stage from IndexedDB into the registry.
  * Clears any previously loaded generated agents first.
