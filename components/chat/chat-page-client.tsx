@@ -58,7 +58,8 @@ import {
   COURSE_ORCHESTRATOR_NAME,
 } from '@/lib/constants/course-chat';
 import type { ProtocolMessageEnvelope } from '@/lib/types/agent-chat-protocol';
-import { runNotebookGenerationTask } from '@/lib/create/run-notebook-generation-task';
+import { runNotebookGenerationTask, type NotebookGenerationProgress } from '@/lib/create/run-notebook-generation-task';
+import { OrchestratorNotebookProgressPanel } from '@/components/chat/orchestrator-notebook-progress';
 
 type NotebookChatMessage =
   | {
@@ -84,6 +85,8 @@ type NotebookAttachmentInput = {
   mimeType: string;
   size: number;
   textExcerpt?: string;
+  /** 原始文件；PDF 可走与创建页一致的 `/api/parse-pdf` 管线 */
+  file?: File;
 };
 
 type OrchestratorChildTaskView = {
@@ -143,6 +146,31 @@ function hasNotebookWrites(plan: Pick<NotebookPlanResult, 'operations'>): boolea
   );
 }
 
+/** 将用户文字与附件摘录合并，供总控路由与创建笔记本生成使用 */
+function mergeOrchestratorPrompt(
+  text: string,
+  attachments: NotebookAttachmentInput[],
+  skipPdfExcerptForFullPipeline = false,
+): string {
+  const t = text.trim();
+  const useAttach = skipPdfExcerptForFullPipeline
+    ? attachments.filter(
+        (a) => !(a.mimeType === 'application/pdf' || a.name.toLowerCase().endsWith('.pdf')),
+      )
+    : attachments;
+  if (useAttach.length === 0) {
+    return t || (skipPdfExcerptForFullPipeline ? '请根据上传的 PDF 创建笔记本。' : '');
+  }
+  const blocks = useAttach.map((a) => {
+    const excerpt = a.textExcerpt?.trim();
+    return `【附件：${a.name}】\n${excerpt || '（未能提取文本，请结合文件名与上方说明理解需求。）'}`;
+  });
+  if (!t) {
+    return `请根据以下上传材料创建或组织笔记本内容：\n\n${blocks.join('\n\n')}`;
+  }
+  return `${t}\n\n---\n参考材料：\n\n${blocks.join('\n\n')}`;
+}
+
 function buildChatMessage(
   text: string,
   options: {
@@ -150,6 +178,7 @@ function buildChatMessage(
     senderAvatar?: string | null;
     originalRole?: ChatMessageMetadata['originalRole'];
     actions?: MessageAction[];
+    attachments?: ChatMessageMetadata['attachments'];
   },
 ): UIMessage<ChatMessageMetadata> {
   const now = Date.now();
@@ -163,6 +192,7 @@ function buildChatMessage(
       originalRole: options.originalRole || 'agent',
       createdAt: now,
       actions: options.actions,
+      attachments: options.attachments,
     },
   };
 }
@@ -474,6 +504,9 @@ export function ChatPageClient() {
   const [activeOrchestratorTaskId, setActiveOrchestratorTaskId] = useState<string | null>(null);
   const [orchestratorChildTasks, setOrchestratorChildTasks] = useState<OrchestratorChildTaskView[]>([]);
   const [selectedChildTaskId, setSelectedChildTaskId] = useState<string | null>(null);
+  /** 总控创建笔记本：与右侧「进行中」任务同步的进度文案 */
+  const [orchestratorPipelineProgress, setOrchestratorPipelineProgress] =
+    useState<NotebookGenerationProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -757,6 +790,7 @@ export function ChatPageClient() {
         mimeType: file.type || 'application/octet-stream',
         size: file.size,
         textExcerpt,
+        file,
       });
     }
     setPendingAttachments((prev) => [...prev, ...built].slice(-6));
@@ -804,6 +838,7 @@ export function ChatPageClient() {
       question: string,
       parentTaskId: string | null,
       appendAgentMessage?: (message: UIMessage<ChatMessageMetadata>) => void,
+      attachments?: NotebookAttachmentInput[],
     ): Promise<NotebookSubtaskResult> => {
       const childTaskId =
         courseId && parentTaskId
@@ -822,6 +857,7 @@ export function ChatPageClient() {
         const plan = await planNotebookMessage(notebook.id, question, {
           allowWrite: true,
           preferWebSearch: true,
+          attachments: attachments && attachments.length > 0 ? attachments : undefined,
         });
         const shouldGenerateSlides = hasNotebookWrites(plan);
         let appliedLabel: string | undefined;
@@ -1018,26 +1054,58 @@ export function ChatPageClient() {
 
   const handleSendAgent = async () => {
     const text = draft.trim();
-    if (!text || !agentId || !selectedAgent || sending) return;
+    if (!agentId || !selectedAgent || sending) return;
+    if (selectedAgent.id === COURSE_ORCHESTRATOR_ID) {
+      if (!text && pendingAttachments.length === 0) return;
+    } else if (!text) {
+      return;
+    }
     const mc = getCurrentModelConfig();
     if (!mc.isServerConfigured) {
       window.alert('系统模型尚未配置，请联系管理员。');
       return;
     }
 
+    const orchAttachments =
+      selectedAgent.id === COURSE_ORCHESTRATOR_ID ? [...pendingAttachments] : [];
+    const pdfFileForPipeline =
+      selectedAgent.id === COURSE_ORCHESTRATOR_ID
+        ? orchAttachments.find(
+            (a) =>
+              a.file &&
+              (a.mimeType === 'application/pdf' || a.name.toLowerCase().endsWith('.pdf')),
+          )?.file ?? null
+        : null;
+    const mergedPrompt =
+      selectedAgent.id === COURSE_ORCHESTRATOR_ID
+        ? mergeOrchestratorPrompt(text, orchAttachments, Boolean(pdfFileForPipeline))
+        : text;
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const userMessage = buildChatMessage(text, {
+    const userMessage = buildChatMessage(text || (orchAttachments.length ? '（已上传附件）' : ''), {
       senderName: nickname.trim() || '我',
       senderAvatar: userAvatar || USER_AVATAR,
       originalRole: 'user',
+      attachments:
+        orchAttachments.length > 0
+          ? orchAttachments.map((a) => ({
+              id: a.id,
+              name: a.name,
+              mimeType: a.mimeType,
+              size: a.size,
+            }))
+          : undefined,
     });
 
     let nextThread = [...agThread, userMessage];
     setAgThread(nextThread);
     setDraft('');
+    if (selectedAgent.id === COURSE_ORCHESTRATOR_ID) {
+      setPendingAttachments([]);
+    }
     setSending(true);
 
     const appendAgentMessage = (message: UIMessage<ChatMessageMetadata>) => {
@@ -1053,7 +1121,7 @@ export function ChatPageClient() {
             courseId,
             contactKind: 'agent',
             contactId: COURSE_ORCHESTRATOR_ID,
-            title: `总控任务：${text.slice(0, 36)}`,
+            title: `总控任务：${mergedPrompt.slice(0, 36)}`,
             detail: '正在判断该需求应该走创建、单笔记本还是多笔记本协作流…',
             status: 'running',
           });
@@ -1065,16 +1133,9 @@ export function ChatPageClient() {
 
       try {
         const notebooks = courseId ? await listStagesByCourse(courseId) : [];
-        const decision = decideNotebookRoute(text, notebooks);
+        const decision = decideNotebookRoute(mergedPrompt, notebooks);
 
         if (decision.type === 'create') {
-          appendAgentMessage(
-            buildChatMessage('笔记本已经开始创建了。你可以在右侧「进行中」里看到我当前正在忙的内容。', {
-              senderName: COURSE_ORCHESTRATOR_NAME,
-              senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
-              originalRole: 'teacher',
-            }),
-          );
           if (parentTaskId) {
             await updateAgentTask(parentTaskId, {
               detail: '已开始创建笔记本，正在生成大纲与页面…',
@@ -1082,44 +1143,24 @@ export function ChatPageClient() {
             });
           }
 
-          let lastProgressStage = '';
-          let lastSceneReported = -1;
           const created = await runNotebookGenerationTask({
             courseId: courseId || undefined,
-            requirement: text,
+            requirement: mergedPrompt,
             language: 'zh-CN',
             webSearch: true,
             userNickname: nickname.trim() || undefined,
             signal: controller.signal,
+            pdfFile: pdfFileForPipeline,
             onProgress: (progress) => {
+              if (progress.stage === 'completed') {
+                return;
+              }
+              setOrchestratorPipelineProgress(progress);
               if (parentTaskId) {
                 void updateAgentTask(parentTaskId, {
                   detail: progress.detail,
-                  status: progress.stage === 'completed' ? 'done' : 'running',
+                  status: 'running',
                 });
-              }
-              if (progress.stage === 'scene') {
-                if (progress.completed === 0 || progress.completed === progress.total || progress.completed - lastSceneReported >= 3) {
-                  lastSceneReported = progress.completed;
-                  appendAgentMessage(
-                    buildChatMessage(progress.detail, {
-                      senderName: COURSE_ORCHESTRATOR_NAME,
-                      senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
-                      originalRole: 'teacher',
-                    }),
-                  );
-                }
-                return;
-              }
-              if (progress.stage !== lastProgressStage && progress.stage !== 'completed') {
-                lastProgressStage = progress.stage;
-                appendAgentMessage(
-                  buildChatMessage(progress.detail, {
-                    senderName: COURSE_ORCHESTRATOR_NAME,
-                    senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
-                    originalRole: 'teacher',
-                  }),
-                );
               }
             },
           });
@@ -1158,7 +1199,13 @@ export function ChatPageClient() {
               status: 'running',
             });
           }
-          const result = await runNotebookSubtask(decision.notebook, text, parentTaskId, appendAgentMessage);
+          const result = await runNotebookSubtask(
+            decision.notebook,
+            mergedPrompt,
+            parentTaskId,
+            appendAgentMessage,
+            orchAttachments,
+          );
           appendAgentMessage(
             buildChatMessage(result.answer, {
               senderName: decision.notebook.name,
@@ -1188,7 +1235,7 @@ export function ChatPageClient() {
         } else {
           appendAgentMessage(
             buildChatMessage(
-              `我已升级为多笔记本协作流。\n\n目标总结：${text}\n\n参与笔记本：${decision.notebooks.map((n) => `《${n.name}》`).join('、')}`,
+              `我已升级为多笔记本协作流。\n\n目标总结：${text || mergedPrompt.slice(0, 800)}\n\n参与笔记本：${decision.notebooks.map((n) => `《${n.name}》`).join('、')}`,
               {
                 senderName: COURSE_ORCHESTRATOR_NAME,
                 senderAvatar: COURSE_ORCHESTRATOR_AVATAR,
@@ -1206,7 +1253,13 @@ export function ChatPageClient() {
           const results: NotebookSubtaskResult[] = [];
           for (const notebook of decision.notebooks) {
             try {
-              const result = await runNotebookSubtask(notebook, text, parentTaskId, appendAgentMessage);
+              const result = await runNotebookSubtask(
+                notebook,
+                mergedPrompt,
+                parentTaskId,
+                appendAgentMessage,
+                orchAttachments,
+              );
               results.push(result);
               appendAgentMessage(
                 buildChatMessage(result.answer, {
@@ -1271,6 +1324,7 @@ export function ChatPageClient() {
         }
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
+        setOrchestratorPipelineProgress(null);
         setSending(false);
       }
       return;
@@ -1396,6 +1450,9 @@ export function ChatPageClient() {
         ref={scrollRef}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
       >
+        {mode === 'agent' && isCourseOrchestrator && orchestratorPipelineProgress ? (
+          <OrchestratorNotebookProgressPanel progress={orchestratorPipelineProgress} />
+        ) : null}
         {mode === 'none' && courseId && pickContactDone ? (
           <p className="text-center text-sm text-muted-foreground">
             本课程下还没有笔记本或 Agent。请先创建笔记本，或从生成流程创建课程角色。
@@ -1405,9 +1462,9 @@ export function ChatPageClient() {
           <p className="text-center text-sm text-muted-foreground">正在打开会话…</p>
         ) : null}
 
-        {mode === 'agent' && isCourseOrchestrator && agThread.length === 0 ? (
+        {mode === 'agent' && isCourseOrchestrator && agThread.length === 0 && !orchestratorPipelineProgress ? (
           <p className="mx-auto max-w-md px-2 text-center text-sm leading-relaxed text-muted-foreground">
-            这里可直接创建笔记本：在底部填写创作需求并点击「{t('toolbar.enterClassroom')}」。流程与带课程参数的「创建笔记本」页一致（PDF、语言、联网与预览）。
+            这里可直接创建笔记本：在底部填写需求、可添加 PDF 或其它附件后点击「{t('toolbar.enterClassroom')}」。PDF 将与创建页相同走解析与生成管线，进度在上方与右侧「进行中」同步显示。
           </p>
         ) : null}
 
@@ -1514,6 +1571,18 @@ export function ChatPageClient() {
                       <p className="mb-1 text-[10px] font-medium opacity-70">{meta.senderName}</p>
                     ) : null}
                     <p className="whitespace-pre-wrap break-words">{text}</p>
+                    {isUser && meta?.attachments && meta.attachments.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {meta.attachments.map((a) => (
+                          <div
+                            key={a.id}
+                            className="rounded-lg bg-white/15 px-2 py-1 text-[11px] text-white/90"
+                          >
+                            📎 {a.name}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     {!isUser && meta?.actions?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {meta.actions.map((action) => {
@@ -1553,7 +1622,8 @@ export function ChatPageClient() {
 
       <footer className="shrink-0 border-t border-slate-900/[0.06] px-4 pb-4 pt-3 dark:border-white/[0.06]">
         <ComposerInputShell>
-          {mode === 'notebook' && pendingAttachments.length > 0 ? (
+          {(mode === 'notebook' || (mode === 'agent' && isCourseOrchestrator)) &&
+          pendingAttachments.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 border-b border-border/40 px-3 py-2">
               {pendingAttachments.map((a) => (
                 <span
@@ -1583,7 +1653,9 @@ export function ChatPageClient() {
                 ? '请选择左侧联系人…'
                 : mode === 'notebook'
                   ? '向该笔记本提问…'
-                  : `与 ${selectedAgent?.name ?? 'Agent'} 对话…`
+                  : isCourseOrchestrator
+                    ? '描述创作需求，可配合下方附件…'
+                    : `与 ${selectedAgent?.name ?? 'Agent'} 对话…`
             }
             disabled={mode === 'none' || sending}
             className={cn(
@@ -1636,12 +1708,43 @@ export function ChatPageClient() {
                     </span>
                   </label>
                 </div>
+              ) : mode === 'agent' && isCourseOrchestrator ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 shrink-0 rounded-lg border-border/60 bg-white/50 text-xs dark:bg-black/20"
+                    onClick={openAttachmentPicker}
+                    disabled={sending}
+                  >
+                    <Paperclip className="mr-1 size-3.5" />
+                    添加附件
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void onPickAttachments(e.target.files);
+                    }}
+                  />
+                  <GenerationModelSelector onSettingsOpen={openSettings} />
+                </div>
               ) : null}
             </div>
 
             <SpeechButton
               size="md"
-              disabled={mode === 'none' || sending}
+              disabled={
+                mode === 'none' ||
+                sending ||
+                (mode === 'agent' &&
+                  isCourseOrchestrator &&
+                  !draft.trim() &&
+                  pendingAttachments.length === 0)
+              }
               onTranscription={(text) => {
                 setDraft((prev) => {
                   const next = prev + (prev ? ' ' : '') + text;
@@ -1652,14 +1755,23 @@ export function ChatPageClient() {
 
             <button
               type="button"
-              disabled={mode === 'none' || sending || !draft.trim()}
+              disabled={
+                mode === 'none' ||
+                sending ||
+                (mode === 'notebook' && !draft.trim()) ||
+                (mode === 'agent' &&
+                  !draft.trim() &&
+                  (!isCourseOrchestrator || pendingAttachments.length === 0))
+              }
               onClick={() => {
                 if (mode === 'notebook') void handleSendNotebook();
                 else if (mode === 'agent') void handleSendAgent();
               }}
               className={cn(
                 'shrink-0 flex h-8 items-center justify-center gap-1.5 rounded-lg px-3 transition-all',
-                mode !== 'none' && !sending && draft.trim()
+                mode !== 'none' &&
+                  !sending &&
+                  (draft.trim() || (isCourseOrchestrator && pendingAttachments.length > 0))
                   ? 'cursor-pointer bg-primary text-primary-foreground shadow-sm hover:opacity-90'
                   : 'cursor-not-allowed bg-muted text-muted-foreground/40',
               )}

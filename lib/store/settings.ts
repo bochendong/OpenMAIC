@@ -294,6 +294,7 @@ const getDefaultImageConfig = () => ({
     'qwen-image': { apiKey: '', baseUrl: '', enabled: false },
     'nano-banana': { apiKey: '', baseUrl: '', enabled: false },
     'grok-image': { apiKey: '', baseUrl: '', enabled: false },
+    'openai-image': { apiKey: '', baseUrl: '', enabled: false },
   } as Record<ImageProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -716,8 +717,8 @@ export const useSettingsStore = create<SettingsState>()(
               tts: Record<string, { baseUrl?: string }>;
               asr: Record<string, { baseUrl?: string }>;
               pdf: Record<string, { baseUrl?: string }>;
-              image: Record<string, { baseUrl?: string }>;
-              video: Record<string, { baseUrl?: string }>;
+              image: Record<string, { baseUrl?: string; models?: string[] }>;
+              video: Record<string, { baseUrl?: string; models?: string[] }>;
               webSearch: Record<string, { baseUrl?: string }>;
             };
 

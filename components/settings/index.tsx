@@ -39,6 +39,25 @@ export function SettingsDialog({
   const ttsProviderId = useSettingsStore((state) => state.ttsProviderId);
   const asrProviderId = useSettingsStore((state) => state.asrProviderId);
 
+  const serverBadgeImage = useSettingsStore((s) =>
+    Object.values(s.imageProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+  const serverBadgeVideo = useSettingsStore((s) =>
+    Object.values(s.videoProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+  const serverBadgeTts = useSettingsStore((s) =>
+    Object.values(s.ttsProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+  const serverBadgeAsr = useSettingsStore((s) =>
+    Object.values(s.asrProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+  const serverBadgePdf = useSettingsStore((s) =>
+    Object.values(s.pdfProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+  const serverBadgeWebSearch = useSettingsStore((s) =>
+    Object.values(s.webSearchProvidersConfig).some((c) => c?.isServerConfigured),
+  );
+
   // Navigation
   const [activeSection, setActiveSection] = useState<SettingsSection>('providers');
   // Navigate to initialSection when dialog opens or embedded page loads / query changes
@@ -95,7 +114,12 @@ export function SettingsDialog({
           )}
         >
           <ImageIcon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.imageSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.imageSettings')}</span>
+          {serverBadgeImage && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('video')}
@@ -105,7 +129,12 @@ export function SettingsDialog({
           )}
         >
           <Film className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.videoSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.videoSettings')}</span>
+          {serverBadgeVideo && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('tts')}
@@ -115,7 +144,12 @@ export function SettingsDialog({
           )}
         >
           <Volume2 className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.ttsSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.ttsSettings')}</span>
+          {serverBadgeTts && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('asr')}
@@ -125,7 +159,12 @@ export function SettingsDialog({
           )}
         >
           <Mic className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.asrSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.asrSettings')}</span>
+          {serverBadgeAsr && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('pdf')}
@@ -135,7 +174,12 @@ export function SettingsDialog({
           )}
         >
           <FileText className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.pdfSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.pdfSettings')}</span>
+          {serverBadgePdf && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('web-search')}
@@ -147,7 +191,12 @@ export function SettingsDialog({
           )}
         >
           <Search className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t('settings.webSearchSettings')}</span>
+          <span className="min-w-0 flex-1 truncate">{t('settings.webSearchSettings')}</span>
+          {serverBadgeWebSearch && (
+            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              {t('settings.serverConfigured')}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setActiveSection('general')}

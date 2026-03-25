@@ -18,6 +18,7 @@ CLAUDE.local.md
 
 # testing
 /coverage
+/temp
 
 # next.js
 /.next/

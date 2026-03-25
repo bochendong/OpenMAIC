@@ -20,7 +20,9 @@
     "backend:up": "bash scripts/start-backend.sh",
     "backend:dev": "bash scripts/start-backend.sh --dev",
     "frontend:dev": "bash scripts/start-frontend.sh",
-    "frontend:dev:clean": "bash scripts/start-frontend.sh --clean"
+    "frontend:dev:clean": "bash scripts/start-frontend.sh --clean",
+    "test:image-gen": "dotenv -e .env.local -- node scripts/test-openai-image.mjs",
+    "test:tts-gen": "dotenv -e .env.local -- node scripts/test-openai-tts.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.23",

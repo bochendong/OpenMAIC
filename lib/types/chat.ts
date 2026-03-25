@@ -19,6 +19,8 @@ export interface ChatMessageMetadata {
   senderAvatar?: string;
   originalRole?: 'teacher' | 'agent' | 'user';
   actions?: MessageAction[];
+  /** 用户消息附带的文件（仅展示，不参与模型协议字段） */
+  attachments?: Array<{ id: string; name: string; mimeType: string; size: number }>;
   agentId?: string;
   agentColor?: string;
   createdAt?: number;

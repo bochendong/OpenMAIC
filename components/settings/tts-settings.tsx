@@ -1,13 +1,21 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
-import { TTS_PROVIDERS, DEFAULT_TTS_VOICES } from '@/lib/audio/constants';
+import { TTS_PROVIDERS, DEFAULT_TTS_VOICES, getTTSVoices } from '@/lib/audio/constants';
 import type { TTSProviderId } from '@/lib/audio/types';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
 import { Volume2, Loader2, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createLogger } from '@/lib/logger';
@@ -27,16 +35,49 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
   const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
   const setTTSProviderConfig = useSettingsStore((state) => state.setTTSProviderConfig);
   const activeProviderId = useSettingsStore((state) => state.ttsProviderId);
+  const setTTSVoice = useSettingsStore((state) => state.setTTSVoice);
+  const setTTSSpeed = useSettingsStore((state) => state.setTTSSpeed);
 
-  // When testing a non-active provider, use that provider's default voice
-  // instead of the active provider's voice (which may be incompatible)
-  const effectiveVoice =
-    selectedProviderId === activeProviderId
-      ? ttsVoice
-      : DEFAULT_TTS_VOICES[selectedProviderId] || 'default';
+  /** When previewing a provider that is not the active one, keep a separate voice/speed for the test button */
+  const [previewVoice, setPreviewVoice] = useState<string | null>(null);
+  const [previewSpeed, setPreviewSpeed] = useState<number | null>(null);
+
+  const effectiveVoice = useMemo(() => {
+    if (selectedProviderId === activeProviderId) {
+      return ttsVoice;
+    }
+    return previewVoice ?? (DEFAULT_TTS_VOICES[selectedProviderId] || 'default');
+  }, [selectedProviderId, activeProviderId, ttsVoice, previewVoice]);
+
+  const effectiveSpeed = useMemo(() => {
+    if (selectedProviderId === activeProviderId) {
+      return ttsSpeed;
+    }
+    return previewSpeed ?? ttsSpeed;
+  }, [selectedProviderId, activeProviderId, ttsSpeed, previewSpeed]);
+
+  const handleVoiceChange = (v: string) => {
+    if (selectedProviderId === activeProviderId) {
+      setTTSVoice(v);
+    } else {
+      setPreviewVoice(v);
+    }
+  };
+
+  const handleSpeedChange = (v: number) => {
+    if (selectedProviderId === activeProviderId) {
+      setTTSSpeed(v);
+    } else {
+      setPreviewSpeed(v);
+    }
+  };
 
   const ttsProvider = TTS_PROVIDERS[selectedProviderId] ?? TTS_PROVIDERS['openai-tts'];
   const isServerConfigured = !!ttsProvidersConfig[selectedProviderId]?.isServerConfigured;
+  const anyTtsProviderServerConfigured = useMemo(
+    () => Object.values(ttsProvidersConfig).some((c) => c?.isServerConfigured),
+    [ttsProvidersConfig],
+  );
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [testText, setTestText] = useState(t('settings.ttsTestTextDefault'));
@@ -68,7 +109,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
         text: testText,
         providerId: selectedProviderId,
         voice: effectiveVoice,
-        speed: ttsSpeed,
+        speed: effectiveSpeed,
         apiKey: ttsProvidersConfig[selectedProviderId]?.apiKey,
         baseUrl: ttsProvidersConfig[selectedProviderId]?.baseUrl,
       });
@@ -91,6 +132,11 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
       {isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNotice')}
+        </div>
+      )}
+      {!isServerConfigured && anyTtsProviderServerConfigured && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
+          {t('settings.serverConfiguredNoticeOtherProvider')}
         </div>
       )}
 
@@ -176,6 +222,62 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
             );
           })()}
         </>
+      )}
+
+      {/* Voice & speed — applies to playback and course narration when this provider is active */}
+      {selectedProviderId !== 'browser-native-tts' && getTTSVoices(selectedProviderId).length > 0 && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label className="text-sm">{t('settings.ttsVoice')}</Label>
+            <Select value={effectiveVoice} onValueChange={handleVoiceChange}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {getTTSVoices(selectedProviderId).map((voice) => {
+                  const genderSuffix =
+                    voice.gender === 'male'
+                      ? ` · ${t('settings.voiceGenderMale')}`
+                      : voice.gender === 'female'
+                        ? ` · ${t('settings.voiceGenderFemale')}`
+                        : '';
+                  const desc = voice.description
+                    ? ` — ${t(`settings.${voice.description}` as 'settings.voiceAlloy')}`
+                    : '';
+                  return (
+                    <SelectItem key={voice.id} value={voice.id}>
+                      {voice.name}
+                      {desc}
+                      {genderSuffix}
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            {selectedProviderId === 'openai-tts' && (
+              <p className="text-xs text-muted-foreground">{t('settings.ttsVoiceOpenaiHint')}</p>
+            )}
+          </div>
+
+          {ttsProvider.speedRange && (
+            <div className="space-y-2">
+              <Label className="text-sm">{t('settings.ttsSpeed')}</Label>
+              <div className="flex items-center gap-3">
+                <Slider
+                  value={[effectiveSpeed]}
+                  onValueChange={(value) => handleSpeedChange(value[0])}
+                  min={ttsProvider.speedRange.min}
+                  max={ttsProvider.speedRange.max}
+                  step={0.1}
+                  className="flex-1"
+                />
+                <span className="min-w-[3rem] text-right text-xs text-muted-foreground">
+                  {effectiveSpeed.toFixed(1)}x
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Test TTS */}

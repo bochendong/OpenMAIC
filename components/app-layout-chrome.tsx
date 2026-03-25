@@ -33,6 +33,7 @@ export function AppLayoutChrome({ children }: { children: ReactNode }) {
   const isRegister = pathname === '/register' || pathname?.startsWith('/register/');
   const isLanding = pathname === '/';
   const isClassroom = pathname?.startsWith('/classroom/');
+  const isAdmin = pathname?.startsWith('/admin');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatRightCollapsed, setChatRightCollapsed] = useState(false);
 
@@ -61,7 +62,7 @@ export function AppLayoutChrome({ children }: { children: ReactNode }) {
     return <>{children}</>;
   }
 
-  if (isClassroom) {
+  if (isClassroom || isAdmin) {
     return <MainShellNoRail>{children}</MainShellNoRail>;
   }
 

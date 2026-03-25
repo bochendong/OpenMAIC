@@ -486,6 +486,7 @@ export const settingsZhCN = {
     providerQwenImage: 'Qwen Image（阿里通义）',
     providerNanoBanana: 'Nano Banana（Gemini）',
     providerGrokImage: 'Grok Image（xAI）',
+    providerOpenaiImage: 'OpenAI GPT Image',
     testImageGeneration: '测试图像生成',
     testImageConnectivity: '测试连接',
     imageConnectivitySuccess: '图像服务连接成功',
@@ -531,7 +532,13 @@ export const settingsZhCN = {
     serverConfigured: '服务端',
     serverConfiguredNotice:
       '管理员已在服务端配置了此提供方的 API Key，可直接使用。也可输入自己的 Key 覆盖。',
+    serverConfiguredNoticeOtherProvider:
+      '站点已为部分提供方配置了 API Key。请在媒体生成中切换到对应提供方，或在本页选择对应提供方后再使用。',
     optionalOverride: '可选，留空则使用服务端配置',
+    voiceGenderMale: '男声',
+    voiceGenderFemale: '女声',
+    ttsVoiceOpenaiHint:
+      'OpenAI 提供多种音色；标注「男声 / 女声」便于区分，其余多为中性风格。实际效果以试听为准。',
     // Access code
     setupNeeded: '请先完成配置',
     modelNotConfigured: '请选择一个模型以开始使用',
@@ -1081,6 +1088,7 @@ export const settingsEnUS = {
     providerQwenImage: 'Qwen Image (Alibaba)',
     providerNanoBanana: 'Nano Banana (Gemini)',
     providerGrokImage: 'Grok Image (xAI)',
+    providerOpenaiImage: 'OpenAI GPT Image',
     testImageGeneration: 'Test Image Generation',
     testImageConnectivity: 'Test Connection',
     imageConnectivitySuccess: 'Image service connected successfully',
@@ -1127,7 +1135,13 @@ export const settingsEnUS = {
     serverConfigured: 'Server',
     serverConfiguredNotice:
       'Admin has configured an API key for this provider on the server. You can use it directly or enter your own key to override.',
+    serverConfiguredNoticeOtherProvider:
+      'The site has configured API keys for some providers. Switch to the matching provider in media settings or select it here.',
     optionalOverride: 'Optional — leave empty to use server config',
+    voiceGenderMale: 'Male',
+    voiceGenderFemale: 'Female',
+    ttsVoiceOpenaiHint:
+      'OpenAI offers multiple voices; male/female labels are hints—listen to the preview to judge.',
     // Access code
     setupNeeded: 'Setup required',
     modelNotConfigured: 'Please select a model to get started',

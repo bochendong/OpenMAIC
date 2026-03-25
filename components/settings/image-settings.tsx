@@ -60,6 +60,10 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
     [currentConfig?.customModels],
   );
   const isServerConfigured = !!currentConfig?.isServerConfigured;
+  const anyImageProviderServerConfigured = useMemo(
+    () => Object.values(imageProvidersConfig).some((c) => c?.isServerConfigured),
+    [imageProvidersConfig],
+  );
 
   const handleApiKeyChange = (apiKey: string) => {
     setImageProviderConfig(selectedProviderId, { apiKey });
@@ -145,6 +149,11 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
       {isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNotice')}
+        </div>
+      )}
+      {!isServerConfigured && anyImageProviderServerConfigured && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
+          {t('settings.serverConfiguredNoticeOtherProvider')}
         </div>
       )}
 

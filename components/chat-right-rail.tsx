@@ -80,7 +80,12 @@ const ORCHESTRATOR_AGENT: CourseAgentListItem = {
   isGenerated: false,
 };
 
-function taskChatHref(t: AgentTaskRecord): string {
+/** 有课程上下文时优先进入「创建/课堂」页查看与创建页一致的生成进度；否则回退到对应聊天会话。 */
+function taskProgressHref(courseId: string | null | undefined, t: AgentTaskRecord): string {
+  const cid = courseId?.trim();
+  if (cid) {
+    return `/create?courseId=${encodeURIComponent(cid)}`;
+  }
   if (t.contactKind === 'notebook') {
     return `/chat?notebook=${encodeURIComponent(t.contactId)}`;
   }
@@ -371,7 +376,8 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
         {activeTasks.map((t) => (
           <li key={t.id}>
             <Link
-              href={taskChatHref(t)}
+              href={taskProgressHref(courseId, t)}
+              title="进入课堂查看创建进度"
               className="block rounded-[12px] border border-slate-900/[0.08] bg-white/50 p-2.5 transition-colors hover:bg-white/80 dark:border-white/[0.1] dark:bg-black/20 dark:hover:bg-black/35"
             >
               <div className="flex items-start justify-between gap-2">
@@ -396,6 +402,9 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
               {t.detail ? (
                 <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{t.detail}</p>
               ) : null}
+              <p className="mt-1.5 text-[10px] text-muted-foreground/90">
+                点击进入课堂查看创建进度
+              </p>
             </Link>
           </li>
         ))}

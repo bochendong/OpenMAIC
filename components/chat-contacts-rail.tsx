@@ -115,6 +115,8 @@ export function ChatContactsRail({
   const searchParams = useSearchParams();
   const selNotebook = searchParams.get('notebook');
   const selAgent = searchParams.get('agent');
+  /** 与「课程总控」同一会话，但侧栏分两个入口时需区分高亮 */
+  const chatView = searchParams.get('view');
 
   const [notebooks, setNotebooks] = useState<StageListItem[]>([]);
   const [busyKeys, setBusyKeys] = useState<Set<string>>(new Set());
@@ -278,7 +280,10 @@ export function ChatContactsRail({
     courseAgentLabel.toLowerCase().includes(needle) ||
     COURSE_ORCHESTRATOR_NAME.toLowerCase().includes(needle);
   const orchestratorHref = `/chat?agent=${encodeURIComponent(COURSE_ORCHESTRATOR_ID)}`;
-  const orchestratorActive = selAgent === COURSE_ORCHESTRATOR_ID && !selNotebook;
+  const groupChatHref = `${orchestratorHref}&view=group`;
+  const orchestratorActive =
+    selAgent === COURSE_ORCHESTRATOR_ID && !selNotebook && chatView !== 'group';
+  const groupChatActive = selAgent === COURSE_ORCHESTRATOR_ID && !selNotebook && chatView === 'group';
   const orchestratorBusy = busyKeys.has(`agent:${COURSE_ORCHESTRATOR_ID}`);
   const groupChatLabel = '群聊';
 
@@ -335,9 +340,9 @@ export function ChatContactsRail({
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
-                href={orchestratorHref}
-                className={contactRowClass(collapsed, orchestratorActive)}
-                aria-current={orchestratorActive ? 'page' : undefined}
+                href={groupChatHref}
+                className={contactRowClass(collapsed, groupChatActive)}
+                aria-current={groupChatActive ? 'page' : undefined}
               >
                 <GroupChatThumb />
                 {!collapsed && (

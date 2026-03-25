@@ -14,6 +14,8 @@ export interface SystemLLMConfigView {
   apiKeyMasked: string;
   hasApiKey: boolean;
   source: 'database' | 'environment';
+  /** 仅当 key 来自数据库中的管理员配置时有值 */
+  updatedAt: string | null;
 }
 
 export interface SystemLLMRuntimeConfig {
@@ -61,6 +63,19 @@ export async function getSystemLLMRuntimeConfig(): Promise<SystemLLMRuntimeConfi
 
 export async function getSystemLLMConfigView(): Promise<SystemLLMConfigView> {
   const config = await getSystemLLMRuntimeConfig();
+  let updatedAt: string | null = null;
+  const prisma = getPrismaOrNull();
+  if (prisma && config.source === 'database') {
+    try {
+      const row = await prisma.systemLLMConfig.findUnique({
+        where: { id: 'default' },
+        select: { updatedAt: true },
+      });
+      updatedAt = row?.updatedAt ? row.updatedAt.toISOString() : null;
+    } catch (error) {
+      log.warn('Failed to read SystemLLMConfig updatedAt:', error);
+    }
+  }
   return {
     providerId: 'openai',
     modelId: config.modelId,
@@ -68,11 +83,12 @@ export async function getSystemLLMConfigView(): Promise<SystemLLMConfigView> {
     apiKeyMasked: maskApiKey(config.apiKey),
     hasApiKey: Boolean(config.apiKey),
     source: config.source,
+    updatedAt,
   };
 }
 
 export async function updateSystemLLMConfig(input: {
-  apiKey: string;
+  apiKey?: string;
   modelId?: string;
   baseUrl?: string;
 }): Promise<SystemLLMConfigView> {
@@ -81,9 +97,15 @@ export async function updateSystemLLMConfig(input: {
     throw new Error('DATABASE_URL 未配置，无法保存系统 OpenAI 配置。');
   }
 
-  const apiKey = input.apiKey.trim();
+  const existing = await prisma.systemLLMConfig.findUnique({ where: { id: 'default' } });
+  const trimmedNewKey = input.apiKey?.trim() ?? '';
+  let apiKey = trimmedNewKey;
   if (!apiKey) {
-    throw new Error('系统 OpenAI API Key 不能为空。');
+    if (existing?.apiKey?.trim()) {
+      apiKey = existing.apiKey.trim();
+    } else {
+      throw new Error('首次保存必须填写 OpenAI API Key。');
+    }
   }
 
   const modelId = input.modelId?.trim() || DEFAULT_OPENAI_MODEL;

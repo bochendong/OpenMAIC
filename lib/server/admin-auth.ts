@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { requireServerSession } from '@/lib/server/auth';
@@ -85,18 +86,16 @@ export async function requireAdmin() {
     } as const;
   }
 
-  let user:
-    | {
-        role: 'USER' | 'ADMIN';
-        email: string | null;
-        name: string | null;
-      }
-    | null = null;
+  let emailFromDb: string | null = null;
+  let nameFromDb: string | null = null;
+  let dbRole: string | null = null;
   try {
-    user = await prisma.user.findUnique({
+    const profile = await prisma.user.findUnique({
       where: { id: identity.userId },
-      select: { role: true, email: true, name: true },
+      select: { email: true, name: true },
     });
+    emailFromDb = profile?.email ?? null;
+    nameFromDb = profile?.name ?? null;
   } catch {
     if (isFallbackAdmin(identity)) {
       return { identity } as const;
@@ -106,12 +105,22 @@ export async function requireAdmin() {
     } as const;
   }
 
-  if (user?.role === 'ADMIN' || isFallbackAdmin(identity)) {
+  try {
+    // 与 findUnique 分开：数据库若尚未执行含 role 的迁移，此处失败则仅跳过 DB 角色判定。
+    const roleRows = await prisma.$queryRaw<Array<{ role: string }>>(
+      Prisma.sql`SELECT role::text AS "role" FROM "User" WHERE id = ${identity.userId} LIMIT 1`,
+    );
+    dbRole = roleRows[0]?.role ?? null;
+  } catch {
+    dbRole = null;
+  }
+
+  if (dbRole === 'ADMIN' || isFallbackAdmin(identity)) {
     return {
       identity: {
         ...identity,
-        email: user?.email || identity.email,
-        name: user?.name || identity.name,
+        email: emailFromDb || identity.email,
+        name: nameFromDb || identity.name,
       },
     } as const;
   }

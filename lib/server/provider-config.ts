@@ -9,6 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import yaml from 'js-yaml';
 import { createLogger } from '@/lib/logger';
+import type { SiteProviderAdminRow } from '@/lib/types/admin-site-providers';
 
 const log = createLogger('ServerProviderConfig');
 
@@ -74,6 +75,7 @@ const IMAGE_ENV_MAP: Record<string, string> = {
   IMAGE_QWEN_IMAGE: 'qwen-image',
   IMAGE_NANO_BANANA: 'nano-banana',
   IMAGE_GROK: 'grok-image',
+  IMAGE_OPENAI_IMAGE: 'openai-image',
 };
 
 const VIDEO_ENV_MAP: Record<string, string> = {
@@ -329,11 +331,13 @@ export function resolvePDFBaseUrl(providerId: string, clientBaseUrl?: string): s
 // Public API — Image Generation
 // ---------------------------------------------------------------------------
 
-export function getServerImageProviders(): Record<string, Record<string, never>> {
+export function getServerImageProviders(): Record<string, { baseUrl?: string; models?: string[] }> {
   const cfg = getConfig();
-  const result: Record<string, Record<string, never>> = {};
-  for (const id of Object.keys(cfg.image)) {
+  const result: Record<string, { baseUrl?: string; models?: string[] }> = {};
+  for (const [id, entry] of Object.entries(cfg.image)) {
     result[id] = {};
+    if (entry.baseUrl) result[id].baseUrl = entry.baseUrl;
+    if (entry.models?.length) result[id].models = entry.models;
   }
   return result;
 }
@@ -355,11 +359,13 @@ export function resolveImageBaseUrl(
 // Public API — Video Generation
 // ---------------------------------------------------------------------------
 
-export function getServerVideoProviders(): Record<string, Record<string, never>> {
+export function getServerVideoProviders(): Record<string, { baseUrl?: string; models?: string[] }> {
   const cfg = getConfig();
-  const result: Record<string, Record<string, never>> = {};
-  for (const id of Object.keys(cfg.video)) {
+  const result: Record<string, { baseUrl?: string; models?: string[] }> = {};
+  for (const [id, entry] of Object.entries(cfg.video)) {
     result[id] = {};
+    if (entry.baseUrl) result[id].baseUrl = entry.baseUrl;
+    if (entry.models?.length) result[id].models = entry.models;
   }
   return result;
 }
@@ -398,4 +404,65 @@ export function resolveWebSearchApiKey(clientKey?: string): string {
   const serverKey = getConfig().webSearch.tavily?.apiKey;
   if (serverKey) return serverKey;
   return process.env.TAVILY_API_KEY || '';
+}
+
+// ---------------------------------------------------------------------------
+// Admin console — site-wide provider status (no secrets)
+// ---------------------------------------------------------------------------
+
+export type { SiteProviderAdminRow } from '@/lib/types/admin-site-providers';
+
+function rowsFromSection(section: Record<string, ServerProviderEntry>): SiteProviderAdminRow[] {
+  return Object.entries(section).map(([id, entry]) => ({
+    id,
+    hasApiKey: Boolean(entry.apiKey?.trim()),
+    baseUrl: entry.baseUrl ?? null,
+    models: entry.models ?? null,
+  }));
+}
+
+/** 图像 / TTS / 网络搜索：当前进程内已加载的服务端配置（YAML + 环境变量），不含密钥明文 */
+export function getSiteProviderAdminView(): {
+  image: SiteProviderAdminRow[];
+  tts: SiteProviderAdminRow[];
+  webSearch: SiteProviderAdminRow[];
+} {
+  const cfg = getConfig();
+  return {
+    image: rowsFromSection(cfg.image),
+    tts: rowsFromSection(cfg.tts),
+    webSearch: rowsFromSection(cfg.webSearch),
+  };
+}
+
+/** 各提供方对应的环境变量名，供管理员在 .env / 托管面板中配置 */
+export function getAdminProviderEnvHints(): {
+  image: Record<string, { apiKey: string; baseUrl: string; models: string }>;
+  tts: Record<string, { apiKey: string; baseUrl: string }>;
+  webSearch: Record<string, { apiKey: string; baseUrl: string }>;
+} {
+  return {
+    image: Object.fromEntries(
+      Object.entries(IMAGE_ENV_MAP).map(([prefix, pid]) => [
+        pid,
+        {
+          apiKey: `${prefix}_API_KEY`,
+          baseUrl: `${prefix}_BASE_URL`,
+          models: `${prefix}_MODELS`,
+        },
+      ]),
+    ),
+    tts: Object.fromEntries(
+      Object.entries(TTS_ENV_MAP).map(([prefix, pid]) => [
+        pid,
+        { apiKey: `${prefix}_API_KEY`, baseUrl: `${prefix}_BASE_URL` },
+      ]),
+    ),
+    webSearch: Object.fromEntries(
+      Object.entries(WEB_SEARCH_ENV_MAP).map(([prefix, pid]) => [
+        pid,
+        { apiKey: `${prefix}_API_KEY`, baseUrl: `${prefix}_BASE_URL` },
+      ]),
+    ),
+  };
 }

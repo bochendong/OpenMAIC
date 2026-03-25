@@ -13,6 +13,7 @@ import { generateWithSeedream, testSeedreamConnectivity } from './adapters/seedr
 import { generateWithQwenImage, testQwenImageConnectivity } from './adapters/qwen-image-adapter';
 import { generateWithNanoBanana, testNanoBananaConnectivity } from './adapters/nano-banana-adapter';
 import { generateWithGrokImage, testGrokImageConnectivity } from './adapters/grok-image-adapter';
+import { generateWithOpenAiImage, testOpenAiImageConnectivity } from './adapters/openai-image-adapter';
 
 export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
   seedream: {
@@ -78,6 +79,18 @@ export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
     ],
     supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
   },
+  'openai-image': {
+    id: 'openai-image',
+    name: 'OpenAI GPT Image',
+    requiresApiKey: true,
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    models: [
+      { id: 'gpt-image-1.5', name: 'GPT Image 1.5' },
+      { id: 'gpt-image-1', name: 'GPT Image 1' },
+      { id: 'gpt-image-1-mini', name: 'GPT Image 1 Mini' },
+    ],
+    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+  },
 };
 
 export async function testImageConnectivity(
@@ -92,6 +105,8 @@ export async function testImageConnectivity(
       return testNanoBananaConnectivity(config);
     case 'grok-image':
       return testGrokImageConnectivity(config);
+    case 'openai-image':
+      return testOpenAiImageConnectivity(config);
     default:
       return {
         success: false,
@@ -113,6 +128,8 @@ export async function generateImage(
       return generateWithNanoBanana(config, options);
     case 'grok-image':
       return generateWithGrokImage(config, options);
+    case 'openai-image':
+      return generateWithOpenAiImage(config, options);
     default:
       throw new Error(`Unsupported image provider: ${config.providerId}`);
   }

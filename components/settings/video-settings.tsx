@@ -59,6 +59,10 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
     [currentConfig?.customModels],
   );
   const isServerConfigured = !!currentConfig?.isServerConfigured;
+  const anyVideoProviderServerConfigured = useMemo(
+    () => Object.values(videoProvidersConfig).some((c) => c?.isServerConfigured),
+    [videoProvidersConfig],
+  );
 
   const handleApiKeyChange = (apiKey: string) => {
     setVideoProviderConfig(selectedProviderId, { apiKey });
@@ -144,6 +148,11 @@ export function VideoSettings({ selectedProviderId }: VideoSettingsProps) {
       {isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNotice')}
+        </div>
+      )}
+      {!isServerConfigured && anyVideoProviderServerConfigured && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
+          {t('settings.serverConfiguredNoticeOtherProvider')}
         </div>
       )}
 

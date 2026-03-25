@@ -7,9 +7,11 @@ import { ensureLegacyCourseBucket, getCourse, LEGACY_COURSE_ID } from '@/lib/uti
 import { pickStableNotebookAgentAvatarUrl } from '@/lib/constants/notebook-agent-avatars';
 import { saveStageData } from '@/lib/utils/stage-storage';
 import { persistGeneratedAgentsForStage, useAgentRegistry } from '@/lib/orchestration/registry/store';
-import type { SceneOutline } from '@/lib/types/generation';
+import type { ImageMapping, PdfImage, SceneOutline } from '@/lib/types/generation';
 import type { Scene, Stage } from '@/lib/types/stage';
 import type { AgentInfo, CoursePersonalizationContext } from '@/lib/generation/pipeline-types';
+import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
+import { loadImageMapping, storeImages } from '@/lib/utils/image-storage';
 
 type NotebookMetadata = {
   name: string;
@@ -30,6 +32,7 @@ type OutlineStreamEvent =
 
 export type NotebookGenerationProgress =
   | { stage: 'preparing'; detail: string }
+  | { stage: 'pdf-analysis'; detail: string }
   | { stage: 'research'; detail: string; sources?: WebSearchSource[] }
   | { stage: 'metadata'; detail: string }
   | { stage: 'agents'; detail: string }
@@ -47,6 +50,8 @@ export type NotebookGenerationTaskInput = {
   userBio?: string;
   signal?: AbortSignal;
   onProgress?: (progress: NotebookGenerationProgress) => void;
+  /** 与 `/create` + `generation-preview` 一致：整份 PDF 走 `/api/parse-pdf` */
+  pdfFile?: File | null;
 };
 
 export type NotebookGenerationTaskResult = {
@@ -80,6 +85,119 @@ function getApiHeaders(): HeadersInit {
     'x-image-generation-enabled': String(settings.imageGenerationEnabled ?? false),
     'x-video-generation-enabled': String(settings.videoGenerationEnabled ?? false),
   };
+}
+
+/** 与 `app/generation-preview/page.tsx` 中 PDF 解析步骤一致（FormData → /api/parse-pdf → storeImages） */
+async function parsePdfLikeGenerationPreview(args: {
+  pdfFile: File;
+  signal?: AbortSignal;
+}): Promise<{
+  pdfText: string;
+  pdfImages: PdfImage[];
+  imageStorageIds: string[];
+  imageMapping: ImageMapping;
+  truncationWarnings: string[];
+}> {
+  const settings = useSettingsStore.getState();
+  const pdfFile = args.pdfFile;
+  if (!(pdfFile instanceof File) || pdfFile.size === 0) {
+    throw new Error('PDF 文件无效或为空');
+  }
+
+  const parseFormData = new FormData();
+  parseFormData.append('pdf', pdfFile);
+  if (settings.pdfProviderId) {
+    parseFormData.append('providerId', settings.pdfProviderId);
+  }
+  const pdfCfg = settings.pdfProvidersConfig?.[settings.pdfProviderId];
+  if (pdfCfg?.apiKey?.trim()) {
+    parseFormData.append('apiKey', pdfCfg.apiKey);
+  }
+  if (pdfCfg?.baseUrl?.trim()) {
+    parseFormData.append('baseUrl', pdfCfg.baseUrl);
+  }
+
+  const parseResponse = await fetch('/api/parse-pdf', {
+    method: 'POST',
+    body: parseFormData,
+    signal: args.signal,
+  });
+
+  if (!parseResponse.ok) {
+    const errorData = await parseResponse.json().catch(() => ({ error: 'PDF 解析失败' }));
+    throw new Error((errorData as { error?: string }).error || 'PDF 解析失败');
+  }
+
+  const parseResult = await parseResponse.json();
+  if (!parseResult.success || !parseResult.data) {
+    throw new Error('PDF 解析失败');
+  }
+
+  let pdfText = parseResult.data.text as string;
+  if (pdfText.length > MAX_PDF_CONTENT_CHARS) {
+    pdfText = pdfText.substring(0, MAX_PDF_CONTENT_CHARS);
+  }
+
+  const rawPdfImages = parseResult.data.metadata?.pdfImages;
+  const images = rawPdfImages
+    ? rawPdfImages.map(
+        (img: {
+          id: string;
+          src?: string;
+          pageNumber?: number;
+          description?: string;
+          width?: number;
+          height?: number;
+        }) => ({
+          id: img.id,
+          src: img.src || '',
+          pageNumber: img.pageNumber || 1,
+          description: img.description,
+          width: img.width,
+          height: img.height,
+        }),
+      )
+    : (parseResult.data.images as string[]).map((src: string, i: number) => ({
+        id: `img_${i + 1}`,
+        src,
+        pageNumber: 1,
+      }));
+
+  const imageStorageIds = await storeImages(images);
+
+  const pdfImages: PdfImage[] = images.map(
+    (
+      img: {
+        id: string;
+        src: string;
+        pageNumber: number;
+        description?: string;
+        width?: number;
+        height?: number;
+      },
+      i: number,
+    ) => ({
+      id: img.id,
+      src: '',
+      pageNumber: img.pageNumber,
+      description: img.description,
+      width: img.width,
+      height: img.height,
+      storageId: imageStorageIds[i],
+    }),
+  );
+
+  const imageMapping = await loadImageMapping(imageStorageIds);
+
+  const truncationWarnings: string[] = [];
+  if ((parseResult.data.text as string).length > MAX_PDF_CONTENT_CHARS) {
+    truncationWarnings.push(`正文已截断至前 ${MAX_PDF_CONTENT_CHARS} 字符`);
+  }
+  if (images.length > MAX_VISION_IMAGES) {
+    truncationWarnings.push(`图片数量已截断：保留 ${MAX_VISION_IMAGES} / ${images.length} 张`);
+  }
+
+  return { pdfText, pdfImages, imageStorageIds, imageMapping, truncationWarnings };
 }
 
 function extractTopicFromRequirement(requirement: string): string {
@@ -120,6 +238,7 @@ async function generateNotebookMetadata(args: {
   webSearch: boolean;
   courseContext?: CoursePersonalizationContext;
   signal?: AbortSignal;
+  pdfText?: string;
 }): Promise<NotebookMetadata> {
   const resp = await fetch('/api/generate/notebook-metadata', {
     method: 'POST',
@@ -130,6 +249,7 @@ async function generateNotebookMetadata(args: {
         language: args.language,
         webSearch: args.webSearch,
       },
+      pdfText: args.pdfText || '',
       courseContext: args.courseContext,
     }),
     signal: args.signal,
@@ -260,6 +380,9 @@ async function generateOutlines(args: {
   courseContext?: CoursePersonalizationContext;
   signal?: AbortSignal;
   onOutline?: (count: number) => void;
+  pdfText?: string;
+  pdfImages?: PdfImage[];
+  imageMapping?: ImageMapping;
 }): Promise<SceneOutline[]> {
   const response = await fetch('/api/generate/scene-outlines-stream', {
     method: 'POST',
@@ -269,6 +392,9 @@ async function generateOutlines(args: {
         requirement: args.requirement,
         language: args.language,
       },
+      pdfText: args.pdfText,
+      pdfImages: args.pdfImages,
+      imageMapping: args.imageMapping,
       researchContext: args.researchContext,
       agents: args.agents,
       coursePurpose: args.coursePurpose,
@@ -328,6 +454,8 @@ async function generateSingleScene(args: {
   userProfile?: string;
   courseContext?: CoursePersonalizationContext;
   signal?: AbortSignal;
+  pdfImages?: PdfImage[];
+  imageMapping?: ImageMapping;
 }): Promise<{ scene: Scene; previousSpeeches: string[] }> {
   const contentResp = await fetch('/api/generate/scene-content', {
     method: 'POST',
@@ -344,6 +472,8 @@ async function generateSingleScene(args: {
       stageId: args.stage.id,
       agents: args.agents,
       courseContext: args.courseContext,
+      pdfImages: args.pdfImages,
+      imageMapping: args.imageMapping,
     }),
     signal: args.signal,
   });
@@ -395,8 +525,11 @@ async function generateSingleScene(args: {
 export async function runNotebookGenerationTask(
   input: NotebookGenerationTaskInput,
 ): Promise<NotebookGenerationTaskResult> {
-  const requirement = input.requirement.trim();
-  if (!requirement) throw new Error('缺少笔记本创建需求');
+  let requirement = input.requirement.trim();
+  if (!requirement && !input.pdfFile) throw new Error('缺少笔记本创建需求或 PDF');
+  if (!requirement && input.pdfFile) {
+    requirement = '请根据上传的 PDF 创建笔记本。';
+  }
 
   const language = input.language || 'zh-CN';
   const webSearch = input.webSearch ?? true;
@@ -417,6 +550,28 @@ export async function runNotebookGenerationTask(
           language: currentCourse.language,
         }
       : undefined;
+
+    let pdfText: string | undefined;
+    let pdfImages: PdfImage[] | undefined;
+    let imageMapping: ImageMapping | undefined;
+
+    if (input.pdfFile) {
+      input.onProgress?.({ stage: 'pdf-analysis', detail: '正在解析 PDF（与创建页相同流程）…' });
+      const parsed = await parsePdfLikeGenerationPreview({
+        pdfFile: input.pdfFile,
+        signal: input.signal,
+      });
+      pdfText = parsed.pdfText;
+      pdfImages = parsed.pdfImages;
+      imageMapping = parsed.imageMapping;
+      input.onProgress?.({
+        stage: 'pdf-analysis',
+        detail:
+          parsed.truncationWarnings.length > 0
+            ? `PDF 已解析。${parsed.truncationWarnings.join(' ')}`
+            : 'PDF 已解析，已提取文本与配图信息。',
+      });
+    }
 
     let researchContext: string | undefined;
     let researchSources: WebSearchSource[] = [];
@@ -443,6 +598,7 @@ export async function runNotebookGenerationTask(
       webSearch,
       courseContext,
       signal: input.signal,
+      pdfText,
     });
 
     const stageId = nanoid(10);
@@ -483,6 +639,9 @@ export async function runNotebookGenerationTask(
           completed: count,
         });
       },
+      pdfText,
+      pdfImages,
+      imageMapping,
     });
 
     if (!outlines.length) throw new Error('未生成任何课程大纲');
@@ -511,6 +670,8 @@ export async function runNotebookGenerationTask(
         userProfile,
         courseContext,
         signal: input.signal,
+        pdfImages,
+        imageMapping,
       });
       scenes.push(result.scene);
       previousSpeeches = result.previousSpeeches;

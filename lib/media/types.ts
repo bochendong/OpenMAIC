@@ -69,7 +69,12 @@
  * Add new image providers here as union members.
  * Keep in sync with IMAGE_PROVIDERS registry in constants.ts
  */
-export type ImageProviderId = 'seedream' | 'qwen-image' | 'nano-banana' | 'grok-image';
+export type ImageProviderId =
+  | 'seedream'
+  | 'qwen-image'
+  | 'nano-banana'
+  | 'grok-image'
+  | 'openai-image';
 // Add new image providers below (uncomment and modify):
 // | 'dall-e'
 // | 'midjourney'

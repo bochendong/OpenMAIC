@@ -18,6 +18,8 @@ export async function GET() {
       baseUrl: config.baseUrl || '',
       hasApiKey: config.hasApiKey,
       maskedApiKey: config.apiKeyMasked,
+      source: config.source,
+      updatedAt: config.updatedAt,
     },
   });
 }
@@ -37,14 +39,14 @@ export async function POST(req: NextRequest) {
     const baseUrl = body.baseUrl?.trim() || undefined;
 
     if (!modelId) {
-      return apiError('MISSING_REQUIRED_FIELD', 400, 'modelId is required');
+      return apiError('MISSING_REQUIRED_FIELD', 400, '请填写固定模型 ID（modelId）');
     }
 
-    if (!apiKey) {
-      return apiError('MISSING_REQUIRED_FIELD', 400, 'apiKey is required');
-    }
-
-    const saved = await updateSystemLLMConfig({ modelId, apiKey, baseUrl });
+    const saved = await updateSystemLLMConfig({
+      modelId,
+      ...(apiKey ? { apiKey } : {}),
+      baseUrl,
+    });
     return apiSuccess({
       config: {
         providerId: saved.providerId,
@@ -52,6 +54,8 @@ export async function POST(req: NextRequest) {
         baseUrl: saved.baseUrl || '',
         hasApiKey: saved.hasApiKey,
         maskedApiKey: saved.apiKeyMasked,
+        source: saved.source,
+        updatedAt: saved.updatedAt,
       },
     });
   } catch (error) {
