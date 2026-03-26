@@ -27,10 +27,13 @@ async function ensureConversation(args: {
   targetName: string;
 }): Promise<string> {
   const q = new URLSearchParams({
-    courseId: args.courseId,
     kind: args.kind,
     targetId: args.targetId,
   });
+  // notebook 会话按 targetId 复用，避免因 course 上下文变化创建重复会话
+  if (args.kind !== 'notebook') {
+    q.set('courseId', args.courseId);
+  }
   const listed = await backendJson<{ conversations: ConversationRow[] }>(`/api/conversations?${q.toString()}`);
   if (listed.conversations.length > 0) {
     return listed.conversations[0].id;
@@ -52,15 +55,21 @@ async function ensureConversation(args: {
 }
 
 export async function loadContactMessages<T>(
-  courseId: string,
+  courseId: string | null | undefined,
   kind: ContactConversationKind,
   targetId: string,
+  options?: {
+    /** 为 notebook 会话提供「仅按 targetId」读取能力，避免受当前课程上下文影响 */
+    ignoreCourseId?: boolean;
+  },
 ): Promise<T[]> {
   const q = new URLSearchParams({
-    courseId,
     kind,
     targetId,
   });
+  if (courseId?.trim() && !options?.ignoreCourseId) {
+    q.set('courseId', courseId.trim());
+  }
   const listed = await backendJson<{ conversations: ConversationRow[] }>(`/api/conversations?${q.toString()}`);
   const conversation = listed.conversations[0];
   if (!conversation) return [];

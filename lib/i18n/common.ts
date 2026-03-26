@@ -41,6 +41,7 @@ export const commonZhCN = {
     ttsHint: '选择 AI 教师的朗读音色',
     ttsPreview: '试听',
     ttsPreviewing: '播放中...',
+    ttsVoiceListEmpty: '暂无可选音色，请在设置 → 语音合成中检查。',
   },
   export: {
     pptx: '导出 PPTX',
@@ -98,6 +99,7 @@ export const commonEnUS = {
     ttsTitle: 'Text-to-Speech',
     ttsHint: 'Choose a voice for the AI teacher',
     ttsPreview: 'Preview',
+    ttsVoiceListEmpty: 'No voices available. Check TTS under Settings.',
     ttsPreviewing: 'Playing...',
   },
   export: {

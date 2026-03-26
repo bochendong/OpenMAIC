@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { Globe, Paperclip, FileText, X, Globe2 } from 'lucide-react';
+import { useState, useRef, useMemo } from 'react';
+import { Globe, Paperclip, FileText, X, Globe2, Volume2 } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -20,6 +20,9 @@ import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
 import type { WebSearchProviderId } from '@/lib/web-search/types';
 import type { SettingsSection } from '@/lib/types/settings';
 import { MediaPopover } from '@/components/generation/media-popover';
+import { Button } from '@/components/ui/button';
+import { getTTSVoices } from '@/lib/audio/constants';
+import { voiceRowBlurb } from '@/lib/audio/voice-display';
 
 // ─── Constants ───────────────────────────────────────────────
 const MAX_PDF_SIZE_MB = 50;
@@ -354,4 +357,104 @@ export function GenerationModelSelector({
 }) {
   const currentModelId = useSettingsStore((s) => s.modelId);
   return <SystemModelBadge modelId={currentModelId} />;
+}
+
+/** 朗读音色：与设置 → 语音合成中的 TTS 音色一致，可快速切换 */
+export function ComposerVoiceSelector({
+  onSettingsOpen,
+}: {
+  onSettingsOpen: (section?: SettingsSection) => void;
+}) {
+  const { t, locale } = useI18n();
+  const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
+  const ttsVoice = useSettingsStore((s) => s.ttsVoice);
+  const setTTSVoice = useSettingsStore((s) => s.setTTSVoice);
+  const [open, setOpen] = useState(false);
+
+  const voices = useMemo(() => getTTSVoices(ttsProviderId), [ttsProviderId]);
+  const currentLabel = useMemo(() => {
+    const v = voices.find((x) => x.id === ttsVoice);
+    return v?.name ?? ttsVoice;
+  }, [voices, ttsVoice]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                'inline-flex max-w-[min(100%,11rem)] items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-xs font-medium select-none',
+                'border-emerald-200/70 bg-emerald-50 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-100',
+              )}
+              aria-haspopup="dialog"
+              aria-expanded={open}
+            >
+              <Volume2 className="size-3.5 shrink-0 opacity-90" aria-hidden />
+              <span className="min-w-0 truncate">{currentLabel}</span>
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">{t('toolbar.ttsHint')}</TooltipContent>
+      </Tooltip>
+      <PopoverContent className="w-[min(100vw-1.5rem,22rem)] p-0 sm:w-[26rem]" align="start" sideOffset={6}>
+        <div className="border-b border-border/60 px-3 py-2">
+          <p className="text-xs font-medium text-foreground">{t('toolbar.ttsTitle')}</p>
+          <p className="text-[11px] text-muted-foreground">{t('toolbar.ttsHint')}</p>
+        </div>
+        <div className="max-h-64 overflow-y-auto p-1.5">
+          {voices.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-muted-foreground">{t('toolbar.ttsVoiceListEmpty')}</p>
+          ) : (
+            voices.map((v) => {
+              const blurb = voiceRowBlurb(v, t, locale);
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  className={cn(
+                    'flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
+                    v.id === ttsVoice
+                      ? 'bg-primary/12 font-medium text-primary'
+                      : 'text-foreground hover:bg-muted/80',
+                  )}
+                  onClick={() => {
+                    setTTSVoice(v.id);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="min-w-0 shrink-0 font-medium">{v.name}</span>
+                  {blurb ? (
+                    <span
+                      className={cn(
+                        'min-w-0 flex-1 text-right text-[11px] leading-snug text-muted-foreground line-clamp-3',
+                        v.id === ttsVoice && 'text-primary/80',
+                      )}
+                    >
+                      {blurb}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })
+          )}
+        </div>
+        <div className="border-t border-border/60 p-1.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full text-xs text-muted-foreground"
+            onClick={() => {
+              setOpen(false);
+              onSettingsOpen('tts');
+            }}
+          >
+            {t('toolbar.advancedSettings')}…
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }

@@ -3,11 +3,19 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Bot, ChevronLeft, ChevronRight, Loader2, NotebookPen, Settings } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Loader2, NotebookPen, Settings, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import {
   COURSE_ORCHESTRATOR_AVATAR,
@@ -15,9 +23,11 @@ import {
   COURSE_ORCHESTRATOR_NAME,
 } from '@/lib/constants/course-chat';
 import { listAgentsForCourse, type CourseAgentListItem } from '@/lib/utils/course-agents';
-import { listStagesByCourse, type StageListItem } from '@/lib/utils/stage-storage';
+import { listStagesByCourse, loadStageData, type StageListItem } from '@/lib/utils/stage-storage';
 import { listActiveAgentTasksByCourse } from '@/lib/utils/agent-task-storage';
 import type { AgentTaskRecord } from '@/lib/utils/database';
+import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
+import type { Scene, SlideContent } from '@/lib/types/stage';
 
 const surfaceClass = cn(
   'flex h-full flex-col overflow-hidden apple-glass-heavy',
@@ -43,6 +53,11 @@ const profileSectionLabel = cn(
 
 const profileBodyText = cn(
   'text-[13px] leading-relaxed text-[#1d1d1f]/88 dark:text-white/[0.82]',
+);
+
+const sceneLikeItemClass = cn(
+  'group relative flex cursor-pointer flex-col rounded-[12px] p-2 transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
+  'border border-slate-900/[0.06] bg-white/55 hover:bg-white/75 dark:border-white/[0.1] dark:bg-black/20 dark:hover:bg-black/35',
 );
 
 function notebookTagClass() {
@@ -80,8 +95,12 @@ const ORCHESTRATOR_AGENT: CourseAgentListItem = {
   isGenerated: false,
 };
 
-/** 有课程上下文时优先进入「创建/课堂」页查看与创建页一致的生成进度；否则回退到对应聊天会话。 */
+/** 已绑定笔记本时进入互动教室；否则进入创建页；无课程时回退到聊天。 */
 function taskProgressHref(courseId: string | null | undefined, t: AgentTaskRecord): string {
+  const nid = t.notebookId?.trim();
+  if (nid) {
+    return `/classroom/${encodeURIComponent(nid)}`;
+  }
   const cid = courseId?.trim();
   if (cid) {
     return `/create?courseId=${encodeURIComponent(cid)}`;
@@ -94,6 +113,10 @@ function taskProgressHref(courseId: string | null | undefined, t: AgentTaskRecor
 
 function taskKindLabel(kind: AgentTaskRecord['contactKind']): string {
   return kind === 'notebook' ? '笔记本' : 'Agent';
+}
+
+function isMockTaskLike(task: Pick<AgentTaskRecord, 'title' | 'detail'>): boolean {
+  return /mock/i.test(task.title || '') || /\[mock\]/i.test(task.detail || '');
 }
 
 export interface ChatRightRailProps {
@@ -112,9 +135,15 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
 
   const [notebookStage, setNotebookStage] = useState<StageListItem | null>(null);
   const [resolvedAgent, setResolvedAgent] = useState<CourseAgentListItem | null>(null);
+  const [courseStages, setCourseStages] = useState<StageListItem[]>([]);
+  const [courseAgents, setCourseAgents] = useState<CourseAgentListItem[]>([]);
   const [profileLoading, setProfileLoading] = useState(false);
   const [activeTasks, setActiveTasks] = useState<AgentTaskRecord[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
+  const [notebookScenes, setNotebookScenes] = useState<Scene[]>([]);
+  const [notebookScenesLoading, setNotebookScenesLoading] = useState(false);
+  const [scenePreviewOpen, setScenePreviewOpen] = useState(false);
+  const [previewScene, setPreviewScene] = useState<Scene | null>(null);
 
   const createHref = courseId
     ? `/create?courseId=${encodeURIComponent(courseId)}`
@@ -124,6 +153,8 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
     if (!courseId) {
       setNotebookStage(null);
       setResolvedAgent(null);
+      setCourseStages([]);
+      setCourseAgents([]);
       return;
     }
     let alive = true;
@@ -135,6 +166,8 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
           listAgentsForCourse(courseId),
         ]);
         if (!alive) return;
+        setCourseStages(stages);
+        setCourseAgents(agents);
         if (notebookId) {
           setNotebookStage(stages.find((s) => s.id === notebookId) ?? null);
         } else {
@@ -159,6 +192,31 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
   }, [courseId, notebookId, agentId]);
 
   useEffect(() => {
+    if (!notebookId) {
+      setNotebookScenes([]);
+      setNotebookScenesLoading(false);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      setNotebookScenesLoading(true);
+      try {
+        const data = await loadStageData(notebookId);
+        if (!alive) return;
+        const scenes = (data?.scenes ?? []).slice().sort((a, b) => a.order - b.order);
+        setNotebookScenes(scenes);
+      } catch {
+        if (alive) setNotebookScenes([]);
+      } finally {
+        if (alive) setNotebookScenesLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [notebookId]);
+
+  useEffect(() => {
     if (!courseId) {
       setActiveTasks([]);
       return;
@@ -169,7 +227,7 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
       try {
         const tasks = await listActiveAgentTasksByCourse(courseId);
         if (!alive) return;
-        setActiveTasks(tasks);
+        setActiveTasks(tasks.filter((t) => !isMockTaskLike(t)));
       } catch {
         if (alive) setActiveTasks([]);
       } finally {
@@ -185,6 +243,54 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
   }, [courseId]);
 
   const activeTaskCount = activeTasks.length;
+
+  const taskContactAvatar = (t: AgentTaskRecord) => {
+    if (t.contactKind === 'agent') {
+      const agent =
+        t.contactId === COURSE_ORCHESTRATOR_ID
+          ? ORCHESTRATOR_AGENT
+          : courseAgents.find((a) => a.id === t.contactId);
+      const src = agent?.avatar?.trim() || '';
+      if (src && isImageAvatar(src)) {
+        return (
+          <img
+            src={src}
+            alt=""
+            className="size-8 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+          />
+        );
+      }
+      return (
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-xs font-semibold text-violet-800 ring-1 ring-black/5 dark:text-violet-200 dark:ring-white/10">
+          {(agent?.name || 'A').slice(0, 1)}
+        </div>
+      );
+    }
+    const notebook = courseStages.find((s) => s.id === t.contactId);
+    const src = notebook?.avatarUrl?.trim() || '';
+    if (src && isImageAvatar(src)) {
+      return (
+        <img
+          src={src}
+          alt=""
+          className="size-8 shrink-0 rounded-lg object-cover ring-1 ring-black/5 dark:ring-white/10"
+        />
+      );
+    }
+    return (
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50 text-[11px] font-semibold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+        <NotebookPen className="size-3.5" strokeWidth={1.8} />
+      </div>
+    );
+  };
+
+  const taskActorLabel = (t: AgentTaskRecord): string => {
+    if (t.contactKind === 'agent') {
+      if (t.contactId === COURSE_ORCHESTRATOR_ID) return COURSE_ORCHESTRATOR_NAME;
+      return courseAgents.find((a) => a.id === t.contactId)?.name || `Agent · ${t.contactId.slice(0, 10)}`;
+    }
+    return courseStages.find((s) => s.id === t.contactId)?.name || `笔记本 · ${t.contactId.slice(0, 10)}`;
+  };
 
   const profileBody = () => {
     if (!courseId) {
@@ -377,37 +483,157 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
           <li key={t.id}>
             <Link
               href={taskProgressHref(courseId, t)}
-              title="进入课堂查看创建进度"
+              title="进入互动教室查看生成进度"
               className="block rounded-[12px] border border-slate-900/[0.08] bg-white/50 p-2.5 transition-colors hover:bg-white/80 dark:border-white/[0.1] dark:bg-black/20 dark:hover:bg-black/35"
             >
-              <div className="flex items-start justify-between gap-2">
-                <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-                  {t.title}
-                </span>
-                <span
-                  className={cn(
-                    'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
-                    t.status === 'waiting'
-                      ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
-                      : 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
-                  )}
-                >
-                  {t.status === 'waiting' ? '等待' : '运行'}
-                </span>
+              <div className="flex items-start gap-2.5">
+                {taskContactAvatar(t)}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+                      {t.title}
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                        t.status === 'waiting'
+                          ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                          : 'bg-amber-500/15 text-amber-800 dark:text-amber-200',
+                      )}
+                    >
+                      {t.status === 'waiting' ? '等待' : '运行'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {taskKindLabel(t.contactKind)} · {taskActorLabel(t)}
+                  </p>
+                  {t.detail ? (
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                      {t.detail}
+                    </p>
+                  ) : null}
+                  <p className="mt-1.5 text-[10px] text-muted-foreground/90">
+                    {t.notebookId?.trim() ? '点击进入互动教室' : '点击进入创建页（生成开始后可进教室）'}
+                  </p>
+                </div>
               </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                {taskKindLabel(t.contactKind)} · {t.contactId.slice(0, 14)}
-                {t.contactId.length > 14 ? '…' : ''}
-              </p>
-              {t.detail ? (
-                <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-muted-foreground">{t.detail}</p>
-              ) : null}
-              <p className="mt-1.5 text-[10px] text-muted-foreground/90">
-                点击进入课堂查看创建进度
-              </p>
             </Link>
           </li>
         ))}
+      </ul>
+    );
+  };
+
+  const sceneLikeBody = () => {
+    if (!courseId) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-8 text-center">
+          <p className="max-w-[220px] text-xs leading-relaxed text-muted-foreground">
+            进入课程后可查看该课程下的笔记本侧栏导航。
+          </p>
+        </div>
+      );
+    }
+    if (!notebookId) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-8 text-center">
+          <p className="max-w-[220px] text-xs leading-relaxed text-muted-foreground">
+            请先在「当前对象」中选择一个笔记本，即可在这里看到该对象的 slides 列表。
+          </p>
+        </div>
+      );
+    }
+    if (profileLoading || notebookScenesLoading) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center py-10">
+          <Loader2 className="size-6 animate-spin text-[#007AFF] dark:text-[#0A84FF]" />
+        </div>
+      );
+    }
+    if (notebookScenes.length === 0) {
+      return (
+        <div className="flex min-h-0 flex-1 items-center justify-center px-3 py-8 text-center">
+          <p className="max-w-[220px] text-xs leading-relaxed text-muted-foreground">
+            当前对象还没有可展示的 slides。
+          </p>
+        </div>
+      );
+    }
+    return (
+      <ul className="flex list-none flex-col gap-2 p-0">
+        {notebookScenes.map((scene, idx) => {
+          const isSlide = scene.type === 'slide';
+          const slideContent = isSlide ? (scene.content as SlideContent) : null;
+          return (
+            <li key={scene.id}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  setPreviewScene(scene);
+                  setScenePreviewOpen(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setPreviewScene(scene);
+                    setScenePreviewOpen(true);
+                  }
+                }}
+                className={cn(
+                  sceneLikeItemClass,
+                  'ring-1 ring-[rgba(0,122,255,0.22)] bg-[rgba(0,122,255,0.08)] dark:ring-[rgba(10,132,255,0.35)] dark:bg-[rgba(10,132,255,0.14)]',
+                )}
+                title={scene.title}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="relative mb-1.5 aspect-video w-full overflow-hidden rounded-[9px] ring-1 ring-slate-900/[0.08] dark:ring-white/[0.1]">
+                    {isSlide && slideContent ? (
+                      <div className="relative h-full w-full">
+                        <ThumbnailSlide
+                          slide={slideContent.canvas}
+                          size={223}
+                          viewportSize={slideContent.canvas.viewportSize ?? 1000}
+                          viewportRatio={slideContent.canvas.viewportRatio ?? 0.5625}
+                        />
+                        <span
+                          className={cn(
+                            'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
+                            'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
+                          )}
+                          aria-hidden
+                        >
+                          {idx + 1}
+                        </span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex h-full w-full items-center justify-center bg-slate-100/80 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-slate-300">
+                          {scene.type === 'quiz'
+                            ? '测验'
+                            : scene.type === 'interactive'
+                              ? '交互'
+                              : scene.type === 'pbl'
+                                ? '项目式学习'
+                                : scene.type}
+                        </div>
+                        <span
+                          className={cn(
+                            'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
+                            'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
+                          )}
+                          aria-hidden
+                        >
+                          {idx + 1}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </li>
+          );
+        })}
       </ul>
     );
   };
@@ -477,7 +703,10 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
             <Tabs defaultValue="profile" className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-900/[0.08] px-2 pb-2 pt-2 dark:border-white/[0.08]">
                 <TabsList
-                  className="grid min-h-9 min-w-0 flex-1 grid-cols-2"
+                  className={cn(
+                    'grid min-h-9 min-w-0 flex-1',
+                    notebookId ? 'grid-cols-3' : 'grid-cols-2',
+                  )}
                   variant="default"
                 >
                   <TabsTrigger value="profile" className="text-xs">
@@ -498,6 +727,11 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
                       </span>
                     ) : null}
                   </TabsTrigger>
+                  {notebookId ? (
+                    <TabsTrigger value="scene-like" className="text-xs">
+                      侧栏导航
+                    </TabsTrigger>
+                  ) : null}
                 </TabsList>
                 <button
                   type="button"
@@ -518,12 +752,74 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
               >
                 {activeTasksBody()}
               </TabsContent>
+              {notebookId ? (
+                <TabsContent
+                  value="scene-like"
+                  className={cn(scrollClass, 'mt-0 flex min-h-0 flex-1 flex-col')}
+                >
+                  {sceneLikeBody()}
+                </TabsContent>
+              ) : null}
             </Tabs>
             <div className="shrink-0 border-t border-slate-900/[0.08] px-2 py-2 dark:border-white/[0.08]">
               <AppCoreNavList collapsed={false} tooltipSide="left" />
             </div>
           </>
         )}
+        <Dialog
+          modal={false}
+          open={scenePreviewOpen}
+          onOpenChange={(open) => {
+            setScenePreviewOpen(open);
+            if (!open) setPreviewScene(null);
+          }}
+        >
+          <DialogContent
+            showOverlay={false}
+            showCloseButton={false}
+            className="w-[min(92vw,860px)] max-w-[860px] overflow-hidden p-4"
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{previewScene?.title || '场景预览'}</DialogTitle>
+              <DialogDescription>仅预览当前这张 slides。</DialogDescription>
+            </DialogHeader>
+            <DialogClose
+              className={cn(
+                'absolute right-3 top-3 z-20 inline-flex size-8 items-center justify-center rounded-full',
+                'border border-slate-900/[0.08] bg-white/78 text-slate-700 backdrop-blur-md transition-all',
+                'hover:bg-white hover:text-slate-900 hover:shadow-sm',
+                'dark:border-white/[0.14] dark:bg-black/45 dark:text-slate-200 dark:hover:bg-black/65 dark:hover:text-white',
+              )}
+              aria-label="关闭预览"
+            >
+              <X className="size-4" />
+            </DialogClose>
+            <div className="mt-2 flex items-center justify-center overflow-auto rounded-[12px] border border-slate-900/[0.08] bg-white/85 p-2 dark:border-white/[0.1] dark:bg-black/30">
+              {!previewScene ? (
+                <p className="px-2 py-6 text-sm text-muted-foreground">暂无可预览内容。</p>
+              ) : previewScene.content.type === 'slide' ? (
+                <ThumbnailSlide
+                  slide={previewScene.content.canvas}
+                  size={760}
+                  viewportSize={previewScene.content.canvas.viewportSize ?? 1000}
+                  viewportRatio={previewScene.content.canvas.viewportRatio ?? 0.5625}
+                />
+              ) : (
+                <p className="px-2 py-6 text-sm text-muted-foreground">
+                  该页为
+                  {previewScene.type === 'quiz'
+                    ? '测验'
+                    : previewScene.type === 'interactive'
+                      ? '交互'
+                      : previewScene.type === 'pbl'
+                        ? '项目式学习'
+                        : '非幻灯片'}
+                  ，暂无幻灯片可预览。
+                </p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </aside>
   );

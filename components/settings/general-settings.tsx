@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,12 +21,21 @@ import { clearDatabase } from '@/lib/utils/database';
 import { toast } from 'sonner';
 import { createLogger } from '@/lib/logger';
 import { cn } from '@/lib/utils';
+import {
+  getStoredApplyNotebookWrites,
+  setStoredApplyNotebookWrites,
+} from '@/lib/utils/notebook-write-preference';
 
 const log = createLogger('GeneralSettings');
 
 export function GeneralSettings() {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
+
+  const [applyNotebookWrites, setApplyNotebookWrites] = useState(true);
+  useEffect(() => {
+    setApplyNotebookWrites(getStoredApplyNotebookWrites());
+  }, []);
 
   // Clear cache state
   const [showClearDialog, setShowClearDialog] = useState(false);
@@ -116,6 +126,27 @@ export function GeneralSettings() {
               </Button>
             ))}
           </div>
+        </div>
+
+        <div className="h-px bg-border/60" />
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label className="text-sm font-medium">{t('settings.notebookChatWrites')}</Label>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {t('settings.notebookChatWritesDesc')}
+            </p>
+          </div>
+          <Checkbox
+            className="mt-1 shrink-0 sm:mt-0.5"
+            checked={applyNotebookWrites}
+            onCheckedChange={(v) => {
+              const next = v === true;
+              setApplyNotebookWrites(next);
+              setStoredApplyNotebookWrites(next);
+            }}
+            aria-label={t('settings.notebookChatWrites')}
+          />
         </div>
       </div>
 

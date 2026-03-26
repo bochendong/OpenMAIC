@@ -26,6 +26,12 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+function isImageUrl(src: string | null | undefined): src is string {
+  const s = src?.trim();
+  if (!s) return false;
+  return s.startsWith('/') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('data:');
+}
+
 /** 对齐 notebook-agent-sidebar `notebookCardStyles.notebookCardSx` + `NotebookCard.js` 布局 */
 
 interface CourseGalleryCardProps {
@@ -112,13 +118,15 @@ export function CourseGalleryCard({
 
   /** 无课件缩略图时使用专用封面图（非头像素材），按 id 稳定映射 */
   const galleryCoverUrl = pickStableGalleryCoverUrl(course.id);
+  const coverImageUrl = isImageUrl(coverAvatarUrl) ? coverAvatarUrl.trim() : galleryCoverUrl;
 
   return (
     <article
       className={cn(
-        'apple-glass group flex h-full cursor-pointer flex-col overflow-hidden rounded-[24px]',
-        'transition-[transform,box-shadow,border-color] duration-300 ease-out',
-        'hover:-translate-y-1.5 hover:shadow-[0_18px_48px_rgba(15,23,42,0.16)] dark:hover:shadow-[0_22px_56px_rgba(0,0,0,0.42)]',
+        'apple-glass relative flex h-full cursor-pointer flex-col overflow-hidden rounded-[24px]',
+        'border border-white/45 dark:border-white/10',
+        'shadow-[0_18px_48px_rgba(15,23,42,0.1),0_8px_18px_rgba(15,23,42,0.05)]',
+        'dark:shadow-[0_24px_64px_rgba(0,0,0,0.34),0_10px_24px_rgba(0,0,0,0.18)]',
       )}
     >
       {/* 封面区 — NotebookCard CardMedia h:188 + 渐变遮罩 */}
@@ -135,16 +143,16 @@ export function CourseGalleryCard({
               viewportRatio={slide.viewportRatio ?? 0.5625}
             />
           ) : (
-            // eslint-disable-next-line @next/next/no-img-element -- public/covers 矢量图
+            // eslint-disable-next-line @next/next/no-img-element -- public/covers 与头像图
             <img
-              src={galleryCoverUrl}
+              src={coverImageUrl}
               alt=""
               className="absolute inset-0 size-full object-cover object-center"
             />
           )}
         </div>
         <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/5 via-black/[0.1] to-black/[0.28] dark:from-black/10 dark:via-black/20 dark:to-black/[0.42]"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/[0.03] via-black/[0.07] to-black/[0.32] dark:from-black/10 dark:via-black/20 dark:to-black/[0.46]"
           aria-hidden
         />
         <div
@@ -208,12 +216,16 @@ export function CourseGalleryCard({
       </div>
 
       {/* 正文 — NotebookCard CardContent */}
-      <div className="flex min-h-0 flex-1 flex-col px-5 pb-5 pt-4">
+      <div className="relative flex min-h-0 flex-1 flex-col px-5 pb-5 pt-4">
+        <div
+          className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/70 to-transparent dark:via-white/18"
+          aria-hidden
+        />
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-1 items-center gap-3 pr-1">
             <div
               className={cn(
-                'size-12 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white/65 dark:border-white/10 dark:bg-white/5',
+                'size-12 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white/65 shadow-[0_10px_24px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-white/5',
                 coverAvatarUrl?.trim()
                   ? 'ring-1 ring-slate-200/80 dark:ring-white/10'
                   : 'flex items-center justify-center',

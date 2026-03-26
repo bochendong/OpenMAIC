@@ -6,6 +6,8 @@ export const settingsZhCN = {
     languageDesc: '选择界面语言',
     theme: '主题',
     themeDesc: '选择主题模式（浅色/深色/跟随系统）',
+    notebookChatWrites: '允许根据回答写入笔记本',
+    notebookChatWritesDesc: '在笔记本对话中，允许 AI 根据回答插入、更新或删除页面。默认开启。',
     themeOptions: {
       light: '浅色',
       dark: '深色',
@@ -601,6 +603,9 @@ export const settingsEnUS = {
     languageDesc: 'Select interface language',
     theme: 'Theme',
     themeDesc: 'Select theme mode (Light/Dark/System)',
+    notebookChatWrites: 'Allow answer-based notebook writes',
+    notebookChatWritesDesc:
+      'In notebook chat, allow the AI to insert, update, or delete pages based on answers. On by default.',
     themeOptions: {
       light: 'Light',
       dark: 'Dark',

@@ -18,6 +18,8 @@ const createEnvelopeSchema = z.object({
   ]),
   payload: z.unknown(),
   taskStatus: z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'cancelled']).optional(),
+  /** 关联互动笔记本，与 `/classroom/[id]` 一致 */
+  taskNotebookId: z.string().trim().min(1).max(120).optional(),
   taskResult: z.unknown().optional(),
   taskError: z.string().trim().max(4000).optional(),
 });
@@ -75,13 +77,32 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       },
     });
 
-    if (payload.data.taskStatus || payload.data.taskResult || payload.data.taskError) {
+    const p = payload.data.payload as { detail?: string; title?: string } | null | undefined;
+    const shouldUpdateTask =
+      payload.data.taskStatus ||
+      payload.data.taskResult ||
+      payload.data.taskError ||
+      payload.data.taskNotebookId ||
+      (p != null && typeof p === 'object' && (p.detail !== undefined || p.title !== undefined));
+
+    if (shouldUpdateTask) {
+      let mergedRequest: Record<string, unknown> | undefined;
+      if (p != null && typeof p === 'object' && (p.detail !== undefined || p.title !== undefined)) {
+        const cur = await prisma.agentTask.findFirst({ where: { id }, select: { request: true } });
+        const base = (cur?.request as Record<string, unknown> | null) || {};
+        mergedRequest = { ...base };
+        if (p.detail !== undefined) mergedRequest.detail = p.detail;
+        if (p.title !== undefined) mergedRequest.title = p.title;
+      }
+
       await prisma.agentTask.update({
         where: { id },
         data: {
           ...(payload.data.taskStatus ? { status: payload.data.taskStatus } : {}),
+          ...(payload.data.taskNotebookId ? { notebookId: payload.data.taskNotebookId } : {}),
           ...(payload.data.taskResult ? { result: toPrismaNullableJson(payload.data.taskResult) } : {}),
           ...(payload.data.taskError ? { error: payload.data.taskError } : {}),
+          ...(mergedRequest ? { request: toPrismaNullableJson(mergedRequest) } : {}),
         },
       });
     }

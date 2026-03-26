@@ -5,6 +5,8 @@ export const chatZhCN = {
     startConversation: '输入消息开始对话',
     noMessages: '暂无消息',
     send: '发送',
+    notebookWritesDisabledHint:
+      '检测到这次问题适合补充 slides；如需自动生成，请在「设置 → 系统设置」中开启「允许根据回答写入笔记本」。',
     ended: '已结束',
     unknown: '未知',
     stopDiscussion: '结束讨论',
@@ -77,6 +79,8 @@ export const chatEnUS = {
     startConversation: 'Type a message below to begin chatting',
     noMessages: 'No messages yet',
     send: 'Send',
+    notebookWritesDisabledHint:
+      'This answer could benefit from slides. To auto-generate them, enable “Allow answer-based notebook writes” under Settings → System.',
     ended: 'ended',
     unknown: 'Unknown',
     stopDiscussion: 'Stop Discussion',

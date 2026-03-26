@@ -1,21 +1,20 @@
 /**
  * 课程/笔记本卡片顶部封面用图（与头像素材无关）；按 seed 稳定映射。
- * 资源位于 `public/covers/`。
+ * 默认改为免费风景资源，优先使用课程自己的 `avatarUrl`，否则落到此处的稳定壁纸。
+ *
+ * Sources:
+ * - Pexels / Pixabay via Pexels（free to use）
  */
-export const GALLERY_COVER_PUBLIC_PREFIX = '/covers/';
-
-const FILENAMES = [
-  'cover-01.svg',
-  'cover-02.svg',
-  'cover-03.svg',
-  'cover-04.svg',
-  'cover-05.svg',
-  'cover-06.svg',
-  'cover-07.svg',
-  'cover-08.svg',
+const FILES: readonly string[] = [
+  'https://images.pexels.com/photos/458798/pexels-photo-458798.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/13728513/pexels-photo-13728513.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/30440583/pexels-photo-30440583.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/13872330/pexels-photo-13872330.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/69941/pexels-photo-69941.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/2070307/pexels-photo-2070307.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/27822439/pexels-photo-27822439.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  'https://images.pexels.com/photos/12266687/pexels-photo-12266687.jpeg?auto=compress&cs=tinysrgb&w=1600',
 ] as const;
-
-const FILES: readonly string[] = FILENAMES;
 
 function hashStringToUint32(s: string): number {
   let h = 2166136261;
@@ -28,7 +27,7 @@ function hashStringToUint32(s: string): number {
 
 /** 按 id 稳定选择一张封面图（无课件缩略图时使用） */
 export function pickStableGalleryCoverUrl(seed: string): string {
-  if (FILES.length === 0) return `${GALLERY_COVER_PUBLIC_PREFIX}cover-01.svg`;
+  if (FILES.length === 0) return '';
   const i = hashStringToUint32(seed) % FILES.length;
-  return `${GALLERY_COVER_PUBLIC_PREFIX}${FILES[i]}`;
+  return FILES[i];
 }

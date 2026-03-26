@@ -35,6 +35,7 @@ export type NotebookGenerationProgress =
   | { stage: 'pdf-analysis'; detail: string }
   | { stage: 'research'; detail: string; sources?: WebSearchSource[] }
   | { stage: 'metadata'; detail: string }
+  | { stage: 'notebook-ready'; detail: string; notebookId: string }
   | { stage: 'agents'; detail: string }
   | { stage: 'outline'; detail: string; completed?: number }
   | { stage: 'scene'; detail: string; completed: number; total: number }
@@ -614,6 +615,18 @@ export async function runNotebookGenerationTask(
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+
+    await saveStageData(stage.id, {
+      stage,
+      scenes: [],
+      currentSceneId: null,
+      chats: [],
+    });
+    input.onProgress?.({
+      stage: 'notebook-ready',
+      detail: `已进入教室「${stage.name}」，正在准备讲解角色与页面内容…`,
+      notebookId: stage.id,
+    });
 
     input.onProgress?.({ stage: 'agents', detail: '正在准备讲解角色…' });
     const agents = await maybeGenerateAgents({

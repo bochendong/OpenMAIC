@@ -20,6 +20,13 @@ function purposeLabel(p: CourseRecord['purpose']): string {
   return '日常使用';
 }
 
+function courseSecondaryLabel(course: CourseRecord): string {
+  const base = purposeLabel(course.purpose);
+  if (course.purpose !== 'university') return base;
+  const uniBits = [course.university?.trim(), course.courseCode?.trim()].filter(Boolean);
+  return uniBits.length > 0 ? `${base} · ${uniBits.join(' · ')}` : base;
+}
+
 export default function CourseStorePage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -161,7 +168,7 @@ export default function CourseStorePage() {
                     tags={course.tags.length > 0 ? course.tags : undefined}
                     badge="我的课程"
                     subtitle={formatDate(course.updatedAt)}
-                    secondaryLabel="课程空间"
+                    secondaryLabel={courseSecondaryLabel(course)}
                     countUnit="个笔记本"
                     actionLabel="进入课程"
                     onAction={() => router.push(`/course/${course.id}`)}

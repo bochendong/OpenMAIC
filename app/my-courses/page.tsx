@@ -25,6 +25,19 @@ function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
 }
 
+function purposeLabel(p: CourseRecord['purpose']): string {
+  if (p === 'research') return '科研';
+  if (p === 'university') return '大学课程';
+  return '日常使用';
+}
+
+function courseSecondaryLabel(course: CourseRecord): string {
+  const base = purposeLabel(course.purpose);
+  if (course.purpose !== 'university') return base;
+  const uniBits = [course.university?.trim(), course.courseCode?.trim()].filter(Boolean);
+  return uniBits.length > 0 ? `${base} · ${uniBits.join(' · ')}` : base;
+}
+
 export default function MyCoursesPage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
@@ -91,8 +104,37 @@ export default function MyCoursesPage() {
     <div className="min-h-full w-full apple-mesh-bg relative overflow-hidden">
       {/* Animated background orbs */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="animate-orb-1 absolute -top-40 left-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(0,122,255,0.07)_0%,transparent_70%)]" />
-        <div className="animate-orb-2 absolute bottom-0 right-1/4 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,rgba(88,86,214,0.06)_0%,transparent_70%)]" />
+        <motion.div
+          className="apple-wallpaper-layer-1 absolute inset-[-12%]"
+          animate={{ x: [0, 36, -24, 0], y: [0, -42, 18, 0], scale: [1, 1.06, 0.98, 1] }}
+          transition={{ duration: 28, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="apple-wallpaper-layer-2 absolute inset-[-14%]"
+          animate={{ x: [0, -44, 22, 0], y: [0, 34, -20, 0], scale: [1, 1.08, 0.96, 1] }}
+          transition={{ duration: 34, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="apple-wallpaper-layer-3 absolute inset-[-18%]"
+          animate={{ x: [0, 16, -12, 0], y: [0, -20, 10, 0], scale: [1, 1.04, 1, 1] }}
+          transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute -top-40 left-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(0,122,255,0.1)_0%,transparent_72%)]"
+          animate={{ x: [0, 22, -16, 0], y: [0, -24, 12, 0], scale: [1, 1.08, 0.94, 1] }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute bottom-0 right-1/4 h-[600px] w-[600px] rounded-full bg-[radial-gradient(circle,rgba(88,86,214,0.09)_0%,transparent_72%)]"
+          animate={{ x: [0, -26, 18, 0], y: [0, 24, -14, 0], scale: [1, 1.1, 0.92, 1] }}
+          transition={{ duration: 24, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute left-[8%] top-[52%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(255,94,136,0.11)_0%,transparent_72%)] dark:bg-[radial-gradient(circle,rgba(255,94,136,0.15)_0%,transparent_74%)]"
+          animate={{ x: [0, 14, -10, 0], y: [0, 16, -12, 0], scale: [1, 1.06, 0.96, 1] }}
+          transition={{ duration: 16, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <div className="apple-wallpaper-noise absolute inset-0" />
       </div>
 
       <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-12 pt-8 md:px-8">
@@ -206,7 +248,6 @@ export default function MyCoursesPage() {
                       duration: 0.5,
                       ease: [0.25, 0.46, 0.45, 0.94],
                     }}
-                    className="apple-card-hover"
                   >
                     <CourseGalleryCard
                       listIndex={i}
@@ -214,7 +255,7 @@ export default function MyCoursesPage() {
                       tags={course.tags.length > 0 ? course.tags : undefined}
                       badge="我的课程"
                       subtitle={formatDate(course.updatedAt)}
-                      secondaryLabel="课程空间"
+                      secondaryLabel={courseSecondaryLabel(course)}
                       countUnit="个笔记本"
                       actionLabel="进入课程"
                       onAction={() => router.push(`/course/${course.id}`)}
@@ -237,7 +278,7 @@ export default function MyCoursesPage() {
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent
-          className="max-h-[min(90dvh,720px)] w-full max-w-lg gap-0 overflow-y-auto rounded-[20px] border-0 p-6 apple-glass sm:max-w-lg"
+          className="max-h-[min(90dvh,720px)] w-full max-w-2xl gap-0 overflow-y-auto rounded-[20px] border-0 p-6 apple-glass sm:max-w-2xl"
           showCloseButton
         >
           <DialogHeader className="pr-8 text-left">
@@ -268,7 +309,7 @@ export default function MyCoursesPage() {
         }}
       >
         <DialogContent
-          className="max-h-[min(90dvh,720px)] w-full max-w-lg gap-0 overflow-y-auto rounded-[20px] border-0 p-6 apple-glass sm:max-w-lg"
+          className="max-h-[min(90dvh,720px)] w-full max-w-2xl gap-0 overflow-y-auto rounded-[20px] border-0 p-6 apple-glass sm:max-w-2xl"
           showCloseButton
         >
           <DialogHeader className="pr-8 text-left">

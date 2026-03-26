@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ArrowLeft, Loader2, Download, FileDown, Package, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Loader2, Download, FileDown, Package, AlertCircle, Volume2 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -10,6 +10,8 @@ import { useStageStore } from '@/lib/store';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useExportPPTX } from '@/lib/export/use-export-pptx';
+import { useSettingsStore } from '@/lib/store/settings';
+import { getActiveVoiceDisplay } from '@/lib/audio/voice-display';
 
 interface HeaderProps {
   readonly currentSceneTitle: string;
@@ -20,8 +22,14 @@ interface HeaderProps {
 }
 
 export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
+  const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
+  const ttsVoice = useSettingsStore((s) => s.ttsVoice);
+  const voiceDisplay = useMemo(
+    () => getActiveVoiceDisplay(ttsProviderId, ttsVoice, t, locale),
+    [ttsProviderId, ttsVoice, t, locale],
+  );
 
   const stageCourseId = useStageStore((s) => s.stage?.courseId?.trim());
   const contextCourseId = useCurrentCourseStore((s) => s.id);
@@ -116,6 +124,28 @@ export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProp
             >
               {currentSceneTitle || t('common.loading')}
             </h1>
+            <p
+              className="mt-1 flex min-h-[1.125rem] items-center gap-1.5 truncate text-[11px] leading-tight text-[#86868b] dark:text-[#a1a1a6]"
+              title={
+                voiceDisplay.blurb
+                  ? `${t('stage.ttsVoiceLabel')}：${voiceDisplay.name} — ${voiceDisplay.blurb}`
+                  : `${t('stage.ttsVoiceLabel')}：${voiceDisplay.name}`
+              }
+            >
+              <Volume2 className="size-3 shrink-0 opacity-90" aria-hidden />
+              <span className="min-w-0 truncate">
+                <span className="text-[10px] font-semibold uppercase tracking-wide">
+                  {t('stage.ttsVoiceLabel')}
+                </span>
+                <span className="mx-1 text-[#86868b]/80 dark:text-[#a1a1a6]/80">·</span>
+                <span className="font-medium text-[#1d1d1f]/85 dark:text-white/85">
+                  {voiceDisplay.name}
+                </span>
+                {voiceDisplay.blurb ? (
+                  <span className="text-[#86868b] dark:text-[#a1a1a6]"> — {voiceDisplay.blurb}</span>
+                ) : null}
+              </span>
+            </p>
           </div>
         </div>
 

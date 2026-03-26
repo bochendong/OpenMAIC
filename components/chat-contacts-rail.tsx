@@ -83,6 +83,7 @@ function GroupChatThumb() {
 }
 
 const NOTEBOOK_CHAT_PREVIEW_EVENT = 'openmaic-notebook-chat-updated';
+const NOTEBOOK_LIST_UPDATED_EVENT = 'openmaic-notebook-list-updated';
 
 function matchesContactSearch(
   needle: string,
@@ -123,6 +124,19 @@ export function ChatContactsRail({
   const [loading, setLoading] = useState(true);
   const [notebookLastPreview, setNotebookLastPreview] = useState<Record<string, string>>({});
   const [notebookActivityAt, setNotebookActivityAt] = useState<Record<string, number>>({});
+  const [groupChatHasMessages, setGroupChatHasMessages] = useState(false);
+
+  const refreshNotebooks = useCallback(async () => {
+    if (!courseId) {
+      setNotebooks([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const nbs = await listStagesByCourse(courseId);
+    setNotebooks(nbs);
+    setLoading(false);
+  }, [courseId]);
 
   const refreshNotebookPreviews = useCallback(async () => {
     if (!courseId || notebooks.length === 0) {
@@ -137,6 +151,7 @@ export function ChatContactsRail({
             courseId,
             'notebook',
             nb.id,
+            { ignoreCourseId: true },
           );
           const p = lastNotebookChatPreview(msgs);
           const activity = lastNotebookChatActivityAt(msgs);
@@ -180,6 +195,7 @@ export function ChatContactsRail({
             courseId,
             'notebook',
             nid,
+            { ignoreCourseId: true },
           );
           const p = lastNotebookChatPreview(msgs);
           const activity = lastNotebookChatActivityAt(msgs);
@@ -206,6 +222,30 @@ export function ChatContactsRail({
 
   useEffect(() => {
     if (!courseId) {
+      setGroupChatHasMessages(false);
+      return;
+    }
+    let alive = true;
+    const groupTargetId = `${COURSE_ORCHESTRATOR_ID}::group`;
+    const sync = async () => {
+      try {
+        const msgs = await loadContactMessages<unknown[]>(courseId, 'agent', groupTargetId);
+        if (!alive) return;
+        setGroupChatHasMessages(msgs.length > 0);
+      } catch {
+        if (alive) setGroupChatHasMessages(false);
+      }
+    };
+    void sync();
+    const timer = window.setInterval(sync, 2000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [courseId]);
+
+  useEffect(() => {
+    if (!courseId) {
       setNotebooks([]);
       setLoading(false);
       return;
@@ -222,6 +262,17 @@ export function ChatContactsRail({
       alive = false;
     };
   }, [courseId]);
+
+  useEffect(() => {
+    const onNotebookListUpdated = (ev: Event) => {
+      const ce = ev as CustomEvent<{ courseId?: string }>;
+      if (!courseId || ce.detail?.courseId !== courseId) return;
+      void refreshNotebooks();
+    };
+    window.addEventListener(NOTEBOOK_LIST_UPDATED_EVENT, onNotebookListUpdated as EventListener);
+    return () =>
+      window.removeEventListener(NOTEBOOK_LIST_UPDATED_EVENT, onNotebookListUpdated as EventListener);
+  }, [courseId, refreshNotebooks]);
 
   useEffect(() => {
     if (!courseId) {
@@ -336,35 +387,41 @@ export function ChatContactsRail({
         </h3>
       )}
       <ul className="flex list-none flex-col gap-0.5 p-0">
-        <li>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                href={groupChatHref}
-                className={contactRowClass(collapsed, groupChatActive)}
-                aria-current={groupChatActive ? 'page' : undefined}
-              >
-                <GroupChatThumb />
-                {!collapsed && (
-                  <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-                    <span className="w-full truncate font-medium leading-tight">{groupChatLabel}</span>
-                    <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
-                      课程内协作会话
+        {groupChatHasMessages ? (
+          <li>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  href={groupChatHref}
+                  className={contactRowClass(collapsed, groupChatActive)}
+                  aria-current={groupChatActive ? 'page' : undefined}
+                >
+                  <GroupChatThumb />
+                  {!collapsed && (
+                    <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                      <span className="w-full truncate font-medium leading-tight">{groupChatLabel}</span>
+                      <span className="w-full truncate text-[10px] font-normal text-muted-foreground">
+                        课程内协作会话
+                      </span>
                     </span>
-                  </span>
-                )}
-                {orchestratorBusy ? (
-                  <span className="size-2.5 shrink-0 rounded-full bg-amber-500" aria-label="处理中" />
-                ) : null}
-              </Link>
-            </TooltipTrigger>
-            {collapsed && (
-              <TooltipContent side="right">
-                {groupChatLabel} · 课程内协作会话
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </li>
+                  )}
+                  {orchestratorBusy ? (
+                    <span className="size-2.5 shrink-0 rounded-full bg-amber-500" aria-label="处理中" />
+                  ) : null}
+                </Link>
+              </TooltipTrigger>
+              {collapsed && (
+                <TooltipContent side="right">
+                  {groupChatLabel} · 课程内协作会话
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </li>
+        ) : !collapsed ? (
+          <li>
+            <p className="px-2 py-2 text-xs text-muted-foreground">本课程暂无群聊</p>
+          </li>
+        ) : null}
       </ul>
     </section>
   ) : null;

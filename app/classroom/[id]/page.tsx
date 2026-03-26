@@ -26,6 +26,8 @@ export default function ClassroomDetailPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 加载阶段说明；若有进行中的 Agent 任务则轮询写入与总控侧栏一致 */
+  const [loadingSubtitle, setLoadingSubtitle] = useState<string>('正在连接服务器并读取笔记本…');
 
   const generationStartedRef = useRef(false);
 
@@ -37,11 +39,13 @@ export default function ClassroomDetailPage() {
 
   const loadClassroom = useCallback(async () => {
     try {
+      setLoadingSubtitle('正在从服务器加载笔记本与页面…');
       await loadFromStorage(classroomId);
 
       // If IndexedDB had no data, try server-side storage (API-generated classrooms)
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
+        setLoadingSubtitle('正在从课程服务拉取笔记本数据…');
         try {
           const res = await fetch(`/api/classroom?id=${encodeURIComponent(classroomId)}`);
           if (res.ok) {
@@ -61,8 +65,10 @@ export default function ClassroomDetailPage() {
         }
       }
 
+      setLoadingSubtitle('正在恢复媒体生成任务与本地缓存…');
       // Restore completed media generation tasks from IndexedDB
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
+      setLoadingSubtitle('正在加载课程 Agent 配置…');
       // Restore generated agents for this stage
       const { loadGeneratedAgentsForStage } = await import('@/lib/orchestration/registry/store');
       const agentIds = await loadGeneratedAgentsForStage(classroomId);
@@ -78,11 +84,46 @@ export default function ClassroomDetailPage() {
     }
   }, [classroomId, loadFromStorage]);
 
+  /** 生成过程中从聊天/总控同步的任务详情（与右侧「进行中」一致） */
+  useEffect(() => {
+    if (!loading || !classroomId?.trim()) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(
+          `/api/agent-tasks?notebookId=${encodeURIComponent(classroomId.trim())}`,
+          { credentials: 'same-origin' },
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          tasks: Array<{ status: string; request?: unknown }>;
+        };
+        const active = data.tasks.find(
+          (t) => t.status === 'running' || t.status === 'waiting' || t.status === 'queued',
+        );
+        if (!active || cancelled) return;
+        const req = (active.request || {}) as { detail?: string };
+        if (typeof req.detail === 'string' && req.detail.trim()) {
+          setLoadingSubtitle(req.detail.trim());
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 1200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [loading, classroomId]);
+
   useEffect(() => {
     // Reset loading state on course switch to unmount Stage during transition,
     // preventing stale data from syncing back to the new course
     setLoading(true);
     setError(null);
+    setLoadingSubtitle('正在连接服务器并读取笔记本…');
     generationStartedRef.current = false;
 
     // Clear previous classroom's media tasks to prevent cross-classroom contamination.
@@ -183,9 +224,12 @@ export default function ClassroomDetailPage() {
       <MediaStageProvider value={classroomId}>
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           {loading ? (
-            <div className="apple-mesh-bg flex flex-1 items-center justify-center">
-              <div className="apple-glass rounded-[20px] px-8 py-6 text-center text-[#86868b] dark:text-[#a1a1a6]">
-                <p className="text-sm font-medium text-[#1d1d1f] dark:text-white">Loading classroom…</p>
+            <div className="apple-mesh-bg flex flex-1 items-center justify-center px-4">
+              <div className="apple-glass max-w-md rounded-[20px] px-8 py-6 text-center">
+                <p className="text-sm font-medium text-[#1d1d1f] dark:text-white">正在加载教室</p>
+                <p className="mt-2 text-xs leading-relaxed text-[#86868b] dark:text-[#a1a1a6]">
+                  {loadingSubtitle}
+                </p>
               </div>
             </div>
           ) : error ? (

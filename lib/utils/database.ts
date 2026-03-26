@@ -160,6 +160,8 @@ export type AgentTaskContactKind = 'notebook' | 'agent';
 export interface AgentTaskRecord {
   id: string;
   courseId: string;
+  /** 与互动教室 `/classroom/[id]`、Prisma `AgentTask.notebookId` 一致 */
+  notebookId?: string;
   parentTaskId?: string;
   contactKind: AgentTaskContactKind;
   contactId: string;

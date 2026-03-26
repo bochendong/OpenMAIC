@@ -5,6 +5,7 @@ import { backendJson } from '@/lib/utils/backend-api';
 type AgentTaskApi = {
   id: string;
   courseId: string | null;
+  notebookId?: string | null;
   sourceAgentId: string | null;
   targetAgentId: string | null;
   taskType: string;
@@ -31,14 +32,17 @@ function fromLegacyStatus(status?: AgentTaskStatus): AgentTaskApi['status'] {
 }
 
 function toLegacyRecord(api: AgentTaskApi, contactKind: AgentTaskContactKind, contactId: string): AgentTaskRecord {
+  const req = (api.request || {}) as { detail?: string; contactKind?: AgentTaskContactKind; contactId?: string };
+  const detailFromRequest = typeof req.detail === 'string' ? req.detail : undefined;
   return {
     id: api.id,
     courseId: api.courseId || '',
+    notebookId: api.notebookId?.trim() || undefined,
     contactKind,
     contactId,
     status: toLegacyStatus(api.status),
     title: api.taskType,
-    detail: api.error || undefined,
+    detail: detailFromRequest || api.error || undefined,
     createdAt: Date.parse(api.createdAt),
     updatedAt: Date.parse(api.updatedAt),
   };
@@ -78,7 +82,7 @@ export async function createAgentTask(args: {
 
 export async function updateAgentTask(
   id: string,
-  updates: Partial<Pick<AgentTaskRecord, 'status' | 'detail' | 'title' | 'lastEnvelope'>>,
+  updates: Partial<Pick<AgentTaskRecord, 'status' | 'detail' | 'title' | 'lastEnvelope' | 'notebookId'>>,
 ): Promise<void> {
   await backendJson<{ envelope: { id: string } }>(`/api/agent-tasks/${encodeURIComponent(id)}/envelopes`, {
     method: 'POST',
@@ -91,6 +95,7 @@ export async function updateAgentTask(
         lastEnvelope: updates.lastEnvelope,
       },
       taskStatus: updates.status ? fromLegacyStatus(updates.status) : undefined,
+      taskNotebookId: updates.notebookId?.trim() || undefined,
       taskResult: updates.lastEnvelope ? { lastEnvelope: updates.lastEnvelope } : undefined,
       taskError: updates.status === 'failed' ? updates.detail || '任务失败' : undefined,
     }),
@@ -103,6 +108,19 @@ export async function listActiveAgentTasksByCourse(courseId: string): Promise<Ag
   );
   return data.tasks
     .filter((r) => r.status === 'running' || r.status === 'waiting')
+    .map((r) => {
+      const req = (r.request || {}) as { contactKind?: AgentTaskContactKind; contactId?: string };
+      return toLegacyRecord(r, req.contactKind || 'agent', req.contactId || r.sourceAgentId || 'unknown');
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** 课程下全部任务（含已完成/失败），用于检测总控创建任务是否结束 */
+export async function listAgentTasksByCourse(courseId: string): Promise<AgentTaskRecord[]> {
+  const data = await backendJson<{ tasks: AgentTaskApi[] }>(
+    `/api/agent-tasks?courseId=${encodeURIComponent(courseId)}`,
+  );
+  return data.tasks
     .map((r) => {
       const req = (r.request || {}) as { contactKind?: AgentTaskContactKind; contactId?: string };
       return toLegacyRecord(r, req.contactKind || 'agent', req.contactId || r.sourceAgentId || 'unknown');

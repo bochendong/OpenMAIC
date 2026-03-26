@@ -1,11 +1,38 @@
 'use client';
 
+import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
 import type { NotebookGenerationProgress } from '@/lib/create/run-notebook-generation-task';
 import { StepVisualizer } from '@/app/generation-preview/components/visualizers';
 import { ALL_STEPS } from '@/app/generation-preview/types';
+import { COURSE_ORCHESTRATOR_AVATAR, COURSE_ORCHESTRATOR_NAME } from '@/lib/constants/course-chat';
+
+function OrchestratorProgressAvatar() {
+  const src = COURSE_ORCHESTRATOR_AVATAR?.trim() || '';
+  const isImage =
+    src.startsWith('/') || src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:');
+  if (isImage) {
+    return (
+      <img
+        src={src}
+        alt=""
+        className="size-9 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+      />
+    );
+  }
+  return (
+    <div
+      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-violet-500/15 text-sm font-medium text-violet-800 ring-1 ring-black/5 dark:text-violet-200 dark:ring-white/10"
+      title={COURSE_ORCHESTRATOR_NAME}
+      aria-hidden
+    >
+      {(src || COURSE_ORCHESTRATOR_NAME).slice(0, 1)}
+    </div>
+  );
+}
 
 function progressToVisualizerStepId(p: NotebookGenerationProgress): string {
   if (p.stage === 'completed') return 'outline';
@@ -18,6 +45,8 @@ function progressToVisualizerStepId(p: NotebookGenerationProgress): string {
       return 'web-search';
     case 'metadata':
       return 'agent-generation';
+    case 'notebook-ready':
+      return 'outline';
     case 'agents':
       return 'agent-generation';
     case 'outline':
@@ -34,6 +63,9 @@ function progressToVisualizerStepId(p: NotebookGenerationProgress): string {
 function progressMotionKey(p: NotebookGenerationProgress): string {
   if (p.stage === 'scene') {
     return `${p.stage}-${p.completed}`;
+  }
+  if (p.stage === 'notebook-ready') {
+    return `${p.stage}-${p.notebookId}`;
   }
   return p.stage;
 }
@@ -53,43 +85,85 @@ export function OrchestratorNotebookProgressPanel({
     progress.stage === 'research' && progress.sources?.length
       ? progress.sources.map((s) => ({ title: s.title, url: s.url }))
       : undefined;
+  const notebookLinkId =
+    progress.stage === 'completed' || progress.stage === 'notebook-ready'
+      ? progress.notebookId?.trim()
+      : undefined;
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-slate-900/[0.08] bg-white/85 px-3 py-3 shadow-sm dark:border-white/[0.1] dark:bg-black/35',
-        className,
-      )}
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-4">
-        <div className="relative flex h-[148px] w-full max-w-[200px] shrink-0 items-center justify-center sm:h-[160px] sm:max-w-[220px]">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={progressMotionKey(progress)}
-              initial={{ opacity: 0, scale: 0.92, filter: 'blur(6px)' }}
-              animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-              exit={{ opacity: 0, scale: 1.04, filter: 'blur(6px)' }}
-              transition={{ duration: 0.38 }}
-              className="flex w-full items-center justify-center"
-            >
-              <StepVisualizer
-                stepId={stepId}
-                outlines={[]}
-                webSearchSources={webSearchSources}
-              />
-            </motion.div>
-          </AnimatePresence>
+    <div className={cn('flex items-start gap-2', className)} role="status" aria-live="polite">
+      <OrchestratorProgressAvatar />
+      <div className="w-full max-w-[min(100%,640px)] rounded-xl border border-slate-900/[0.08] bg-white/85 px-3 py-3 shadow-sm dark:border-white/[0.1] dark:bg-black/35">
+        <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+          <div className="relative flex h-[148px] w-full max-w-[200px] shrink-0 items-center justify-center sm:h-[160px] sm:max-w-[220px]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={progressMotionKey(progress)}
+                initial={{ opacity: 0, scale: 0.92, filter: 'blur(6px)' }}
+                animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                exit={{ opacity: 0, scale: 1.04, filter: 'blur(6px)' }}
+                transition={{ duration: 0.38 }}
+                className="flex w-full items-center justify-center"
+              >
+                <StepVisualizer
+                  stepId={stepId}
+                  outlines={[]}
+                  webSearchSources={webSearchSources}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </div>
+          <div className="min-w-0 flex-1 text-center sm:text-left">
+            <p className="text-sm font-medium text-foreground">{title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{progress.detail}</p>
+            {progress.stage === 'scene' ? (
+              <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
+                页面 {progress.completed + 1} / {progress.total}
+              </p>
+            ) : null}
+            {notebookLinkId ? (
+              <Link
+                href={`/classroom/${encodeURIComponent(notebookLinkId)}`}
+                className="mt-2 inline-flex rounded-full border border-violet-500/25 bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-500/15 dark:text-violet-200"
+              >
+                查看笔记本
+              </Link>
+            ) : null}
+          </div>
         </div>
-        <div className="min-w-0 flex-1 text-center sm:text-left">
-          <p className="text-sm font-medium text-foreground">{title}</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{progress.detail}</p>
-          {progress.stage === 'scene' ? (
-            <p className="mt-2 text-[11px] tabular-nums text-muted-foreground">
-              页面 {progress.completed + 1} / {progress.total}
-            </p>
-          ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** 本地进度状态丢失时，用任务 API 上的 detail 与侧栏「进行中」对齐 */
+export function OrchestratorRemoteTaskBanner({
+  detail,
+  notebookId,
+  className,
+}: {
+  detail: string;
+  notebookId?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn('flex items-start gap-2', className)} role="status" aria-live="polite">
+      <OrchestratorProgressAvatar />
+      <div className="w-full max-w-[min(100%,640px)] rounded-xl border border-slate-900/[0.08] bg-white/85 px-3 py-3 shadow-sm dark:border-white/[0.1] dark:bg-black/35">
+        <div className="flex items-start gap-2.5">
+          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">笔记本生成进行中</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+            {notebookId?.trim() ? (
+              <Link
+                href={`/classroom/${encodeURIComponent(notebookId.trim())}`}
+                className="mt-2 inline-flex text-xs font-medium text-violet-700 underline-offset-4 hover:underline dark:text-violet-300"
+              >
+                进入互动教室查看页面生成
+              </Link>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
