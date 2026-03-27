@@ -19,6 +19,7 @@ import {
   Sigma,
   ScrollText,
   ListChecks,
+  Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -30,6 +31,14 @@ import { SpeechButton } from '@/components/audio/speech-button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useStageStore } from '@/lib/store';
 import { useAuthStore } from '@/lib/store/auth';
 import { clearQuestionProgress, setQuestionProgress } from '@/lib/utils/quiz-question-progress';
@@ -60,6 +69,11 @@ export interface QuizViewProps {
     results: QuestionResult[];
   };
   readonly onAttemptFinished?: () => void;
+  /** 课程测验中心等单题场景：顶栏在列表中上一题 / 下一题 */
+  readonly onHubPrevQuestion?: () => void;
+  readonly hubPrevDisabled?: boolean;
+  readonly onHubNextQuestion?: () => void;
+  readonly hubNextDisabled?: boolean;
 }
 
 function arraysEqual(a: string[], b: string[]): boolean {
@@ -526,6 +540,30 @@ function normalizeMarkdownForHighlightedCode(content: string, languageHint?: str
   return md;
 }
 
+function getDisplayQuestionText(question: QuizQuestion): string {
+  const raw = question.question?.trim() ?? '';
+  if (!raw || !question.codeSnippet?.trim()) return raw;
+
+  // If the question body accidentally embeds the same code already provided by `codeSnippet`,
+  // keep only the natural-language stem and let CodeBlock render the code once.
+  const snippetFirstLine = question.codeSnippet
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  if (snippetFirstLine) {
+    const exactIdx = raw.indexOf(snippetFirstLine);
+    if (exactIdx > 0) return raw.slice(0, exactIdx).trim();
+  }
+
+  const inlineCodeAnchor =
+    /\b(?:python|java|javascript|typescript|cpp|c\+\+|go|rust|racket|code)\b\s+(?=(?:def|class|function|import|from|public|const|let|var|for|if|while|print)\b)/i;
+  const m = inlineCodeAnchor.exec(raw);
+  if (m && m.index > 0) return raw.slice(0, m.index).trim();
+
+  return raw;
+}
+
 function RichText({
   content,
   className,
@@ -559,6 +597,7 @@ function ChoiceQuestion({
   disabled,
   result,
   multiSelect,
+  onQuestionUpdate,
 }: {
   question: QuizQuestion;
   index: number;
@@ -567,6 +606,7 @@ function ChoiceQuestion({
   disabled?: boolean;
   result?: QuestionResult;
   multiSelect: boolean;
+  onQuestionUpdate?: (questionId: string, patch: Partial<QuizQuestion>) => void;
 }) {
   const { t } = useI18n();
   const selected = toArray(value);
@@ -586,7 +626,12 @@ function ChoiceQuestion({
   };
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      onQuestionUpdate={onQuestionUpdate}
+    >
       {question.codeSnippet && (
         <div className="mb-3">
           <CodeBlock
@@ -677,6 +722,7 @@ function TextQuestion({
   disabled,
   result,
   locale,
+  onQuestionUpdate,
 }: {
   question: QuizQuestion;
   index: number;
@@ -685,6 +731,7 @@ function TextQuestion({
   disabled?: boolean;
   result?: QuestionResult;
   locale: string;
+  onQuestionUpdate?: (questionId: string, patch: Partial<QuizQuestion>) => void;
 }) {
   const { t } = useI18n();
   const isReview = !!result;
@@ -707,7 +754,12 @@ function TextQuestion({
   }, [value]);
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      onQuestionUpdate={onQuestionUpdate}
+    >
       {question.codeSnippet && (
         <div className="mb-3">
           <CodeBlock
@@ -791,6 +843,7 @@ function CodeQuestion({
   disabled,
   result,
   locale,
+  onQuestionUpdate,
 }: {
   question: QuizQuestion;
   index: number;
@@ -799,6 +852,7 @@ function CodeQuestion({
   disabled?: boolean;
   result?: QuestionResult;
   locale: string;
+  onQuestionUpdate?: (questionId: string, patch: Partial<QuizQuestion>) => void;
 }) {
   const isReview = !!result;
   const currentCode = value ?? question.starterCode ?? '';
@@ -809,7 +863,12 @@ function CodeQuestion({
   const languageDisplayName = getLanguageDisplayName(question.language);
 
   return (
-    <QuestionCard question={question} index={index} result={result}>
+    <QuestionCard
+      question={question}
+      index={index}
+      result={result}
+      onQuestionUpdate={onQuestionUpdate}
+    >
       <Tabs defaultValue={isReview ? 'result' : 'editor'} className="gap-3">
         <TabsList variant="line" className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="editor">{editorTitle}</TabsTrigger>
@@ -962,15 +1021,43 @@ function QuestionCard({
   index,
   result,
   children,
+  onQuestionUpdate,
 }: {
   question: QuizQuestion;
   index: number;
   result?: QuestionResult;
   children: ReactNode;
+  onQuestionUpdate?: (questionId: string, patch: Partial<QuizQuestion>) => void;
 }) {
   const { t, locale } = useI18n();
   const isReview = !!result;
   const pts = question.points ?? 1;
+  const [editOpen, setEditOpen] = useState(false);
+  const [draftQuestion, setDraftQuestion] = useState(question.question ?? '');
+  const [draftCodeSnippet, setDraftCodeSnippet] = useState(question.codeSnippet ?? '');
+  const [draftAnalysis, setDraftAnalysis] = useState(question.analysis ?? '');
+  const [draftPoints, setDraftPoints] = useState(String(question.points ?? 1));
+
+  useEffect(() => {
+    if (!editOpen) {
+      setDraftQuestion(question.question ?? '');
+      setDraftCodeSnippet(question.codeSnippet ?? '');
+      setDraftAnalysis(question.analysis ?? '');
+      setDraftPoints(String(question.points ?? 1));
+    }
+  }, [editOpen, question]);
+
+  const handleSaveQuestionEdit = useCallback(() => {
+    if (!onQuestionUpdate) return;
+    const parsedPoints = Number.parseInt(draftPoints, 10);
+    onQuestionUpdate(question.id, {
+      question: draftQuestion.trim(),
+      codeSnippet: draftCodeSnippet.trim() || undefined,
+      analysis: draftAnalysis.trim() || undefined,
+      points: Number.isFinite(parsedPoints) && parsedPoints > 0 ? parsedPoints : question.points ?? 1,
+    });
+    setEditOpen(false);
+  }, [onQuestionUpdate, question, draftQuestion, draftCodeSnippet, draftAnalysis, draftPoints]);
 
   return (
     <motion.div
@@ -998,7 +1085,7 @@ function QuestionCard({
       />
 
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-start gap-3 min-w-0">
+        <div className="flex flex-1 w-full items-start gap-3 min-w-0">
           <span
             className={cn(
               'w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0',
@@ -1014,9 +1101,9 @@ function QuestionCard({
           >
             {index + 1}
           </span>
-          <div className="min-w-0">
+          <div className="min-w-0 w-full">
             <RichText
-              content={question.question}
+              content={getDisplayQuestionText(question)}
               languageHint={question.language}
               className="text-sm font-medium text-gray-800 dark:text-gray-100 leading-relaxed"
             />
@@ -1038,12 +1125,20 @@ function QuestionCard({
             </div>
           </div>
         </div>
-        {isReview && (
-          <div className="shrink-0 ml-2">
-            {result.status === 'correct' && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
-            {result.status === 'incorrect' && <XCircle className="w-6 h-6 text-red-400" />}
-          </div>
-        )}
+        <div className="shrink-0 ml-2 flex items-center gap-1">
+          {!isReview && onQuestionUpdate && (
+            <button
+              type="button"
+              onClick={() => setEditOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-violet-50 hover:text-violet-600 dark:text-gray-400 dark:hover:bg-violet-900/30 dark:hover:text-violet-400"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              {locale === 'zh-CN' ? '编辑' : 'Edit'}
+            </button>
+          )}
+          {isReview && result.status === 'correct' && <CheckCircle2 className="w-6 h-6 text-emerald-500" />}
+          {isReview && result.status === 'incorrect' && <XCircle className="w-6 h-6 text-red-400" />}
+        </div>
       </div>
 
       {children}
@@ -1054,6 +1149,64 @@ function QuestionCard({
           <RichText content={question.analysis} languageHint={question.language} className="mt-1" />
         </div>
       )}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{locale === 'zh-CN' ? '编辑题目' : 'Edit Question'}</DialogTitle>
+            <DialogDescription>
+              {locale === 'zh-CN' ? '保存后会立即更新当前题目展示与作答。' : 'Changes apply immediately to this quiz view.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">{locale === 'zh-CN' ? '题干' : 'Question'}</p>
+              <Textarea value={draftQuestion} onChange={(e) => setDraftQuestion(e.target.value)} rows={3} />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                {locale === 'zh-CN' ? '代码片段（可选）' : 'Code Snippet (optional)'}
+              </p>
+              <Textarea
+                value={draftCodeSnippet}
+                onChange={(e) => setDraftCodeSnippet(e.target.value)}
+                rows={6}
+                className="font-mono text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">{locale === 'zh-CN' ? '解析（可选）' : 'Analysis (optional)'}</p>
+              <Textarea value={draftAnalysis} onChange={(e) => setDraftAnalysis(e.target.value)} rows={3} />
+            </div>
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">{locale === 'zh-CN' ? '分值' : 'Points'}</p>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={draftPoints}
+                onChange={(e) => setDraftPoints(e.target.value)}
+                className="h-9 w-28 rounded-md border border-input bg-background px-3 text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="inline-flex h-9 items-center rounded-md border border-input px-3 text-sm"
+            >
+              {locale === 'zh-CN' ? '取消' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveQuestionEdit}
+              className="inline-flex h-9 items-center rounded-md bg-violet-600 px-3 text-sm text-white hover:bg-violet-700"
+            >
+              {locale === 'zh-CN' ? '保存' : 'Save'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
@@ -1153,6 +1306,7 @@ function renderQuestion(
   handleSetAnswer: (value: AnswerValue) => void,
   result: QuestionResult | undefined,
   locale: string,
+  onQuestionUpdate?: (questionId: string, patch: Partial<QuizQuestion>) => void,
 ) {
   if (isCodeQuestion(question)) {
     return (
@@ -1165,6 +1319,7 @@ function renderQuestion(
         disabled={!!result}
         result={result}
         locale={locale}
+        onQuestionUpdate={onQuestionUpdate}
       />
     );
   }
@@ -1180,6 +1335,7 @@ function renderQuestion(
         disabled={!!result}
         result={result}
         multiSelect={question.type === 'multiple'}
+        onQuestionUpdate={onQuestionUpdate}
       />
     );
   }
@@ -1194,6 +1350,7 @@ function renderQuestion(
       disabled={!!result}
       result={result}
       locale={locale}
+      onQuestionUpdate={onQuestionUpdate}
     />
   );
 }
@@ -1204,6 +1361,10 @@ export function QuizView({
   singleQuestionMode = false,
   initialSnapshot,
   onAttemptFinished,
+  onHubPrevQuestion,
+  hubPrevDisabled = false,
+  onHubNextQuestion,
+  hubNextDisabled = false,
 }: QuizViewProps) {
   const { t, locale } = useI18n();
   const stageId = useStageStore((s) => s.stage?.id ?? '');
@@ -1221,6 +1382,20 @@ export function QuizView({
   );
   const [results, setResults] = useState<QuestionResult[]>(() => initialSnapshot?.results ?? []);
   const [answeringQuestionIndex, setAnsweringQuestionIndex] = useState(0);
+  const [questionEdits, setQuestionEdits] = useState<Record<string, Partial<QuizQuestion>>>({});
+
+  const effectiveQuestions = useMemo(
+    () => questions.map((q) => ({ ...q, ...(questionEdits[q.id] ?? {}) })),
+    [questions, questionEdits],
+  );
+
+  const handleQuestionUpdate = useCallback((questionId: string, patch: Partial<QuizQuestion>) => {
+    setQuestionEdits((prev) => ({ ...prev, [questionId]: { ...(prev[questionId] ?? {}), ...patch } }));
+  }, []);
+
+  useEffect(() => {
+    setQuestionEdits({});
+  }, [questions]);
 
   const draftKey =
     singleQuestionMode && questions[0]
@@ -1243,26 +1418,26 @@ export function QuizView({
   }
 
   const totalPoints = useMemo(
-    () => questions.reduce((sum, q) => sum + (q.points ?? 1), 0),
-    [questions],
+    () => effectiveQuestions.reduce((sum, q) => sum + (q.points ?? 1), 0),
+    [effectiveQuestions],
   );
 
   const answeredCount = useMemo(
     () =>
-      questions.filter((question) => {
+      effectiveQuestions.filter((question) => {
         const answer = getEffectiveAnswer(question, answers[question.id]);
         if (Array.isArray(answer)) return answer.length > 0;
         return typeof answer === 'string' && answer.trim().length > 0;
       }).length,
-    [questions, answers],
+    [effectiveQuestions, answers],
   );
 
-  const allAnswered = answeredCount === questions.length;
+  const allAnswered = answeredCount === effectiveQuestions.length;
 
   useEffect(() => {
-    if (questions.length === 0) return;
-    setAnsweringQuestionIndex((idx) => Math.max(0, Math.min(idx, questions.length - 1)));
-  }, [questions.length]);
+    if (effectiveQuestions.length === 0) return;
+    setAnsweringQuestionIndex((idx) => Math.max(0, Math.min(idx, effectiveQuestions.length - 1)));
+  }, [effectiveQuestions.length]);
 
   const handleSetAnswer = useCallback(
     (questionId: string, value: AnswerValue) => {
@@ -1285,9 +1460,9 @@ export function QuizView({
     let cancelled = false;
 
     (async () => {
-      const objectiveResults = gradeObjectiveQuestions(questions, answers);
+      const objectiveResults = gradeObjectiveQuestions(effectiveQuestions, answers);
       const textResults = await Promise.all(
-        questions
+        effectiveQuestions
           .filter((question) => isTextQuestion(question) && !isObjectiveQuestion(question))
           .map((question) =>
             gradeTextQuestion(
@@ -1298,7 +1473,7 @@ export function QuizView({
           ),
       );
       const codeResults = await Promise.all(
-        questions
+        effectiveQuestions
           .filter(isCodeQuestion)
           .map((question) =>
             gradeCodeQuestion(
@@ -1315,7 +1490,7 @@ export function QuizView({
       [...objectiveResults, ...textResults, ...codeResults].forEach((result) => {
         allResultsMap.set(result.questionId, result);
       });
-      const ordered = questions
+      const ordered = effectiveQuestions
         .map((question) => allResultsMap.get(question.id))
         .filter(Boolean) as QuestionResult[];
       setResults(ordered);
@@ -1325,7 +1500,7 @@ export function QuizView({
     return () => {
       cancelled = true;
     };
-  }, [phase, questions, answers, locale]);
+  }, [phase, effectiveQuestions, answers, locale]);
 
   const persistDoneRef = useRef(false);
 
@@ -1343,13 +1518,13 @@ export function QuizView({
     if (
       phase !== 'reviewing' ||
       !singleQuestionMode ||
-      questions.length !== 1 ||
+      effectiveQuestions.length !== 1 ||
       !stageId ||
       persistDoneRef.current
     ) {
       return;
     }
-    const question = questions[0];
+    const question = effectiveQuestions[0];
     const result = results.find((entry) => entry.questionId === question.id);
     if (!result) return;
     persistDoneRef.current = true;
@@ -1371,7 +1546,7 @@ export function QuizView({
   }, [
     phase,
     singleQuestionMode,
-    questions,
+    effectiveQuestions,
     results,
     answers,
     sceneId,
@@ -1381,8 +1556,8 @@ export function QuizView({
   ]);
 
   const handleRetry = useCallback(() => {
-    if (singleQuestionMode && questions.length === 1 && stageId) {
-      clearQuestionProgress(stageId, userId, sceneId, questions[0].id);
+    if (singleQuestionMode && effectiveQuestions.length === 1 && stageId) {
+      clearQuestionProgress(stageId, userId, sceneId, effectiveQuestions[0].id);
     }
     setAnsweringQuestionIndex(0);
     setPhase(singleQuestionMode ? 'answering' : 'not_started');
@@ -1393,7 +1568,7 @@ export function QuizView({
   }, [
     clearAnswersCache,
     singleQuestionMode,
-    questions,
+    effectiveQuestions,
     stageId,
     userId,
     sceneId,
@@ -1424,7 +1599,7 @@ export function QuizView({
             className="flex-1"
           >
             <QuizCover
-              questionCount={questions.length}
+              questionCount={effectiveQuestions.length}
               totalPoints={totalPoints}
               onStart={() => {
                 setAnsweringQuestionIndex(0);
@@ -1449,32 +1624,66 @@ export function QuizView({
                   {t('quiz.answering')}
                 </span>
                 <span className="text-xs text-gray-400 ml-1">
-                  {questions.length > 1
+                  {effectiveQuestions.length > 1
                     ? locale === 'zh-CN'
-                      ? `第 ${answeringQuestionIndex + 1} / ${questions.length} 题 · 已答 ${answeredCount}`
-                      : `Q${answeringQuestionIndex + 1}/${questions.length} · ${answeredCount} answered`
-                    : `${answeredCount} / ${questions.length}`}
+                      ? `第 ${answeringQuestionIndex + 1} / ${effectiveQuestions.length} 题 · 已答 ${answeredCount}`
+                      : `Q${answeringQuestionIndex + 1}/${effectiveQuestions.length} · ${answeredCount} answered`
+                    : `${answeredCount} / ${effectiveQuestions.length}`}
                 </span>
               </div>
-              <button
-                onClick={handleSubmit}
-                disabled={!allAnswered}
-                className={cn(
-                  'px-4 py-1.5 rounded-lg text-xs font-medium transition-all',
-                  allAnswered
-                    ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm hover:shadow-md hover:shadow-violet-200/50 dark:hover:shadow-violet-900/50 active:scale-[0.97]'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed',
+              <div className="flex items-center gap-2">
+                {onHubPrevQuestion && (
+                  <button
+                    type="button"
+                    onClick={onHubPrevQuestion}
+                    disabled={hubPrevDisabled}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                      hubPrevDisabled
+                        ? 'cursor-not-allowed text-gray-300 dark:text-gray-600'
+                        : 'text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30',
+                    )}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    {t('quiz.prevQuestion')}
+                  </button>
                 )}
-              >
-                {t('quiz.submitAnswers')}
-              </button>
+                {onHubNextQuestion && (
+                  <button
+                    type="button"
+                    onClick={onHubNextQuestion}
+                    disabled={hubNextDisabled}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                      hubNextDisabled
+                        ? 'cursor-not-allowed text-gray-300 dark:text-gray-600'
+                        : 'text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30',
+                    )}
+                  >
+                    {t('quiz.nextQuestion')}
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  onClick={handleSubmit}
+                  disabled={!allAnswered}
+                  className={cn(
+                    'px-4 py-1.5 rounded-lg text-xs font-medium transition-all',
+                    allAnswered
+                      ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white shadow-sm hover:shadow-md hover:shadow-violet-200/50 dark:hover:shadow-violet-900/50 active:scale-[0.97]'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed',
+                  )}
+                >
+                  {t('quiz.submitAnswers')}
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 flex flex-col min-h-0">
               <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-                {(questions.length > 1
-                  ? [{ question: questions[answeringQuestionIndex], index: answeringQuestionIndex }]
-                  : questions.map((question, index) => ({ question, index }))
+                {(effectiveQuestions.length > 1
+                  ? [{ question: effectiveQuestions[answeringQuestionIndex], index: answeringQuestionIndex }]
+                  : effectiveQuestions.map((question, index) => ({ question, index }))
                 ).map(({ question, index }) =>
                   renderQuestion(
                     question,
@@ -1483,10 +1692,11 @@ export function QuizView({
                     (value) => handleSetAnswer(question.id, value),
                     undefined,
                     locale,
+                    handleQuestionUpdate,
                   ),
                 )}
               </div>
-              {questions.length > 1 && (
+              {effectiveQuestions.length > 1 && (
                 <div className="shrink-0 flex items-center justify-between gap-3 px-6 py-3 border-t border-gray-100 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 backdrop-blur">
                   <button
                     type="button"
@@ -1503,17 +1713,19 @@ export function QuizView({
                     {t('quiz.prevQuestion')}
                   </button>
                   <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-                    {answeringQuestionIndex + 1} / {questions.length}
+                    {answeringQuestionIndex + 1} / {effectiveQuestions.length}
                   </span>
                   <button
                     type="button"
-                    disabled={answeringQuestionIndex >= questions.length - 1}
+                    disabled={answeringQuestionIndex >= effectiveQuestions.length - 1}
                     onClick={() =>
-                      setAnsweringQuestionIndex((i) => Math.min(questions.length - 1, i + 1))
+                      setAnsweringQuestionIndex((i) =>
+                        Math.min(effectiveQuestions.length - 1, i + 1),
+                      )
                     }
                     className={cn(
                       'inline-flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                      answeringQuestionIndex >= questions.length - 1
+                      answeringQuestionIndex >= effectiveQuestions.length - 1
                         ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
                         : 'text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30',
                     )}
@@ -1574,20 +1786,54 @@ export function QuizView({
                   {t('quiz.quizReport')}
                 </span>
               </div>
-              <button
-                onClick={handleRetry}
-                className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                {t('quiz.retry')}
-              </button>
+              <div className="flex items-center gap-2">
+                {onHubPrevQuestion && (
+                  <button
+                    type="button"
+                    onClick={onHubPrevQuestion}
+                    disabled={hubPrevDisabled}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                      hubPrevDisabled
+                        ? 'cursor-not-allowed text-gray-300 dark:text-gray-600'
+                        : 'text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30',
+                    )}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    {t('quiz.prevQuestion')}
+                  </button>
+                )}
+                {onHubNextQuestion && (
+                  <button
+                    type="button"
+                    onClick={onHubNextQuestion}
+                    disabled={hubNextDisabled}
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+                      hubNextDisabled
+                        ? 'cursor-not-allowed text-gray-300 dark:text-gray-600'
+                        : 'text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/30',
+                    )}
+                  >
+                    {t('quiz.nextQuestion')}
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  onClick={handleRetry}
+                  className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {t('quiz.retry')}
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-              {!(singleQuestionMode && questions.length === 1) && (
+              {!(singleQuestionMode && effectiveQuestions.length === 1) && (
                 <ScoreBanner score={earnedScore} total={totalPoints} results={results} />
               )}
-              {questions.map((question, index) =>
+              {effectiveQuestions.map((question, index) =>
                 renderQuestion(
                   question,
                   index,
@@ -1595,6 +1841,7 @@ export function QuizView({
                   () => {},
                   resultMap[question.id],
                   locale,
+                  handleQuestionUpdate,
                 ),
               )}
             </div>

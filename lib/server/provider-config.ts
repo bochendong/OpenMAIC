@@ -423,12 +423,14 @@ function rowsFromSection(section: Record<string, ServerProviderEntry>): SiteProv
 
 /** 图像 / TTS / 网络搜索：当前进程内已加载的服务端配置（YAML + 环境变量），不含密钥明文 */
 export function getSiteProviderAdminView(): {
+  llm: SiteProviderAdminRow[];
   image: SiteProviderAdminRow[];
   tts: SiteProviderAdminRow[];
   webSearch: SiteProviderAdminRow[];
 } {
   const cfg = getConfig();
   return {
+    llm: rowsFromSection(cfg.providers),
     image: rowsFromSection(cfg.image),
     tts: rowsFromSection(cfg.tts),
     webSearch: rowsFromSection(cfg.webSearch),
@@ -437,11 +439,22 @@ export function getSiteProviderAdminView(): {
 
 /** 各提供方对应的环境变量名，供管理员在 .env / 托管面板中配置 */
 export function getAdminProviderEnvHints(): {
+  llm: Record<string, { apiKey: string; baseUrl: string; models: string }>;
   image: Record<string, { apiKey: string; baseUrl: string; models: string }>;
   tts: Record<string, { apiKey: string; baseUrl: string }>;
   webSearch: Record<string, { apiKey: string; baseUrl: string }>;
 } {
   return {
+    llm: Object.fromEntries(
+      Object.entries(LLM_ENV_MAP).map(([prefix, pid]) => [
+        pid,
+        {
+          apiKey: `${prefix}_API_KEY`,
+          baseUrl: `${prefix}_BASE_URL`,
+          models: `${prefix}_MODELS`,
+        },
+      ]),
+    ),
     image: Object.fromEntries(
       Object.entries(IMAGE_ENV_MAP).map(([prefix, pid]) => [
         pid,

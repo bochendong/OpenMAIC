@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
@@ -14,13 +16,17 @@ import {
   XCircle,
   Eye,
   EyeOff,
+  Image as ImageIcon,
   Zap,
   Plus,
   Settings2,
   Trash2,
+  ShieldCheck,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ImageProviderId } from '@/lib/media/types';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface ImageSettingsProps {
   selectedProviderId: ImageProviderId;
@@ -31,7 +37,8 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
 
   const imageModelId = useSettingsStore((state) => state.imageModelId);
   const imageProvidersConfig = useSettingsStore((state) => state.imageProvidersConfig);
-  const _setImageModelId = useSettingsStore((state) => state.setImageModelId);
+  const setImageModelId = useSettingsStore((state) => state.setImageModelId);
+  const setImageProvider = useSettingsStore((state) => state.setImageProvider);
   const setImageProviderConfig = useSettingsStore((state) => state.setImageProviderConfig);
 
   const [showApiKey, setShowApiKey] = useState(false);
@@ -64,6 +71,36 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
     () => Object.values(imageProvidersConfig).some((c) => c?.isServerConfigured),
     [imageProvidersConfig],
   );
+  const serverProviderIds = useMemo(
+    () =>
+      (Object.keys(imageProvidersConfig) as ImageProviderId[]).filter(
+        (pid) => !!imageProvidersConfig[pid]?.isServerConfigured,
+      ),
+    [imageProvidersConfig],
+  );
+  const systemManaged = anyImageProviderServerConfigured;
+  const selectableModels = useMemo(() => builtInModels, [builtInModels]);
+
+  useEffect(() => {
+    if (!systemManaged) return;
+    if (!serverProviderIds.length) return;
+    if (!imageProvidersConfig[selectedProviderId]?.isServerConfigured) {
+      setImageProvider(serverProviderIds[0]);
+      return;
+    }
+    if (selectableModels.length > 0 && !selectableModels.some((m) => m.id === imageModelId)) {
+      setImageModelId(selectableModels[0].id);
+    }
+  }, [
+    systemManaged,
+    serverProviderIds,
+    imageProvidersConfig,
+    selectedProviderId,
+    selectableModels,
+    imageModelId,
+    setImageProvider,
+    setImageModelId,
+  ]);
 
   const handleApiKeyChange = (apiKey: string) => {
     setImageProviderConfig(selectedProviderId, { apiKey });
@@ -145,20 +182,89 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {systemManaged && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ImageIcon className="h-4 w-4" />
+              系统图像生成
+            </CardTitle>
+            <CardDescription>
+              图像模型来源于管理员配置。你可以在管理员开放的 Provider 和模型范围内切换，API Key 由系统统一托管。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">Provider: {currentProvider?.name || selectedProviderId}</Badge>
+              <Badge variant="secondary">Model: {imageModelId || '未选择'}</Badge>
+              <Badge variant="outline" className="gap-1">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                系统托管
+              </Badge>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">选择图像服务（管理员开放范围）</Label>
+                <Select
+                  value={selectedProviderId}
+                  onValueChange={(v) => setImageProvider(v as ImageProviderId)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {serverProviderIds.map((pid) => (
+                      <SelectItem key={pid} value={pid}>
+                        {IMAGE_PROVIDERS[pid]?.name || pid}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">选择模型（管理员开放范围）</Label>
+                <Select
+                  value={imageModelId}
+                  onValueChange={setImageModelId}
+                  disabled={!selectableModels.length}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="暂无可用模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectableModels.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name || m.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
+              <p className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>你的图像调用将统一走站点管理员配置的服务，系统会记录调用情况用于统计与运维。</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Server-configured notice */}
-      {isServerConfigured && (
+      {!systemManaged && isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNotice')}
         </div>
       )}
-      {!isServerConfigured && anyImageProviderServerConfigured && (
+      {!systemManaged && !isServerConfigured && anyImageProviderServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNoticeOtherProvider')}
         </div>
       )}
 
       {/* API Key + Test inline */}
-      <div className="space-y-2">
+      {!systemManaged && <div className="space-y-2">
         <Label>API Key</Label>
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -218,10 +324,10 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Base URL */}
-      <div className="space-y-2">
+      {!systemManaged && <div className="space-y-2">
         <Label>Base URL</Label>
         <Input
           name={`image-base-url-${selectedProviderId}`}
@@ -252,10 +358,10 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
             </p>
           );
         })()}
-      </div>
+      </div>}
 
       {/* Model list */}
-      <div className="space-y-3">
+      {!systemManaged && <div className="space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <Label className="text-base">{t('settings.models')}</Label>
           <Button variant="outline" size="sm" onClick={handleOpenAddModel} className="gap-1.5">
@@ -311,7 +417,7 @@ export function ImageSettings({ selectedProviderId }: ImageSettingsProps) {
             </div>
           ))}
         </div>
-      </div>
+      </div>}
 
       {/* Add/Edit Model Dialog */}
       <Dialog open={showModelDialog} onOpenChange={setShowModelDialog}>

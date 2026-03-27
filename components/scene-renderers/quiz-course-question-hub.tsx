@@ -56,6 +56,27 @@ export function QuizCourseQuestionHub({ quizScenes, onSwitchScene }: QuizCourseQ
     );
   }, [rows, selected]);
 
+  const globalIdx = useMemo(() => {
+    if (!selected) return -1;
+    return rows.findIndex(
+      (r) => r.scene.id === selected.sceneId && r.question.id === selected.questionId,
+    );
+  }, [rows, selected]);
+
+  const handleHubPrevQuestion = useCallback(() => {
+    const prev = rows[globalIdx - 1];
+    if (!prev) return;
+    onSwitchScene(prev.scene.id);
+    setSelected({ sceneId: prev.scene.id, questionId: prev.question.id });
+  }, [rows, globalIdx, onSwitchScene]);
+
+  const handleHubNextQuestion = useCallback(() => {
+    const next = rows[globalIdx + 1];
+    if (!next) return;
+    onSwitchScene(next.scene.id);
+    setSelected({ sceneId: next.scene.id, questionId: next.question.id });
+  }, [rows, globalIdx, onSwitchScene]);
+
   const initialSnapshot = useMemo(() => {
     if (!selected || !stageId) return undefined;
     const status = getListItemStatus(stageId, userId, selected.sceneId, selected.questionId);
@@ -111,6 +132,10 @@ export function QuizCourseQuestionHub({ quizScenes, onSwitchScene }: QuizCourseQ
               singleQuestionMode
               initialSnapshot={initialSnapshot}
               onAttemptFinished={bumpList}
+              onHubPrevQuestion={rows.length > 1 ? handleHubPrevQuestion : undefined}
+              hubPrevDisabled={globalIdx <= 0}
+              onHubNextQuestion={rows.length > 1 ? handleHubNextQuestion : undefined}
+              hubNextDisabled={globalIdx < 0 || globalIdx >= rows.length - 1}
             />
           </div>
         </div>

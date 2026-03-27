@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useMemo } from 'react';
-import { Globe, Paperclip, FileText, X, Globe2, Volume2 } from 'lucide-react';
+import { Globe, Paperclip, FileText, X, Globe2, Volume2, ChevronDown, Check } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -19,6 +19,8 @@ import type { PDFProviderId } from '@/lib/pdf/types';
 import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
 import type { WebSearchProviderId } from '@/lib/web-search/types';
 import type { SettingsSection } from '@/lib/types/settings';
+import type { ProvidersConfig } from '@/lib/types/settings';
+import type { ProviderId } from '@/lib/ai/providers';
 import { MediaPopover } from '@/components/generation/media-popover';
 import { Button } from '@/components/ui/button';
 import { getTTSVoices } from '@/lib/audio/constants';
@@ -53,7 +55,10 @@ export function GenerationToolbar({
   onPdfError,
 }: GenerationToolbarProps) {
   const { t } = useI18n();
+  const providerId = useSettingsStore((s) => s.providerId);
   const currentModelId = useSettingsStore((s) => s.modelId);
+  const providersConfig = useSettingsStore((s) => s.providersConfig);
+  const setModel = useSettingsStore((s) => s.setModel);
   const pdfProviderId = useSettingsStore((s) => s.pdfProviderId);
   const pdfProvidersConfig = useSettingsStore((s) => s.pdfProvidersConfig);
   const setPDFProvider = useSettingsStore((s) => s.setPDFProvider);
@@ -91,7 +96,12 @@ export function GenerationToolbar({
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
-      <SystemModelBadge modelId={currentModelId} />
+      <SystemModelBadge
+        modelId={currentModelId}
+        providerId={providerId}
+        providersConfig={providersConfig}
+        onModelChange={setModel}
+      />
 
       {/* ── Separator ── */}
       <div className="w-px h-4 bg-border/60 mx-1" />
@@ -329,7 +339,106 @@ export function GenerationToolbar({
   );
 }
 
-function SystemModelBadge({ modelId }: { modelId: string }) {
+function SystemModelBadge({
+  modelId,
+  providerId,
+  providersConfig,
+  onModelChange,
+}: {
+  modelId: string;
+  providerId: ProviderId;
+  providersConfig: ProvidersConfig;
+  onModelChange: (providerId: ProviderId, modelId: string) => void;
+}) {
+  const modelOptions = useMemo(() => {
+    const options: Array<{
+      providerId: ProviderId;
+      modelId: string;
+      providerName: string;
+      providerIcon?: string;
+    }> = [];
+
+    for (const [pid, cfg] of Object.entries(providersConfig) as [ProviderId, ProvidersConfig[ProviderId]][]) {
+      if (!cfg) continue;
+      const providerAvailable = !cfg.requiresApiKey || !!cfg.apiKey || !!cfg.isServerConfigured;
+      if (!providerAvailable) continue;
+
+      let models = cfg.models || [];
+      // Keep full local model list when user has own API key.
+      // Only enforce server model allowlist in pure server-configured mode.
+      if (cfg.isServerConfigured && !cfg.apiKey && cfg.serverModels?.length) {
+        const allowed = new Set(cfg.serverModels);
+        models = models.filter((m) => allowed.has(m.id));
+      }
+      for (const m of models) {
+        options.push({
+          providerId: pid,
+          modelId: m.id,
+          providerName: cfg.name || pid,
+          providerIcon: cfg.icon,
+        });
+      }
+    }
+
+    const hasCurrent = options.some((o) => o.providerId === providerId && o.modelId === modelId);
+    if (!hasCurrent) {
+      const currentCfg = providersConfig[providerId];
+      options.unshift({
+        providerId,
+        modelId,
+        providerName: currentCfg?.name || providerId,
+        providerIcon: currentCfg?.icon,
+      });
+    }
+    return options;
+  }, [providersConfig, providerId, modelId]);
+
+  const canSelectModel = modelOptions.length > 0;
+
+  if (canSelectModel) {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none whitespace-nowrap border',
+              'border-violet-200/60 dark:border-violet-700/50 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
+            )}
+          >
+            <img src="/logos/openai.svg" alt="Model" className="size-3.5 rounded-sm" />
+            <span className="font-mono">{modelId}</span>
+            <ChevronDown className="size-3.5 opacity-80" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 p-1.5">
+          <div className="max-h-64 overflow-y-auto">
+            {modelOptions.map((m) => {
+              const selected = m.providerId === providerId && m.modelId === modelId;
+              return (
+                <button
+                  key={`${m.providerId}:${m.modelId}`}
+                  type="button"
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors',
+                    selected ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' : 'hover:bg-muted/70',
+                  )}
+                  onClick={() => onModelChange(m.providerId, m.modelId)}
+                >
+                  <img src={m.providerIcon || '/logos/openai.svg'} alt="" className="size-3.5 rounded-sm shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-mono">
+                    {m.providerId}:{m.modelId}
+                  </span>
+                  {selected && <Check className="size-3.5 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -355,8 +464,18 @@ export function GenerationModelSelector({
 }: {
   onSettingsOpen: (section?: SettingsSection) => void;
 }) {
+  const providerId = useSettingsStore((s) => s.providerId);
   const currentModelId = useSettingsStore((s) => s.modelId);
-  return <SystemModelBadge modelId={currentModelId} />;
+  const providersConfig = useSettingsStore((s) => s.providersConfig);
+  const setModel = useSettingsStore((s) => s.setModel);
+  return (
+    <SystemModelBadge
+      modelId={currentModelId}
+      providerId={providerId}
+      providersConfig={providersConfig}
+      onModelChange={setModel}
+    />
+  );
 }
 
 /** 朗读音色：与设置 → 语音合成中的 TTS 音色一致，可快速切换 */

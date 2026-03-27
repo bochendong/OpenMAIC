@@ -17,13 +17,20 @@ export async function GET() {
   try {
     const systemLLM = await getSystemLLMConfigView();
     const providers = getServerProviders();
+    const openaiFromServer = providers.openai || {};
+    const openaiModels =
+      openaiFromServer.models && openaiFromServer.models.length > 0
+        ? openaiFromServer.models
+        : [systemLLM.modelId];
+    const openaiBaseUrl = openaiFromServer.baseUrl || systemLLM.baseUrl;
+
     return apiSuccess({
       providers: {
         ...providers,
         openai: {
-          ...(providers.openai || {}),
-          models: [systemLLM.modelId],
-          baseUrl: systemLLM.baseUrl,
+          ...openaiFromServer,
+          models: openaiModels,
+          baseUrl: openaiBaseUrl,
         },
       },
       tts: getServerTTSProviders(),

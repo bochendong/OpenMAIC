@@ -7,12 +7,14 @@ export interface SiteProviderAdminRow {
 }
 
 export type AdminProviderEnvHints = {
+  llm: Record<string, { apiKey: string; baseUrl: string; models: string }>;
   image: Record<string, { apiKey: string; baseUrl: string; models: string }>;
   tts: Record<string, { apiKey: string; baseUrl: string }>;
   webSearch: Record<string, { apiKey: string; baseUrl: string }>;
 };
 
 export type SiteProviderStatusResponse = {
+  llm: SiteProviderAdminRow[];
   image: SiteProviderAdminRow[];
   tts: SiteProviderAdminRow[];
   webSearch: SiteProviderAdminRow[];

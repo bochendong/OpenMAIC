@@ -3,19 +3,11 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Bot, ChevronLeft, ChevronRight, Loader2, NotebookPen, Settings, X } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Loader2, NotebookPen, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import {
   COURSE_ORCHESTRATOR_AVATAR,
@@ -28,6 +20,7 @@ import { listActiveAgentTasksByCourse } from '@/lib/utils/agent-task-storage';
 import type { AgentTaskRecord } from '@/lib/utils/database';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { Scene, SlideContent } from '@/lib/types/stage';
+import { ScenePreviewDialog } from '@/components/slide-renderer/components/scene-preview-dialog';
 
 const surfaceClass = cn(
   'flex h-full flex-col overflow-hidden apple-glass-heavy',
@@ -142,8 +135,6 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
   const [tasksLoading, setTasksLoading] = useState(false);
   const [notebookScenes, setNotebookScenes] = useState<Scene[]>([]);
   const [notebookScenesLoading, setNotebookScenesLoading] = useState(false);
-  const [scenePreviewOpen, setScenePreviewOpen] = useState(false);
-  const [previewScene, setPreviewScene] = useState<Scene | null>(null);
 
   const createHref = courseId
     ? `/create?courseId=${encodeURIComponent(courseId)}`
@@ -569,71 +560,64 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
           const slideContent = isSlide ? (scene.content as SlideContent) : null;
           return (
             <li key={scene.id}>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  setPreviewScene(scene);
-                  setScenePreviewOpen(true);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setPreviewScene(scene);
-                    setScenePreviewOpen(true);
-                  }
-                }}
-                className={cn(
-                  sceneLikeItemClass,
-                  'ring-1 ring-[rgba(0,122,255,0.22)] bg-[rgba(0,122,255,0.08)] dark:ring-[rgba(10,132,255,0.35)] dark:bg-[rgba(10,132,255,0.14)]',
-                )}
-                title={scene.title}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="relative mb-1.5 aspect-video w-full overflow-hidden rounded-[9px] ring-1 ring-slate-900/[0.08] dark:ring-white/[0.1]">
-                    {isSlide && slideContent ? (
-                      <div className="relative h-full w-full">
-                        <ThumbnailSlide
-                          slide={slideContent.canvas}
-                          size={223}
-                          viewportSize={slideContent.canvas.viewportSize ?? 1000}
-                          viewportRatio={slideContent.canvas.viewportRatio ?? 0.5625}
-                        />
-                        <span
-                          className={cn(
-                            'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
-                            'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
-                          )}
-                          aria-hidden
-                        >
-                          {idx + 1}
-                        </span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex h-full w-full items-center justify-center bg-slate-100/80 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-slate-300">
-                          {scene.type === 'quiz'
-                            ? '测验'
-                            : scene.type === 'interactive'
-                              ? '交互'
-                              : scene.type === 'pbl'
-                                ? '项目式学习'
-                                : scene.type}
-                        </div>
-                        <span
-                          className={cn(
-                            'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
-                            'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
-                          )}
-                          aria-hidden
-                        >
-                          {idx + 1}
-                        </span>
-                      </>
+              <ScenePreviewDialog
+                scene={scene}
+                trigger={
+                  <button
+                    type="button"
+                    className={cn(
+                      sceneLikeItemClass,
+                      'w-full text-left ring-1 ring-[rgba(0,122,255,0.22)] bg-[rgba(0,122,255,0.08)] dark:ring-[rgba(10,132,255,0.35)] dark:bg-[rgba(10,132,255,0.14)]',
                     )}
-                  </div>
-                </div>
-              </div>
+                    title={scene.title}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="relative mb-1.5 aspect-video w-full overflow-hidden rounded-[9px] ring-1 ring-slate-900/[0.08] dark:ring-white/[0.1]">
+                        {isSlide && slideContent ? (
+                          <div className="relative h-full w-full">
+                            <ThumbnailSlide
+                              slide={slideContent.canvas}
+                              size={223}
+                              viewportSize={slideContent.canvas.viewportSize ?? 1000}
+                              viewportRatio={slideContent.canvas.viewportRatio ?? 0.5625}
+                            />
+                            <span
+                              className={cn(
+                                'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
+                                'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
+                              )}
+                              aria-hidden
+                            >
+                              {idx + 1}
+                            </span>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex h-full w-full items-center justify-center bg-slate-100/80 text-[11px] text-slate-500 dark:bg-white/[0.06] dark:text-slate-300">
+                              {scene.type === 'quiz'
+                                ? '测验'
+                                : scene.type === 'interactive'
+                                  ? '交互'
+                                  : scene.type === 'pbl'
+                                    ? '项目式学习'
+                                    : scene.type}
+                            </div>
+                            <span
+                              className={cn(
+                                'pointer-events-none absolute right-1.5 top-1.5 z-[8] inline-flex size-5 shrink-0 items-center justify-center rounded-md text-[10px] font-bold tabular-nums shadow-sm',
+                                'bg-[#007AFF] text-white dark:bg-[#0A84FF]',
+                              )}
+                              aria-hidden
+                            >
+                              {idx + 1}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                }
+              />
             </li>
           );
         })}
@@ -769,60 +753,6 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
             </div>
           </>
         )}
-        <Dialog
-          modal={false}
-          open={scenePreviewOpen}
-          onOpenChange={(open) => {
-            setScenePreviewOpen(open);
-            if (!open) setPreviewScene(null);
-          }}
-        >
-          <DialogContent
-            showOverlay={false}
-            showCloseButton={false}
-            className="w-[min(92vw,860px)] max-w-[860px] overflow-hidden p-4"
-          >
-            <DialogHeader className="sr-only">
-              <DialogTitle>{previewScene?.title || '场景预览'}</DialogTitle>
-              <DialogDescription>仅预览当前这张 slides。</DialogDescription>
-            </DialogHeader>
-            <DialogClose
-              className={cn(
-                'absolute right-3 top-3 z-20 inline-flex size-8 items-center justify-center rounded-full',
-                'border border-slate-900/[0.08] bg-white/78 text-slate-700 backdrop-blur-md transition-all',
-                'hover:bg-white hover:text-slate-900 hover:shadow-sm',
-                'dark:border-white/[0.14] dark:bg-black/45 dark:text-slate-200 dark:hover:bg-black/65 dark:hover:text-white',
-              )}
-              aria-label="关闭预览"
-            >
-              <X className="size-4" />
-            </DialogClose>
-            <div className="mt-2 flex items-center justify-center overflow-auto rounded-[12px] border border-slate-900/[0.08] bg-white/85 p-2 dark:border-white/[0.1] dark:bg-black/30">
-              {!previewScene ? (
-                <p className="px-2 py-6 text-sm text-muted-foreground">暂无可预览内容。</p>
-              ) : previewScene.content.type === 'slide' ? (
-                <ThumbnailSlide
-                  slide={previewScene.content.canvas}
-                  size={760}
-                  viewportSize={previewScene.content.canvas.viewportSize ?? 1000}
-                  viewportRatio={previewScene.content.canvas.viewportRatio ?? 0.5625}
-                />
-              ) : (
-                <p className="px-2 py-6 text-sm text-muted-foreground">
-                  该页为
-                  {previewScene.type === 'quiz'
-                    ? '测验'
-                    : previewScene.type === 'interactive'
-                      ? '交互'
-                      : previewScene.type === 'pbl'
-                        ? '项目式学习'
-                        : '非幻灯片'}
-                  ，暂无幻灯片可预览。
-                </p>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
       </div>
     </aside>
   );

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { UIMessage } from 'ai';
-import { ArrowUp, BookOpen, Loader2, Paperclip, X } from 'lucide-react';
+import { ArrowUp, BookOpen, FileText, Loader2, Paperclip, Presentation, Sparkles, X } from 'lucide-react';
 import { ChatAttachmentBubble } from '@/components/chat/chat-attachment-bubble';
 import { cn } from '@/lib/utils';
 import {
@@ -42,6 +42,7 @@ import {
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useUserProfileStore } from '@/lib/store/user-profile';
+import { useSettingsStore } from '@/lib/store/settings';
 import { USER_AVATAR } from '@/lib/types/roundtable';
 import type { ChatMessageMetadata, MessageAction } from '@/lib/types/chat';
 import type { NotebookKnowledgeReference } from '@/lib/types/notebook-message';
@@ -56,11 +57,13 @@ import { runCourseSideChatLoop } from '@/lib/chat/run-course-side-chat-loop';
 import type { Scene } from '@/lib/types/stage';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
+import { ScenePreviewDialog } from '@/components/slide-renderer/components/scene-preview-dialog';
 import type { SettingsSection } from '@/lib/types/settings';
 import { loadContactMessages, saveContactMessages } from '@/lib/utils/contact-chat-storage';
 import {
   listStagesByCourse,
   loadStageData,
+  saveStageData,
   type StageListItem,
 } from '@/lib/utils/stage-storage';
 import {
@@ -97,6 +100,10 @@ type NotebookChatMessage =
       prerequisiteHints?: string[];
       webSearchUsed?: boolean;
       appliedLabel?: string;
+      lessonSourceQuestion?: string;
+      lessonDeckScenes?: Scene[];
+      lessonSavedLabel?: string;
+      lessonError?: string;
       at: number;
     };
 
@@ -119,6 +126,15 @@ type OrchestratorChildTaskView = {
   updatedAt: number;
   lastEnvelope?: ProtocolMessageEnvelope;
 };
+
+function shouldOfferMicroLessonButton(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.length >= 700) return true;
+  if (/```|def\s+\w+\(|class\s+\w+|big\s*o|复杂度|quicksort|quick sort|递归|算法/i.test(t)) return true;
+  const lines = t.split(/\r?\n/).filter((l) => l.trim() !== '');
+  return lines.length >= 18;
+}
 
 const NOTEBOOK_CHAT_PREVIEW_EVENT = 'openmaic-notebook-chat-updated';
 
@@ -293,6 +309,328 @@ function revokeAgentAttachmentUrls(thread: UIMessage<ChatMessageMetadata>[]) {
   }
 }
 
+function InlineLessonDeck({
+  scenes,
+  onSave,
+  saving,
+  savedLabel,
+}: {
+  scenes: Scene[];
+  onSave: () => void;
+  saving: boolean;
+  savedLabel?: string;
+}) {
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [narrationError, setNarrationError] = useState<string | null>(null);
+  const [narrationMode, setNarrationMode] = useState<'script' | 'fallback'>('script');
+  /** API TTS：从请求到开始播放前的等待态（浏览器原生 TTS 无此阶段） */
+  const [ttsGenerating, setTtsGenerating] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const playbackRequestRef = useRef(0);
+  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
+  const ttsMuted = useSettingsStore((s) => s.ttsMuted);
+  const ttsVolume = useSettingsStore((s) => s.ttsVolume);
+  const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
+  const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
+  const ttsVoice = useSettingsStore((s) => s.ttsVoice);
+  const ttsProvidersConfig = useSettingsStore((s) => s.ttsProvidersConfig);
+  const slideScenes = useMemo(
+    () => scenes.filter((s) => s.type === 'slide' && s.content.type === 'slide'),
+    [scenes],
+  );
+  const total = slideScenes.length;
+  const current = slideScenes[Math.max(0, Math.min(idx, total - 1))];
+
+  useEffect(() => {
+    setIdx(0);
+  }, [total]);
+
+  useEffect(() => {
+    if (!playing) setTtsGenerating(false);
+  }, [playing]);
+
+  useEffect(() => {
+    if (!playing) return;
+    const requestId = ++playbackRequestRef.current;
+    const stopAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+    };
+    const advanceOrStop = () => {
+      setIdx((i) => {
+        if (i >= total - 1) {
+          setPlaying(false);
+          return i;
+        }
+        return i + 1;
+      });
+    };
+    const isStale = () => playbackRequestRef.current !== requestId;
+
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      setNarrationError('当前浏览器不支持语音播放');
+      setPlaying(false);
+      return;
+    }
+    if (!ttsEnabled || ttsMuted || ttsVolume <= 0) {
+      setNarrationError('语音播放已关闭，请先在设置中开启 TTS');
+      setPlaying(false);
+      return;
+    }
+    const scene = slideScenes[Math.max(0, Math.min(idx, total - 1))];
+    if (!scene || scene.content.type !== 'slide') {
+      setPlaying(false);
+      return;
+    }
+    const narration = getSceneNarration(scene);
+    const text = narration.text.slice(0, 1800);
+    if (!text.trim()) {
+      setPlaying(false);
+      return;
+    }
+    setNarrationMode(narration.mode);
+    setNarrationError(null);
+    setTtsGenerating(false);
+    window.speechSynthesis.cancel();
+    stopAudio();
+
+    if (ttsProviderId === 'browser-native-tts') {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'zh-CN';
+      utterance.rate = Math.max(0.6, Math.min(2, ttsSpeed || 1));
+      utterance.volume = Math.max(0, Math.min(1, ttsVolume));
+      if (ttsVoice && ttsVoice !== 'default') {
+        const voices = window.speechSynthesis.getVoices();
+        const selected = voices.find((v) => v.voiceURI === ttsVoice || v.name === ttsVoice);
+        if (selected) utterance.voice = selected;
+      }
+      utterance.onend = () => {
+        if (isStale()) return;
+        advanceOrStop();
+      };
+      utterance.onerror = () => {
+        if (isStale()) return;
+        setNarrationError('语音播放失败，请重试');
+        setPlaying(false);
+      };
+      window.speechSynthesis.speak(utterance);
+    } else {
+      setTtsGenerating(true);
+      const providerConfig = ttsProvidersConfig[ttsProviderId];
+      void (async () => {
+        try {
+          const response = await fetch('/api/generate/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text,
+              audioId: `inline_lesson_${Date.now()}_${idx}`,
+              ttsProviderId,
+              ttsVoice,
+              ttsSpeed,
+              ttsApiKey: providerConfig?.apiKey || undefined,
+              ttsBaseUrl: providerConfig?.baseUrl || undefined,
+            }),
+          });
+          const data = (await response.json().catch(() => ({}))) as {
+            base64?: string;
+            format?: string;
+            error?: string;
+          };
+          if (!response.ok || !data.base64) {
+            throw new Error(data.error || '语音生成失败');
+          }
+          if (isStale()) {
+            setTtsGenerating(false);
+            return;
+          }
+          setTtsGenerating(false);
+          const url = base64ToObjectUrl(data.base64, data.format || 'mp3');
+          audioUrlRef.current = url;
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          audio.volume = Math.max(0, Math.min(1, ttsVolume));
+          audio.onended = () => {
+            if (isStale()) return;
+            stopAudio();
+            advanceOrStop();
+          };
+          audio.onerror = () => {
+            if (isStale()) return;
+            stopAudio();
+            setNarrationError('语音播放失败，请重试');
+            setPlaying(false);
+          };
+          await audio.play();
+        } catch (error) {
+          setTtsGenerating(false);
+          if (isStale()) return;
+          setNarrationError(error instanceof Error ? error.message : '语音生成失败，请重试');
+          setPlaying(false);
+        }
+      })();
+    }
+    return () => {
+      window.speechSynthesis.cancel();
+      stopAudio();
+      setTtsGenerating(false);
+    };
+  }, [
+    playing,
+    idx,
+    slideScenes,
+    total,
+    ttsEnabled,
+    ttsMuted,
+    ttsVolume,
+    ttsSpeed,
+    ttsProviderId,
+    ttsVoice,
+    ttsProvidersConfig,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      playbackRequestRef.current += 1;
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  if (!current || current.content.type !== 'slide') return null;
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between gap-2">
+        <ScenePreviewDialog
+          scene={current}
+          description="临时讲解PPT预览。播放时优先使用讲解脚本，支持上下页与保存到笔记本。"
+          topBar={
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-medium text-muted-foreground">临时讲解PPT · {idx + 1}/{total}</p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => setIdx((i) => Math.max(0, i - 1))}
+                  disabled={idx <= 0}
+                >
+                  上一页
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => setIdx((i) => Math.min(total - 1, i + 1))}
+                  disabled={idx >= total - 1}
+                >
+                  下一页
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[11px]"
+                  onClick={() => {
+                    playbackRequestRef.current += 1;
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current = null;
+                    }
+                    if (audioUrlRef.current) {
+                      URL.revokeObjectURL(audioUrlRef.current);
+                      audioUrlRef.current = null;
+                    }
+                    if (playing && typeof window !== 'undefined' && window.speechSynthesis) {
+                      window.speechSynthesis.cancel();
+                    }
+                    setPlaying((v) => !v);
+                  }}
+                  disabled={!ttsEnabled || ttsMuted || ttsVolume <= 0}
+                >
+                  {playing ? '暂停' : '播放'}
+                </Button>
+              </div>
+              </div>
+              {ttsGenerating ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="flex items-center gap-1.5 rounded-md border border-violet-200/80 bg-violet-50/80 px-2 py-1 text-[11px] text-violet-800 dark:border-violet-800/60 dark:bg-violet-950/40 dark:text-violet-200"
+                >
+                  <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+                  <span>正在生成语音，请稍候…</span>
+                </div>
+              ) : null}
+            </div>
+          }
+          bottomBar={
+            <div>
+              <p className="truncate text-[11px] text-muted-foreground">{current.title}</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {narrationMode === 'script' ? '按讲解脚本播放' : '当前页缺少讲解脚本，已回退为页面摘要朗读'}
+              </p>
+              {narrationError ? (
+                <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-400">{narrationError}</p>
+              ) : null}
+            </div>
+          }
+          trigger={
+            <button
+              type="button"
+              aria-label="打开临时讲解PPT"
+              className="flex w-full max-w-[min(100%,280px)] items-center gap-2.5 rounded-[10px] border border-slate-200/90 bg-white p-2 pr-2.5 text-left text-slate-900 shadow-sm transition-[transform,box-shadow] hover:shadow-md active:scale-[0.99] dark:border-slate-600/60 dark:bg-slate-900/50 dark:text-slate-100"
+            >
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-md bg-[#f5e6e8] text-[#e64340] dark:bg-[#3d2528] dark:text-[#ff6b6b]">
+                <Presentation className="size-6" strokeWidth={1.75} />
+              </div>
+              <div className="min-w-0 flex-1 py-0.5">
+                <p className="line-clamp-2 text-[13px] font-medium leading-snug text-slate-900 dark:text-slate-100">
+                  临时讲解PPT
+                </p>
+                <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  点击展开预览（{total} 页）
+                </p>
+              </div>
+            </button>
+          }
+        />
+        <Button
+          type="button"
+          size="sm"
+          className="h-8 shrink-0 px-3 text-[11px]"
+          onClick={onSave}
+          disabled={saving || !!savedLabel}
+        >
+          {savedLabel ? '已保存到笔记本' : saving ? '保存中…' : '保存到笔记本'}
+        </Button>
+      </div>
+      {savedLabel ? <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">{savedLabel}</p> : null}
+    </div>
+  );
+}
+
 function tokenizeForMatch(input: string): string[] {
   const lowered = input.toLowerCase();
   const zhTokens = lowered.match(/[\u4e00-\u9fff]{2,}/g) || [];
@@ -311,6 +649,160 @@ function scoreNotebookMatch(message: string, notebook: StageListItem): number {
   }
   if (!tokens.length && haystack.includes(message.toLowerCase().trim())) score += 2;
   return score;
+}
+
+function stripHtmlTags(input: string): string {
+  return input.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function sceneSearchText(scene: Scene): string {
+  const title = scene.title || '';
+  if (scene.content.type !== 'slide') return title;
+  const elements = scene.content.canvas.elements || [];
+  const textBits = elements
+    .filter((el) => el.type === 'text')
+    .map((el) => {
+      const content = (el as { content?: unknown }).content;
+      return typeof content === 'string' ? stripHtmlTags(content) : '';
+    })
+    .filter(Boolean)
+    .join(' ');
+  return `${title} ${textBits}`.trim();
+}
+
+function getSceneNarration(scene: Scene): { text: string; mode: 'script' | 'fallback' } {
+  const script = (scene.actions || [])
+    .flatMap((action) => {
+      if (action.type !== 'speech') return [];
+      const text = typeof action.text === 'string' ? action.text.trim() : '';
+      return text ? [text] : [];
+    })
+    .join(' ');
+  if (script) return { text: script, mode: 'script' };
+  return { text: sceneSearchText(scene), mode: 'fallback' };
+}
+
+function base64ToObjectUrl(base64: string, format: string): string {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: `audio/${format || 'mp3'}` });
+  return URL.createObjectURL(blob);
+}
+
+function summarizeQuestionForContext(input?: string): string {
+  const text = (input || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  return text.length > 38 ? `${text.slice(0, 38)}…` : text;
+}
+
+function attachQuestionContextToFirstScene(scene: Scene, questionSummary: string): Scene {
+  if (!questionSummary) return scene;
+  const titleBase = (scene.title || '临时讲解').trim();
+  const title = titleBase.includes('题目：') ? titleBase : `${titleBase}（题目：${questionSummary}）`;
+  const intro = `本组讲解对应题目：${questionSummary}。`;
+  const actions = scene.actions || [];
+  const firstSpeechIndex = actions.findIndex((action) => action.type === 'speech' && !!action.text?.trim());
+
+  if (firstSpeechIndex >= 0) {
+    const nextActions = actions.map((action, index) => {
+      if (index !== firstSpeechIndex || action.type !== 'speech') return action;
+      if (action.text.includes('本组讲解对应题目：')) return action;
+      return { ...action, text: `${intro}${action.text}` };
+    });
+    return { ...scene, title, actions: nextActions };
+  }
+
+  return {
+    ...scene,
+    title,
+    actions: [
+      {
+        id: `speech_intro_${Date.now().toString(36)}`,
+        type: 'speech',
+        text: intro,
+      },
+      ...actions,
+    ],
+  };
+}
+
+function toPageSummary(scene: Scene) {
+  return {
+    order: scene.order,
+    title: scene.title || '未命名页面',
+    summary: sceneSearchText(scene).slice(0, 600),
+  };
+}
+
+function scoreTextMatch(tokens: string[], haystack: string): number {
+  if (!tokens.length || !haystack) return 0;
+  const h = haystack.toLowerCase();
+  let score = 0;
+  for (const token of tokens) {
+    if (!h.includes(token)) continue;
+    score += token.length >= 6 ? 4 : token.length >= 4 ? 3 : 2;
+  }
+  return score;
+}
+
+function pickSmartInsertIndex(current: Scene[], lessonScenes: Scene[]): number {
+  if (current.length === 0) return 0;
+  const lessonText = lessonScenes.map((s) => sceneSearchText(s)).join(' ');
+  const tokens = tokenizeForMatch(lessonText);
+  if (!tokens.length) return current.length;
+
+  let bestScore = 0;
+  let bestInsertIndex = current.length;
+  for (let i = 0; i < current.length; i++) {
+    const scene = current[i];
+    const score = scoreTextMatch(tokens, sceneSearchText(scene));
+    if (score > bestScore) {
+      bestScore = score;
+      bestInsertIndex = i + 1; // insert after matched scene
+    }
+  }
+  return bestScore >= 4 ? bestInsertIndex : current.length;
+}
+
+async function pickInsertIndexWithAI(args: {
+  notebookTitle?: string;
+  currentScenes: Scene[];
+  lessonScenes: Scene[];
+}): Promise<{ insertAt: number; reason?: string } | null> {
+  if (args.currentScenes.length === 0) return { insertAt: 0, reason: 'empty notebook' };
+  try {
+    const mc = getCurrentModelConfig();
+    const resp = await fetch('/api/notebooks/micro-lesson/insert-position', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-model': mc.modelString,
+        'x-api-key': mc.apiKey,
+        'x-base-url': mc.baseUrl,
+        'x-provider-type': mc.providerType || '',
+        'x-requires-api-key': mc.requiresApiKey ? 'true' : 'false',
+      },
+      body: JSON.stringify({
+        notebookTitle: args.notebookTitle || '',
+        currentPages: args.currentScenes.map(toPageSummary),
+        lessonPages: args.lessonScenes.map(toPageSummary),
+      }),
+    });
+    const data = (await resp.json()) as {
+      success?: boolean;
+      insertAfterOrder?: number;
+      reason?: string;
+    };
+    if (!resp.ok || data.success === false || typeof data.insertAfterOrder !== 'number') return null;
+    const insertAfter = Math.round(data.insertAfterOrder);
+    const insertAt = Math.max(0, Math.min(args.currentScenes.length, insertAfter + 1));
+    return { insertAt, reason: data.reason?.trim() || undefined };
+  } catch {
+    return null;
+  }
 }
 
 function decideNotebookRoute(
@@ -689,6 +1181,8 @@ export function ChatPageClient() {
     });
   }, []);
   const [pendingAttachments, setPendingAttachments] = useState<NotebookAttachmentInput[]>([]);
+  const [lessonGeneratingAt, setLessonGeneratingAt] = useState<number | null>(null);
+  const [lessonSavingAt, setLessonSavingAt] = useState<number | null>(null);
   const agThreadRef = useRef(agThread);
   const nbThreadRef = useRef(nbThread);
   agThreadRef.current = agThread;
@@ -851,6 +1345,188 @@ export function ChatPageClient() {
       setNotebookScenesLoading(false);
     }
   }, [notebookId]);
+
+  const generateInlineLessonDeck = useCallback(
+    async (targetAt: number) => {
+      const msg = nbThreadRef.current.find((m) => m.role === 'assistant' && m.at === targetAt);
+      if (!msg || msg.role !== 'assistant' || !msg.lessonSourceQuestion) return;
+      let taskId: string | null = null;
+      if (courseId && notebookId) {
+        try {
+          taskId = await createAgentTask({
+            courseId,
+            contactKind: 'notebook',
+            contactId: notebookId,
+            title: `临时PPT生成：${msg.lessonSourceQuestion.slice(0, 24)}`,
+            detail: '正在把题目整理为 3-5 页临时PPT…',
+            status: 'running',
+          });
+        } catch {
+          taskId = null;
+        }
+      }
+      setLessonGeneratingAt(targetAt);
+      try {
+        const mc = getCurrentModelConfig();
+        const resp = await fetch('/api/notebooks/micro-lesson', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-model': mc.modelString,
+            'x-api-key': mc.apiKey,
+            'x-base-url': mc.baseUrl,
+            'x-provider-type': mc.providerType || '',
+            'x-requires-api-key': mc.requiresApiKey ? 'true' : 'false',
+          },
+          body: JSON.stringify({
+            question: msg.lessonSourceQuestion,
+            language: 'zh-CN',
+          }),
+        });
+        const data = (await resp.json()) as {
+          success?: boolean;
+          scenes?: Scene[];
+          data?: { scenes?: Scene[] };
+          error?: string;
+          details?: string;
+        };
+        const scenes = data?.scenes || data?.data?.scenes || [];
+        if (!resp.ok || data?.success === false || scenes.length === 0) {
+          const backendMsg = data?.error?.trim() || data?.details?.trim();
+          throw new Error(backendMsg || '生成临时PPT失败，请重试');
+        }
+        setNbThread((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.at === targetAt
+              ? { ...m, lessonDeckScenes: scenes, lessonError: undefined }
+              : m,
+          ),
+        );
+        if (taskId) {
+          await updateAgentTask(taskId, {
+            status: 'done',
+            detail: `临时PPT已生成（${scenes.length} 页）`,
+            notebookId: notebookId || undefined,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '生成临时PPT失败';
+        setNbThread((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.at === targetAt ? { ...m, lessonError: message } : m,
+          ),
+        );
+        if (taskId) {
+          await updateAgentTask(taskId, {
+            status: 'failed',
+            detail: message.slice(0, 300),
+            notebookId: notebookId || undefined,
+          });
+        }
+      } finally {
+        setLessonGeneratingAt((cur) => (cur === targetAt ? null : cur));
+      }
+    },
+    [courseId, notebookId],
+  );
+
+  const saveInlineLessonDeckToNotebook = useCallback(
+    async (targetAt: number) => {
+      if (!notebookId) return;
+      const msg = nbThreadRef.current.find((m) => m.role === 'assistant' && m.at === targetAt);
+      if (!msg || msg.role !== 'assistant' || !msg.lessonDeckScenes?.length) return;
+      let taskId: string | null = null;
+      if (courseId) {
+        try {
+          taskId = await createAgentTask({
+            courseId,
+            contactKind: 'notebook',
+            contactId: notebookId,
+            title: '保存临时PPT到笔记本',
+            detail: '正在写入临时PPT页面到笔记本…',
+            status: 'running',
+          });
+        } catch {
+          taskId = null;
+        }
+      }
+      setLessonSavingAt(targetAt);
+      try {
+        const data = await loadStageData(notebookId);
+        if (!data?.stage) throw new Error('未找到目标笔记本');
+        const current = [...(data.scenes || [])].sort((a, b) => a.order - b.order);
+        const questionSummary = summarizeQuestionForContext(msg.lessonSourceQuestion);
+        const lessonScenesForSave = msg.lessonDeckScenes.map((scene, idx) =>
+          idx === 0 ? attachQuestionContextToFirstScene(scene, questionSummary) : scene,
+        );
+        const aiPlacement = await pickInsertIndexWithAI({
+          notebookTitle: data.stage.name,
+          currentScenes: current,
+          lessonScenes: lessonScenesForSave,
+        });
+        const insertAt = aiPlacement?.insertAt ?? pickSmartInsertIndex(current, lessonScenesForSave);
+        const now = Date.now();
+        const inserted = lessonScenesForSave.map((scene, idx) => ({
+          ...scene,
+          id: `scene_${now}_${idx}_${Math.random().toString(36).slice(2, 8)}`,
+          stageId: notebookId,
+          order: insertAt + idx,
+          createdAt: now,
+          updatedAt: now,
+        }));
+        const merged = [...current.slice(0, insertAt), ...inserted, ...current.slice(insertAt)].map((s, idx) => ({
+          ...s,
+          order: idx,
+          updatedAt: s.updatedAt ?? now,
+        }));
+        await saveStageData(notebookId, {
+          ...data,
+          scenes: merged,
+          stage: { ...data.stage, updatedAt: now },
+        });
+        const start = insertAt + 1;
+        const end = insertAt + inserted.length;
+        const posHint =
+          insertAt < current.length
+            ? `（${aiPlacement ? 'AI判定' : '规则匹配'}插入到第 ${insertAt} 页后${aiPlacement?.reason ? `：${aiPlacement.reason}` : ''}）`
+            : '（已追加到末尾）';
+        const label =
+          inserted.length === 1
+            ? `已保存到笔记本：新增第 ${start} 页 ${posHint}`
+            : `已保存到笔记本：新增第 ${start}-${end} 页 ${posHint}`;
+        setNbThread((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.at === targetAt ? { ...m, lessonSavedLabel: label } : m,
+          ),
+        );
+        if (taskId) {
+          await updateAgentTask(taskId, {
+            status: 'done',
+            detail: label,
+            notebookId,
+          });
+        }
+        void reloadNotebookScenes();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '保存失败';
+        setNbThread((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.at === targetAt ? { ...m, lessonError: `保存到笔记本失败：${message}` } : m,
+          ),
+        );
+        if (taskId) {
+          await updateAgentTask(taskId, {
+            status: 'failed',
+            detail: `保存到笔记本失败：${message}`.slice(0, 300),
+            notebookId,
+          });
+        }
+      } finally {
+        setLessonSavingAt((cur) => (cur === targetAt ? null : cur));
+      }
+    },
+    [courseId, notebookId, reloadNotebookScenes],
+  );
 
   useEffect(() => {
     void reloadNotebookScenes();
@@ -1329,6 +2005,9 @@ export function ChatPageClient() {
           }
           const applied = await applyNotebookPlan(notebook.id, plan);
           appliedLabel = formatAppliedSummary({ applied }) || undefined;
+          if (notebookId === notebook.id) {
+            void reloadNotebookScenes();
+          }
         }
 
         const answer = shouldGenerateSlides
@@ -1378,7 +2057,7 @@ export function ChatPageClient() {
         throw error;
       }
     },
-    [courseId, persistNotebookConversation],
+    [courseId, notebookId, persistNotebookConversation, reloadNotebookScenes],
   );
 
   const handleSendNotebook = async () => {
@@ -1480,6 +2159,7 @@ export function ChatPageClient() {
         prerequisiteHints: plan.prerequisiteHints,
         webSearchUsed: plan.webSearchUsed,
         appliedLabel: appliedLabel || undefined,
+        lessonSourceQuestion: shouldOfferMicroLessonButton(text) ? text : undefined,
         at: Date.now(),
       };
       setNbThread((t) => [...t, assistantMsg]);
@@ -2118,6 +2798,51 @@ export function ChatPageClient() {
                         ) : null}
                         {m.appliedLabel ? (
                           <p className="mt-2 text-[11px] text-emerald-700 dark:text-emerald-400">{m.appliedLabel}</p>
+                        ) : null}
+                        {m.lessonSourceQuestion && !m.lessonDeckScenes?.length ? (
+                          <div className="mt-3 rounded-xl border border-violet-200/70 bg-gradient-to-r from-violet-50/90 via-fuchsia-50/80 to-white/80 p-2.5 dark:border-violet-700/40 dark:from-violet-950/35 dark:via-fuchsia-950/20 dark:to-black/20">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-700 dark:text-violet-300">
+                                  <Sparkles className="size-3.5" />
+                                  快速讲解
+                                </p>
+                                <p className="mt-1 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+                                  需要的话，我可以把这道题自动整理成 3-5 页临时PPT，便于翻页讲解与复习。
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-8 shrink-0 rounded-full bg-violet-600 px-3 text-[11px] text-white hover:bg-violet-500 dark:bg-violet-500 dark:hover:bg-violet-400"
+                                disabled={lessonGeneratingAt === m.at}
+                                onClick={() => void generateInlineLessonDeck(m.at)}
+                              >
+                                {lessonGeneratingAt === m.at ? (
+                                  <>
+                                    <Loader2 className="mr-1 size-3 animate-spin" />
+                                    生成中…
+                                  </>
+                                ) : (
+                                  <>
+                                    <Presentation className="mr-1 size-3.5" />
+                                    讲成临时PPT
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {m.lessonDeckScenes?.length ? (
+                          <InlineLessonDeck
+                            scenes={m.lessonDeckScenes}
+                            onSave={() => void saveInlineLessonDeckToNotebook(m.at)}
+                            saving={lessonSavingAt === m.at}
+                            savedLabel={m.lessonSavedLabel}
+                          />
+                        ) : null}
+                        {m.lessonError ? (
+                          <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">{m.lessonError}</p>
                         ) : null}
                       </div>
                     </ContextMenuTrigger>

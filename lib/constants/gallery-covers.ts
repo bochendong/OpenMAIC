@@ -1,19 +1,18 @@
 /**
  * 课程/笔记本卡片顶部封面用图（与头像素材无关）；按 seed 稳定映射。
- * 默认改为免费风景资源，优先使用课程自己的 `avatarUrl`，否则落到此处的稳定壁纸。
+ * 优先使用课程自己的 `avatarUrl`（在 CourseGalleryCard 内），否则使用此处稳定壁纸。
  *
- * Sources:
- * - Pexels / Pixabay via Pexels（free to use）
+ * 使用 `public/covers/*.svg` 本地资源，避免依赖外网图床（部分网络环境下 Pexels 无法加载会导致卡片封面空白）。
  */
 const FILES: readonly string[] = [
-  'https://images.pexels.com/photos/458798/pexels-photo-458798.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/13728513/pexels-photo-13728513.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/30440583/pexels-photo-30440583.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/13872330/pexels-photo-13872330.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/69941/pexels-photo-69941.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/2070307/pexels-photo-2070307.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/27822439/pexels-photo-27822439.jpeg?auto=compress&cs=tinysrgb&w=1600',
-  'https://images.pexels.com/photos/12266687/pexels-photo-12266687.jpeg?auto=compress&cs=tinysrgb&w=1600',
+  '/covers/cover-01.svg',
+  '/covers/cover-02.svg',
+  '/covers/cover-03.svg',
+  '/covers/cover-04.svg',
+  '/covers/cover-05.svg',
+  '/covers/cover-06.svg',
+  '/covers/cover-07.svg',
+  '/covers/cover-08.svg',
 ] as const;
 
 function hashStringToUint32(s: string): number {

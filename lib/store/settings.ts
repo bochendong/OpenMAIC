@@ -729,8 +729,10 @@ export const useSettingsStore = create<SettingsState>()(
               for (const pid of Object.keys(newProvidersConfig)) {
                 const key = pid as ProviderId;
                 if (newProvidersConfig[key]) {
+                  const builtInModels = PROVIDERS[key]?.models;
                   newProvidersConfig[key] = {
                     ...newProvidersConfig[key],
+                    models: builtInModels && builtInModels.length > 0 ? builtInModels : newProvidersConfig[key].models,
                     isServerConfigured: false,
                     serverModels: undefined,
                     serverBaseUrl: undefined,
@@ -741,17 +743,38 @@ export const useSettingsStore = create<SettingsState>()(
               for (const [pid, info] of Object.entries(data.providers)) {
                 const key = pid as ProviderId;
                 if (newProvidersConfig[key]) {
-                  const currentModels = newProvidersConfig[key].models;
-                  // When server specifies allowed models, filter the models list
-                  const filteredModels = info.models?.length
-                    ? currentModels.filter((m) => info.models!.includes(m.id))
-                    : currentModels;
+                  // Always start from built-in provider model catalog here.
+                  // Otherwise a previously filtered list can get stuck permanently.
+                  const builtInModels = PROVIDERS[key]?.models || [];
+                  const existingModels = newProvidersConfig[key].models || [];
+                  const baseModels = builtInModels.length > 0 ? builtInModels : existingModels;
+
+                  // Preserve server-declared model IDs even if they are not in built-ins.
+                  // This is required for fixed-model deployments like gpt-5.4 / gpt-5.4-mini.
+                  const mergedById = new Map(baseModels.map((m) => [m.id, m]));
+                  for (const m of existingModels) {
+                    if (!mergedById.has(m.id)) mergedById.set(m.id, m);
+                  }
+                  const mergedCatalog = Array.from(mergedById.values());
+                  const resolvedModels = info.models?.length
+                    ? info.models.map((id) => {
+                        const hit = mergedCatalog.find((m) => m.id === id);
+                        return (
+                          hit || {
+                            id,
+                            name: id,
+                            capabilities: { streaming: true, tools: true, vision: true },
+                          }
+                        );
+                      })
+                    : mergedCatalog;
+
                   newProvidersConfig[key] = {
                     ...newProvidersConfig[key],
                     isServerConfigured: true,
                     serverModels: info.models,
                     serverBaseUrl: info.baseUrl,
-                    models: filteredModels,
+                    models: resolvedModels,
                   };
                 }
               }

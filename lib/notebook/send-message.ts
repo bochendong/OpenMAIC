@@ -51,6 +51,37 @@ function htmlEscape(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
+function extractFenceCode(input: string): { prose: string; code?: string } {
+  const m = input.match(/```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/);
+  if (!m) return { prose: input };
+  const code = (m[1] || '').trim();
+  const prose = input.replace(m[0], '').trim();
+  return { prose, code: code || undefined };
+}
+
+function normalizePlainText(input: string): string {
+  return input
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\r/g, '')
+    .trim();
+}
+
+function toBulletItems(description: string, keyPoints: string[]): string[] {
+  const raw = [...keyPoints, description]
+    .flatMap((s) => normalizePlainText(s).split('\n'))
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => s.replace(/^[-*•]\s*/, '').trim())
+    .filter((s) => !/^python\s+/i.test(s));
+  const uniq: string[] = [];
+  for (const line of raw) {
+    if (!uniq.includes(line)) uniq.push(line);
+  }
+  return uniq.slice(0, 6);
+}
+
 function getSceneDigest(scene: Scene): string {
   if (scene.content.type === 'slide') {
     const canvas = scene.content.canvas;
@@ -94,7 +125,152 @@ function buildSlideFromInsert(
   description: string,
   keyPoints: string[],
 ): Scene['content'] {
-  const bullets = keyPoints.length > 0 ? keyPoints.map((p) => `- ${p}`).join('<br/>') : description;
+  const mergedText = [description, ...keyPoints].join('\n');
+  const { prose, code } = extractFenceCode(mergedText);
+  const bullets = toBulletItems(prose || description, keyPoints);
+  const subtitle = normalizePlainText(description) || '核心概念拆解与递归流程理解';
+  const stepGroups = [
+    {
+      title: '步骤 1',
+      items: bullets.slice(0, 2),
+    },
+    {
+      title: '步骤 2',
+      items: bullets.slice(2, 4),
+    },
+    {
+      title: '步骤 3',
+      items: bullets.slice(4, 6),
+    },
+  ];
+  const fallbackStepItems = [
+    ['明确问题与输入输出'],
+    ['递归处理子问题'],
+    ['返回并组合结果'],
+  ];
+  const cardLeft = [64, 352, 640];
+
+  const elements: any[] = [
+    {
+      id: `text_${nanoid(8)}`,
+      type: 'text',
+      left: 64,
+      top: 50,
+      width: 872,
+      height: 66,
+      rotate: 0,
+      content: `<p style="font-size:32px;"><strong>${htmlEscape(title)}</strong></p>`,
+      defaultFontName: 'Microsoft YaHei',
+      defaultColor: '#111827',
+      textType: 'title',
+      lineHeight: 1.3,
+    },
+    {
+      id: `text_${nanoid(8)}`,
+      type: 'text',
+      left: 64,
+      top: 118,
+      width: 856,
+      height: 44,
+      rotate: 0,
+      content: `<p style="font-size:16px;color:#666666;">${htmlEscape(subtitle)}</p>`,
+      defaultFontName: 'Microsoft YaHei',
+      defaultColor: '#334155',
+      textType: 'content',
+      lineHeight: 1.35,
+    },
+    {
+      id: `line_${nanoid(8)}`,
+      type: 'line',
+      start: [64, 176],
+      end: [936, 176],
+      style: 'solid',
+      color: '#e5e7eb',
+      width: 2,
+      points: [],
+    },
+  ];
+
+  cardLeft.forEach((left, idx) => {
+    const group = stepGroups[idx];
+    const items = group.items.length > 0 ? group.items : fallbackStepItems[idx];
+    elements.push(
+      {
+        id: `shape_${nanoid(8)}`,
+        type: 'shape',
+        left,
+        top: 206,
+        width: 272,
+        height: 252,
+        rotate: 0,
+        viewBox: [200, 200],
+        path: 'M 0 0 L 200 0 L 200 200 L 0 200 Z',
+        fill: idx === 0 ? '#eef2ff' : idx === 1 ? '#ecfeff' : '#fef3c7',
+        fixedRatio: false,
+      },
+      {
+        id: `text_${nanoid(8)}`,
+        type: 'text',
+        left: left + 18,
+        top: 224,
+        width: 236,
+        height: 28,
+        rotate: 0,
+        content: `<p style="font-size:18px;color:#111827;text-align:center;"><strong>${group.title}</strong></p>`,
+        defaultFontName: 'Microsoft YaHei',
+        defaultColor: '#111827',
+        textType: 'content',
+        lineHeight: 1.2,
+      },
+      {
+        id: `text_${nanoid(8)}`,
+        type: 'text',
+        left: left + 18,
+        top: 266,
+        width: 236,
+        height: 168,
+        rotate: 0,
+        content: `<ul>${items.map((i) => `<li>${htmlEscape(i)}</li>`).join('')}</ul>`,
+        defaultFontName: 'Microsoft YaHei',
+        defaultColor: '#1f2937',
+        textType: 'content',
+        lineHeight: 1.45,
+      },
+    );
+  });
+
+  if (code) {
+    elements.push({
+      id: `text_${nanoid(8)}`,
+      type: 'text',
+      left: 64,
+      top: 478,
+      width: 856,
+      height: 68,
+      rotate: 0,
+      content: `<p><strong>代码提示：</strong> 本页重点是递归结构，完整 Python 示例放在下一页讲解。</p>`,
+      defaultFontName: 'Microsoft YaHei',
+      defaultColor: '#475569',
+      textType: 'notes',
+      lineHeight: 1.35,
+    });
+  } else {
+    elements.push({
+      id: `text_${nanoid(8)}`,
+      type: 'text',
+      left: 64,
+      top: 486,
+      width: 856,
+      height: 48,
+      rotate: 0,
+      content: `<p style="font-size:16px;color:#555555;">关键点：递归终止条件 + 子问题拆分方式，决定排序实现的正确性与效率。</p>`,
+      defaultFontName: 'Microsoft YaHei',
+      defaultColor: '#555555',
+      textType: 'notes',
+      lineHeight: 1.35,
+    });
+  }
+
   return {
     type: 'slide',
     canvas: {
@@ -109,36 +285,7 @@ function buildSlideFromInsert(
         outline: { color: '#d14424', width: 2, style: 'solid' },
         shadow: { h: 0, v: 0, blur: 10, color: '#000000' },
       },
-      elements: [
-        {
-          id: `text_${nanoid(8)}`,
-          type: 'text',
-          left: 64,
-          top: 42,
-          width: 872,
-          height: 82,
-          rotate: 0,
-          content: `<p><strong>${htmlEscape(title)}</strong></p>`,
-          defaultFontName: 'Microsoft YaHei',
-          defaultColor: '#111827',
-          textType: 'title',
-          lineHeight: 1.3,
-        },
-        {
-          id: `text_${nanoid(8)}`,
-          type: 'text',
-          left: 72,
-          top: 142,
-          width: 856,
-          height: 330,
-          rotate: 0,
-          content: `<p>${htmlEscape(bullets || description)}</p>`,
-          defaultFontName: 'Microsoft YaHei',
-          defaultColor: '#334155',
-          textType: 'content',
-          lineHeight: 1.5,
-        },
-      ],
+      elements,
     },
   } as SlideContent;
 }
@@ -306,15 +453,24 @@ export async function applyNotebookPlan(
     if (upd.title) patch.title = upd.title;
     if (upd.appendKnowledge && target.content.type === 'slide') {
       const content = target.content as SlideContent;
+      const { prose, code } = extractFenceCode(upd.appendKnowledge);
+      const items = toBulletItems(prose, []);
+      const extraHtml =
+        items.length > 0
+          ? `<ul>${items.map((i) => `<li>${htmlEscape(i)}</li>`).join('')}</ul>`
+          : `<p>${htmlEscape(normalizePlainText(prose))}</p>`;
+      const codeHtml = code
+        ? `<p><strong>补充代码：</strong></p><p>${htmlEscape(code).replace(/\n/g, '<br/>')}</p>`
+        : '';
       const extra = {
         id: `text_${nanoid(8)}`,
         type: 'text' as const,
         left: 72,
         top: 490,
         width: 856,
-        height: 56,
+        height: code ? 120 : 72,
         rotate: 0,
-        content: `<p>${htmlEscape(upd.appendKnowledge)}</p>`,
+        content: `${extraHtml}${codeHtml}`,
         defaultFontName: 'Microsoft YaHei',
         defaultColor: '#475569',
         textType: 'notes' as const,

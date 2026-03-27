@@ -1,57 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Shield, KeyRound, Bot, BarChart3 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Shield, BarChart3 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { backendJson } from '@/lib/utils/backend-api';
-
-const OPENAI_SYSTEM_MODEL_GROUPS: { label: string; options: { id: string; title: string }[] }[] = [
-  {
-    label: 'GPT-5 系列',
-    options: [
-      { id: 'gpt-5.4', title: 'GPT-5.4' },
-      { id: 'gpt-5.4-mini', title: 'GPT-5.4 mini' },
-    ],
-  },
-  {
-    label: 'GPT-4 系列',
-    options: [
-      { id: 'gpt-4o', title: 'GPT-4o' },
-      { id: 'gpt-4o-mini', title: 'GPT-4o mini（默认）' },
-    ],
-  },
-];
-
-const OPENAI_PRESET_MODEL_IDS = new Set(
-  OPENAI_SYSTEM_MODEL_GROUPS.flatMap((g) => g.options.map((o) => o.id)),
-);
-
-const OPENAI_CUSTOM_MODEL_VALUE = '__custom__';
-
-type LLMConfigResponse = {
-  config: {
-    providerId: string;
-    modelId: string;
-    baseUrl: string | null;
-    hasApiKey: boolean;
-    maskedApiKey: string | null;
-    source: 'database' | 'environment';
-    updatedAt: string | null;
-  };
-};
+import type { SiteProviderStatusResponse, SiteProviderAdminRow } from '@/lib/types/admin-site-providers';
+import { PROVIDERS } from '@/lib/ai/providers';
 
 type LLMUsageResponse = {
   summary: {
@@ -78,33 +34,42 @@ function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
 }
 
-export function AdminLLMSection() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [usageError, setUsageError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [config, setConfig] = useState<LLMConfigResponse['config'] | null>(null);
-  const [usage, setUsage] = useState<LLMUsageResponse | null>(null);
-  const [form, setForm] = useState({
-    modelId: 'gpt-4o-mini',
-    baseUrl: '',
-    apiKey: '',
+function mergeWithRegistry(rows?: SiteProviderAdminRow[]): SiteProviderAdminRow[] {
+  const map = new Map((rows || []).map((r) => [r.id, r]));
+  const ordered: SiteProviderAdminRow[] = Object.keys(PROVIDERS).map((id) => {
+    const row = map.get(id);
+    if (row) return row;
+    return { id, hasApiKey: false, baseUrl: null, models: null };
   });
+  for (const r of rows || []) {
+    if (!PROVIDERS[r.id as keyof typeof PROVIDERS]) ordered.push(r);
+  }
+  return ordered;
+}
 
-  const loadAll = async () => {
+export function AdminLLMSection() {
+  const PAGE_SIZE = 20;
+  const [loading, setLoading] = useState(true);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const [providerPayload, setProviderPayload] = useState<SiteProviderStatusResponse | null>(null);
+  const [usage, setUsage] = useState<LLMUsageResponse | null>(null);
+  const [usagePage, setUsagePage] = useState(1);
+
+  const loadAll = useCallback(async () => {
     setLoading(true);
-    setError(null);
+    setProviderError(null);
     setUsageError(null);
     try {
-      const configResp = await backendJson<LLMConfigResponse>('/api/admin/llm-config');
-      setConfig(configResp.config);
-      setForm({
-        modelId: configResp.config.modelId || 'gpt-4o-mini',
-        baseUrl: configResp.config.baseUrl || '',
-        apiKey: '',
-      });
-
+      try {
+        const providerResp = await backendJson<SiteProviderStatusResponse>('/api/admin/site-provider-status');
+        setProviderPayload(providerResp);
+      } catch (providerLoadError) {
+        setProviderPayload(null);
+        setProviderError(
+          providerLoadError instanceof Error ? providerLoadError.message : String(providerLoadError),
+        );
+      }
       try {
         const usageResp = await backendJson<LLMUsageResponse>('/api/admin/llm-usage');
         setUsage(usageResp);
@@ -114,55 +79,32 @@ export function AdminLLMSection() {
           usageLoadError instanceof Error ? usageLoadError.message : String(usageLoadError),
         );
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadAll();
-  }, []);
+  }, [loadAll]);
 
-  const canSubmit = useMemo(() => form.modelId.trim().length > 0, [form.modelId]);
+  const llmRows = useMemo(() => mergeWithRegistry(providerPayload?.llm), [providerPayload?.llm]);
+  const usageRows = usage?.rows || [];
+  const usageTotalPages = Math.max(1, Math.ceil(usageRows.length / PAGE_SIZE));
+  const usagePagedRows = useMemo(() => {
+    const start = (usagePage - 1) * PAGE_SIZE;
+    return usageRows.slice(start, start + PAGE_SIZE);
+  }, [usagePage, usageRows]);
 
-  const modelSelectValue = useMemo(() => {
-    const id = form.modelId.trim();
-    return OPENAI_PRESET_MODEL_IDS.has(id) ? id : OPENAI_CUSTOM_MODEL_VALUE;
-  }, [form.modelId]);
+  useEffect(() => {
+    setUsagePage(1);
+  }, [usage?.rows]);
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!canSubmit) return;
-    setSaving(true);
-    setError(null);
-    setSuccess(null);
-    try {
-      const payload = {
-        modelId: form.modelId.trim(),
-        baseUrl: form.baseUrl.trim() || null,
-        apiKey: form.apiKey.trim() || undefined,
-      };
-      const resp = await backendJson<LLMConfigResponse>('/api/admin/llm-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      setConfig(resp.config);
-      setForm((prev) => ({ ...prev, apiKey: '' }));
-      setSuccess(
-        form.apiKey.trim()
-          ? '系统 OpenAI 配置已更新。'
-          : '已保存；未填写新 API Key，已沿用数据库中的密钥（掩码可能不变）。',
-      );
-      await loadAll();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
+  useEffect(() => {
+    if (usagePage > usageTotalPages) {
+      setUsagePage(usageTotalPages);
     }
-  };
+  }, [usagePage, usageTotalPages]);
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">加载语言模型配置…</p>;
@@ -170,10 +112,10 @@ export function AdminLLMSection() {
 
   return (
     <div className="space-y-6">
-      {error ? (
+      {providerError ? (
         <Alert variant="destructive">
-          <AlertTitle>操作失败</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
+          <AlertTitle>配置加载失败</AlertTitle>
+          <AlertDescription>{providerError}</AlertDescription>
         </Alert>
       ) : null}
 
@@ -184,171 +126,119 @@ export function AdminLLMSection() {
         </Alert>
       ) : null}
 
-      {success ? (
-        <Alert>
-          <AlertTitle>保存成功</AlertTitle>
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
-      ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-4 w-4" />
+            系统模型配置
+          </CardTitle>
+          <CardDescription>
+            服务端为全站提供的语言模型 Key（用户可在设置里覆盖）。配置来自项目根目录
+            server-providers.yml 与 .env，修改后需重启服务。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-muted/40 text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">提供方</th>
+                  <th className="px-3 py-2 font-medium">ID</th>
+                  <th className="px-3 py-2 font-medium">密钥</th>
+                  <th className="px-3 py-2 font-medium">Base URL</th>
+                  <th className="px-3 py-2 font-medium">模型列表</th>
+                  <th className="px-3 py-2 font-medium">环境变量（参考）</th>
+                </tr>
+              </thead>
+              <tbody>
+                {llmRows.map((row) => {
+                  const hint = providerPayload?.envHints?.llm?.[row.id];
+                  const provider = PROVIDERS[row.id as keyof typeof PROVIDERS];
+                  return (
+                    <tr key={row.id} className="border-t">
+                      <td className="px-3 py-2 font-medium">{provider?.name || row.id}</td>
+                      <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
+                      <td className="px-3 py-2">
+                        {row.hasApiKey ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">已配置</span>
+                        ) : (
+                          <span className="text-muted-foreground">未配置</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 break-all font-mono text-xs">{row.baseUrl || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {row.models?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {row.models.map((modelId) => (
+                              <span
+                                key={modelId}
+                                className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[11px]"
+                              >
+                                {modelId}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[11px] leading-snug text-muted-foreground">
+                        {hint ? (
+                          <span>
+                            {hint.apiKey}
+                            <br />
+                            {hint.baseUrl}
+                            <br />
+                            {hint.models}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            修改 <code className="rounded bg-muted px-1">server-providers.yml</code> 或对应{' '}
+            <code className="rounded bg-muted px-1">.env.local</code> 后，请重启 Next 进程使配置生效。
+          </p>
+        </CardContent>
+      </Card>
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              系统模型配置
-            </CardTitle>
-            <CardDescription>全站用户统一使用这里配置的 OpenAI key 与固定模型。</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-lg border bg-background/70 p-3">
-                <div className="text-xs text-muted-foreground">提供方</div>
-                <div className="mt-1 font-medium">OpenAI</div>
-              </div>
-              <div className="rounded-lg border bg-background/70 p-3">
-                <div className="text-xs text-muted-foreground">当前模型</div>
-                <div className="mt-1 font-medium">{config?.modelId || '-'}</div>
-              </div>
-              <div className="rounded-lg border bg-background/70 p-3">
-                <div className="text-xs text-muted-foreground">当前来源</div>
-                <div className="mt-1 font-medium">
-                  {config?.source === 'database' ? '管理员配置' : '环境变量回退'}
-                </div>
-              </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            用量汇总
+          </CardTitle>
+          <CardDescription>Token 数据可用于后续按用户计费。</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">调用次数</div>
+            <div className="mt-1 text-xl font-semibold">{formatNumber(usage?.summary.totalCalls || 0)}</div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">输入 Tokens</div>
+            <div className="mt-1 text-xl font-semibold">
+              {formatNumber(usage?.summary.totalInputTokens || 0)}
             </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border bg-background/70 p-3">
-                <div className="text-xs text-muted-foreground">当前 Base URL</div>
-                <div className="mt-1 break-all font-medium">{config?.baseUrl || 'OpenAI 默认地址'}</div>
-              </div>
-              <div className="rounded-lg border bg-background/70 p-3">
-                <div className="text-xs text-muted-foreground">当前 API Key</div>
-                <div className="mt-1 font-medium">{config?.maskedApiKey || '未配置'}</div>
-                {config?.updatedAt ? (
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    配置更新时间：{new Date(config.updatedAt).toLocaleString('zh-CN')}
-                  </div>
-                ) : null}
-              </div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">输出 Tokens</div>
+            <div className="mt-1 text-xl font-semibold">
+              {formatNumber(usage?.summary.totalOutputTokens || 0)}
             </div>
-
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <div className="space-y-2">
-                <Label htmlFor="model-select">
-                  <Bot className="h-4 w-4" />
-                  固定模型
-                </Label>
-                <Select
-                  value={modelSelectValue}
-                  onValueChange={(v) => {
-                    if (v === OPENAI_CUSTOM_MODEL_VALUE) {
-                      setForm((prev) => ({ ...prev, modelId: prev.modelId.trim() }));
-                    } else {
-                      setForm((prev) => ({ ...prev, modelId: v }));
-                    }
-                  }}
-                >
-                  <SelectTrigger id="model-select" className="w-full min-w-0">
-                    <SelectValue placeholder="选择模型" />
-                  </SelectTrigger>
-                  <SelectContent position="popper" className="max-h-72 min-w-[var(--radix-select-trigger-width)]">
-                    {OPENAI_SYSTEM_MODEL_GROUPS.map((group) => (
-                      <SelectGroup key={group.label}>
-                        <SelectLabel>{group.label}</SelectLabel>
-                        {group.options.map((opt) => (
-                          <SelectItem key={opt.id} value={opt.id}>
-                            {opt.title}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                    <SelectItem value={OPENAI_CUSTOM_MODEL_VALUE}>自定义…</SelectItem>
-                  </SelectContent>
-                </Select>
-                {modelSelectValue === OPENAI_CUSTOM_MODEL_VALUE ? (
-                  <Input
-                    id="model-id"
-                    value={form.modelId}
-                    onChange={(e) => setForm((prev) => ({ ...prev, modelId: e.target.value }))}
-                    placeholder="例如 gpt-5.4-2026-03-05"
-                    className="font-mono text-sm"
-                    autoComplete="off"
-                  />
-                ) : null}
-                <p className="text-xs text-muted-foreground">
-                  列表为常用 ID；完整名称以 OpenAI 账号可用模型为准。未开通的模型保存后调用会失败。
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="base-url">Base URL（可选）</Label>
-                <Input
-                  id="base-url"
-                  value={form.baseUrl}
-                  onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))}
-                  placeholder="https://api.openai.com/v1"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="api-key">
-                  <KeyRound className="h-4 w-4" />
-                  OpenAI API Key
-                </Label>
-                <Input
-                  id="api-key"
-                  type="password"
-                  value={form.apiKey}
-                  onChange={(e) => setForm((prev) => ({ ...prev, apiKey: e.target.value }))}
-                  placeholder="留空则保持当前 key 不变"
-                />
-              </div>
-
-              <Button type="submit" disabled={!canSubmit || saving}>
-                {saving ? '保存中…' : '保存系统配置'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4" />
-              用量汇总
-            </CardTitle>
-            <CardDescription>Token 数据可用于后续按用户计费。</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-            <div className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs text-muted-foreground">调用次数</div>
-              <div className="mt-1 text-xl font-semibold">
-                {formatNumber(usage?.summary.totalCalls || 0)}
-              </div>
-            </div>
-            <div className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs text-muted-foreground">输入 Tokens</div>
-              <div className="mt-1 text-xl font-semibold">
-                {formatNumber(usage?.summary.totalInputTokens || 0)}
-              </div>
-            </div>
-            <div className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs text-muted-foreground">输出 Tokens</div>
-              <div className="mt-1 text-xl font-semibold">
-                {formatNumber(usage?.summary.totalOutputTokens || 0)}
-              </div>
-            </div>
-            <div className="rounded-lg border bg-background/70 p-3">
-              <div className="text-xs text-muted-foreground">总 Tokens</div>
-              <div className="mt-1 text-xl font-semibold">
-                {formatNumber(usage?.summary.totalTokens || 0)}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">总 Tokens</div>
+            <div className="mt-1 text-xl font-semibold">{formatNumber(usage?.summary.totalTokens || 0)}</div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -370,7 +260,7 @@ export function AdminLLMSection() {
                 </tr>
               </thead>
               <tbody>
-                {(usage?.rows || []).map((row) => (
+                {usagePagedRows.map((row) => (
                   <tr key={row.id} className="border-t">
                     <td className="px-3 py-2 whitespace-nowrap">
                       {new Date(row.createdAt).toLocaleString('zh-CN')}
@@ -386,7 +276,7 @@ export function AdminLLMSection() {
                     <td className="px-3 py-2 font-medium">{formatNumber(row.totalTokens)}</td>
                   </tr>
                 ))}
-                {(usage?.rows.length || 0) === 0 ? (
+                {usageRows.length === 0 ? (
                   <tr>
                     <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>
                       暂无用量数据。
@@ -396,6 +286,33 @@ export function AdminLLMSection() {
               </tbody>
             </table>
           </div>
+          {usageRows.length > 0 ? (
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">
+                第 {usagePage} / {usageTotalPages} 页 · 共 {formatNumber(usageRows.length)} 条
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={usagePage <= 1}
+                  onClick={() => setUsagePage((p) => Math.max(1, p - 1))}
+                >
+                  上一页
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={usagePage >= usageTotalPages}
+                  onClick={() => setUsagePage((p) => Math.min(usageTotalPages, p + 1))}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
     </div>

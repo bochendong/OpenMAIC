@@ -96,6 +96,8 @@ export function CourseGalleryCard({
   const [thumbWidth, setThumbWidth] = useState(0);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  /** 头像 URL 失效时回退到稳定本地封面，避免封面区只剩灰底 */
+  const [coverImgSrc, setCoverImgSrc] = useState<string | null>(null);
 
   useEffect(() => {
     const el = thumbRef.current;
@@ -118,7 +120,13 @@ export function CourseGalleryCard({
 
   /** 无课件缩略图时使用专用封面图（非头像素材），按 id 稳定映射 */
   const galleryCoverUrl = pickStableGalleryCoverUrl(course.id);
-  const coverImageUrl = isImageUrl(coverAvatarUrl) ? coverAvatarUrl.trim() : galleryCoverUrl;
+  const preferredCoverUrl = isImageUrl(coverAvatarUrl) ? coverAvatarUrl.trim() : galleryCoverUrl;
+
+  useEffect(() => {
+    setCoverImgSrc(null);
+  }, [course.id, preferredCoverUrl]);
+
+  const resolvedCoverUrl = coverImgSrc ?? preferredCoverUrl;
 
   return (
     <article
@@ -145,9 +153,10 @@ export function CourseGalleryCard({
           ) : (
             // eslint-disable-next-line @next/next/no-img-element -- public/covers 与头像图
             <img
-              src={coverImageUrl}
+              src={resolvedCoverUrl}
               alt=""
               className="absolute inset-0 size-full object-cover object-center"
+              onError={() => setCoverImgSrc(galleryCoverUrl)}
             />
           )}
         </div>

@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { TTS_PROVIDERS, DEFAULT_TTS_VOICES, getTTSVoices } from '@/lib/audio/constants';
@@ -16,7 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Volume2, Loader2, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
+import { Volume2, Loader2, CheckCircle2, XCircle, Eye, EyeOff, Info, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createLogger } from '@/lib/logger';
 import { useTTSPreview } from '@/lib/audio/use-tts-preview';
@@ -35,6 +37,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
   const ttsProvidersConfig = useSettingsStore((state) => state.ttsProvidersConfig);
   const setTTSProviderConfig = useSettingsStore((state) => state.setTTSProviderConfig);
   const activeProviderId = useSettingsStore((state) => state.ttsProviderId);
+  const setTTSProvider = useSettingsStore((state) => state.setTTSProvider);
   const setTTSVoice = useSettingsStore((state) => state.setTTSVoice);
   const setTTSSpeed = useSettingsStore((state) => state.setTTSSpeed);
 
@@ -78,6 +81,14 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
     () => Object.values(ttsProvidersConfig).some((c) => c?.isServerConfigured),
     [ttsProvidersConfig],
   );
+  const serverProviderIds = useMemo(
+    () =>
+      (Object.keys(ttsProvidersConfig) as TTSProviderId[]).filter(
+        (pid) => !!ttsProvidersConfig[pid]?.isServerConfigured,
+      ),
+    [ttsProvidersConfig],
+  );
+  const systemManaged = anyTtsProviderServerConfigured;
 
   const [showApiKey, setShowApiKey] = useState(false);
   const [testText, setTestText] = useState(t('settings.ttsTestTextDefault'));
@@ -97,6 +108,14 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
     setTestStatus('idle');
     setTestMessage('');
   }, [selectedProviderId, stopPreview]);
+
+  useEffect(() => {
+    if (!systemManaged) return;
+    if (!serverProviderIds.length) return;
+    if (!ttsProvidersConfig[selectedProviderId]?.isServerConfigured) {
+      setTTSProvider(serverProviderIds[0]);
+    }
+  }, [systemManaged, serverProviderIds, selectedProviderId, setTTSProvider, ttsProvidersConfig]);
 
   const handleTestTTS = async () => {
     if (!testText.trim()) return;
@@ -128,20 +147,67 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {systemManaged && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Volume2 className="h-4 w-4" />
+              系统语音合成
+            </CardTitle>
+            <CardDescription>
+              语音来源于管理员配置。你可以在管理员开放的语音服务范围内切换 Provider 和音色，API Key 由系统统一托管。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">Provider: {ttsProvider?.name || selectedProviderId}</Badge>
+              <Badge variant="secondary">Voice: {effectiveVoice}</Badge>
+              <Badge variant="outline" className="gap-1">
+                <ShieldCheck className="h-3.5 w-3.5" />
+                系统托管
+              </Badge>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">选择语音服务（管理员开放范围）</Label>
+                <Select value={selectedProviderId} onValueChange={(v) => setTTSProvider(v as TTSProviderId)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {serverProviderIds.map((pid) => (
+                      <SelectItem key={pid} value={pid}>
+                        {TTS_PROVIDERS[pid]?.name || pid}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-muted/30 p-3 text-sm text-muted-foreground">
+              <p className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>你的语音调用将统一走站点管理员配置的服务，系统会记录调用情况用于统计与运维。</span>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Server-configured notice */}
-      {isServerConfigured && (
+      {!systemManaged && isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNotice')}
         </div>
       )}
-      {!isServerConfigured && anyTtsProviderServerConfigured && (
+      {!systemManaged && !isServerConfigured && anyTtsProviderServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">
           {t('settings.serverConfiguredNoticeOtherProvider')}
         </div>
       )}
 
       {/* API Key & Base URL */}
-      {(ttsProvider.requiresApiKey || isServerConfigured) && (
+      {!systemManaged && (ttsProvider.requiresApiKey || isServerConfigured) && (
         <>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
