@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { PPTShapeElement, ShapeText } from '@/lib/types/slides';
+import { renderHtmlWithLatex } from '@/lib/render-html-with-latex';
 import { useElementOutline } from '../hooks/useElementOutline';
 import { useElementShadow } from '../hooks/useElementShadow';
 import { useElementFlip } from '../hooks/useElementFlip';
@@ -27,6 +29,11 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
     defaultFontName: 'Microsoft YaHei',
     defaultColor: '#333333',
   };
+  const [renderedTextContent, setRenderedTextContent] = useState(text.content);
+
+  useEffect(() => {
+    setRenderedTextContent(renderHtmlWithLatex(text.content));
+  }, [text.content]);
 
   return (
     <div
@@ -108,7 +115,7 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
                 // @ts-expect-error CSS custom properties
                 '--paragraphSpace': `${text.paragraphSpace === undefined ? 5 : text.paragraphSpace}px`,
               }}
-              dangerouslySetInnerHTML={{ __html: text.content }}
+              dangerouslySetInnerHTML={{ __html: renderedTextContent }}
             />
           </div>
         </div>

@@ -494,6 +494,47 @@ function normalizeText(input?: string, maxLen = 240): string {
   return `${raw.slice(0, maxLen - 1).trimEnd()}…`;
 }
 
+function containsLatexLikeMath(text: string): boolean {
+  return /\\\(|\\\[|\$\$|\$[^$\n]+?\$|\\\\\(|\\\\\[/.test(text);
+}
+
+function estimateVisualTextLength(text: string): number {
+  return text
+    .replace(/\\\\(?=[()[\]])/g, '\\')
+    .replace(/\\\(|\\\)|\\\[|\\\]/g, '')
+    .replace(/\$\$/g, '')
+    .replace(/\$/g, '')
+    .replace(/\\\\/g, '\\')
+    .replace(/\\[a-zA-Z]+/g, 'x')
+    .replace(/[{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim().length;
+}
+
+function estimateWrappedLineCount(
+  text: string,
+  approxCharsPerLine: number,
+  maxLines: number,
+): number {
+  const source = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const pieces = source.length > 0 ? source : [text.trim()];
+
+  let lineCount = 0;
+  for (const piece of pieces) {
+    const normalized = piece.replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    const visualLength = Math.max(1, estimateVisualTextLength(normalized));
+    lineCount += Math.max(1, Math.ceil(visualLength / Math.max(approxCharsPerLine, 1)));
+    if (lineCount >= maxLines) return maxLines;
+  }
+
+  return Math.max(1, lineCount);
+}
+
 function normalizeList(
   items: string[] | undefined,
   fallback: string[] = [],
@@ -516,6 +557,11 @@ function splitIntoLines(text: string, maxChars = 90, maxLines = 6): string[] {
 
   for (const piece of source) {
     let remaining = piece.replace(/\s+/g, ' ').trim();
+    if (containsLatexLikeMath(remaining)) {
+      lines.push(remaining);
+      if (lines.length >= maxLines) break;
+      continue;
+    }
     while (remaining && lines.length < maxLines) {
       if (remaining.length <= maxChars) {
         lines.push(remaining);
@@ -1308,6 +1354,24 @@ function buildWorkedExampleSlideContent(
     const hasCode = codeLines.length > 0;
     const showVisual = !hasCode && !!visualAsset;
     const problemWidth = hasCode ? 472 : showVisual ? 544 : 896;
+    const problemFontSize = hasCode ? 16 : 17;
+    const problemLineHeight = 1.42;
+    const problemLineEstimate = estimateWrappedLineCount(
+      problemText,
+      hasCode ? 38 : showVisual ? 50 : 72,
+      hasCode ? 8 : 7,
+    );
+    const problemTextHeight = Math.max(
+      hasCode ? 120 : 44,
+      Math.round(problemLineEstimate * problemFontSize * problemLineHeight + 8),
+    );
+    const problemPanelHeight = hasCode
+      ? 248
+      : showVisual
+        ? Math.max(148, Math.min(210, problemTextHeight + 58))
+        : Math.max(118, Math.min(210, problemTextHeight + 58));
+    const problemRowHeight = Math.max(problemPanelHeight, hasCode ? 248 : 0, showVisual ? 210 : 0);
+    const detailCardsTop = 108 + problemRowHeight + 24;
     const cards = [
       { label: labels.givens, items: givens },
       { label: labels.asks, items: asks },
@@ -1320,7 +1384,7 @@ function buildWorkedExampleSlideContent(
         left: 52,
         top: 108,
         width: problemWidth,
-        height: hasCode ? 248 : 210,
+        height: problemPanelHeight,
         fill: palette.panel,
         outlineColor: palette.accentSoft,
       }),
@@ -1343,11 +1407,11 @@ function buildWorkedExampleSlideContent(
         left: 72,
         top: 158,
         width: problemWidth - 40,
-        height: hasCode ? 176 : 150,
+        height: problemPanelHeight - 60,
         content: toTextHtml(splitIntoLines(problemText, hasCode ? 42 : 88, hasCode ? 8 : 7), {
-          fontSize: hasCode ? 16 : 17,
+          fontSize: problemFontSize,
           color: '#0f172a',
-          lineHeight: 1.42,
+          lineHeight: problemLineHeight,
         }),
         defaultColor: '#0f172a',
         textType: 'content',
@@ -1359,7 +1423,7 @@ function buildWorkedExampleSlideContent(
         ...buildWorkedExampleVisualPanel(
           visualAsset.source === 'generated' ? labels.generatedVisual : labels.referenceVisual,
           visualAsset,
-          { left: 620, top: 108, width: 328, height: 210 },
+          { left: 620, top: 108, width: 328, height: problemRowHeight },
           palette,
           'problem_visual',
         ),
@@ -1414,7 +1478,7 @@ function buildWorkedExampleSlideContent(
             card.items,
             {
               left: lefts[idx],
-              top: hasCode ? 382 : 344,
+              top: detailCardsTop,
               width: widths[idx],
               height: hasCode ? 130 : 162,
             },
@@ -1847,7 +1911,9 @@ function shouldUseSemanticSlideGeneration(
   return true;
 }
 
-function extractNotebookContentDocumentFromResponse(response: string): NotebookContentDocument | null {
+function extractNotebookContentDocumentFromResponse(
+  response: string,
+): NotebookContentDocument | null {
   const parsed = parseJsonResponse<unknown>(response);
   if (!parsed || typeof parsed !== 'object') return null;
 
@@ -1941,7 +2007,9 @@ async function generateSlideContent(
       log.info(`Using semantic slide content pipeline for: ${outline.title}`);
       return semanticContent;
     }
-    log.warn(`Semantic slide content generation failed, falling back to legacy element prompt: ${outline.title}`);
+    log.warn(
+      `Semantic slide content generation failed, falling back to legacy element prompt: ${outline.title}`,
+    );
   }
 
   if (outline.workedExampleConfig) {
