@@ -6,6 +6,8 @@ import { PENDING_SCENE_ID } from '@/lib/store/stage';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { backendFetch } from '@/lib/utils/backend-api';
+import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { Header } from './header';
 import { QuizCourseQuestionHub } from '@/components/scene-renderers/quiz-course-question-hub';
 import { CanvasPlaybackPill } from '@/components/canvas/canvas-playback-pill';
@@ -16,7 +18,7 @@ import type { EngineMode, TriggerEvent, Effect } from '@/lib/playback';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import type { Action, DiscussionAction, SpeechAction } from '@/lib/types/action';
-import type { Scene, SceneType } from '@/lib/types/stage';
+import type { Scene, SceneType, SlideContent } from '@/lib/types/stage';
 import type { SceneOutline } from '@/lib/types/generation';
 // Playback state persistence removed — refresh always starts from the beginning
 import { ChatArea, type ChatAreaRef } from '@/components/chat/chat-area';
@@ -34,7 +36,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, SquarePen } from 'lucide-react';
+import { AlertTriangle, Loader2, Sparkles, SquarePen } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -220,6 +222,7 @@ export function Stage({
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
+  const [mathRepairPending, setMathRepairPending] = useState(false);
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
@@ -967,6 +970,58 @@ export function Stage({
     [currentScene, updateScene],
   );
 
+  const handleRepairCurrentSlideMath = useCallback(async () => {
+    if (
+      mathRepairPending ||
+      !currentScene ||
+      currentScene.type !== 'slide' ||
+      currentScene.content.type !== 'slide'
+    ) {
+      return;
+    }
+
+    setMathRepairPending(true);
+    try {
+      const modelConfig = getCurrentModelConfig();
+      const resp = await backendFetch('/api/classroom/repair-slide-math', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-model': modelConfig.modelString,
+          'x-provider-type': modelConfig.providerType,
+          'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
+        },
+        body: JSON.stringify({
+          sceneTitle: currentScene.title,
+          language: (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN',
+          content: currentScene.content,
+        }),
+      });
+
+      const data = (await resp.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        sceneTitle?: string;
+        content?: SlideContent;
+      };
+
+      if (!resp.ok || !data.success || !data.content) {
+        throw new Error(data.error?.trim() || 'AI 修复失败');
+      }
+
+      updateScene(currentScene.id, {
+        title: data.sceneTitle?.trim() || currentScene.title,
+        content: data.content,
+        updatedAt: Date.now(),
+      });
+      toast.success('当前页的数学符号已修复');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'AI 修复失败');
+    } finally {
+      setMathRepairPending(false);
+    }
+  }, [currentScene, mathRepairPending, stageLanguage, updateScene]);
+
   // Map engine mode to the CanvasArea's expected engine state
   const canvasEngineState = (() => {
     switch (engineMode) {
@@ -1172,27 +1227,54 @@ export function Stage({
     </div>
   ) : undefined;
 
+  const canRepairCurrentSlide =
+    !isPendingScene && currentScene?.type === 'slide' && currentScene.content.type === 'slide';
+
   const titleActions =
-    canEditCurrentSlide || slideEditorOpen ? (
-      <button
-        type="button"
-        onClick={() => {
-          if (slideEditorOpen) {
-            handleCloseSlideEditor();
-          } else {
-            handleOpenSlideEditor();
-          }
-        }}
-        className={cn(
-          'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-          slideEditorOpen
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/35 dark:text-emerald-200 dark:hover:bg-emerald-950/55'
-            : 'border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-50 dark:border-white/[0.1] dark:bg-white/[0.05] dark:text-slate-200 dark:hover:bg-white/[0.08]',
-        )}
-      >
-        <SquarePen className="size-3.5" />
-        {slideEditorOpen ? '完成编辑' : '编辑当前页'}
-      </button>
+    canEditCurrentSlide || slideEditorOpen || canRepairCurrentSlide ? (
+      <div className="flex items-center gap-2">
+        {canRepairCurrentSlide ? (
+          <button
+            type="button"
+            onClick={() => void handleRepairCurrentSlideMath()}
+            disabled={mathRepairPending}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-70',
+              'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-200 dark:hover:bg-sky-950/55',
+            )}
+            title="用 AI 修复当前页的数学符号与公式格式"
+          >
+            {mathRepairPending ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="size-3.5" />
+            )}
+            {mathRepairPending ? '正在修复' : 'AI 一键修复'}
+          </button>
+        ) : null}
+
+        {canEditCurrentSlide || slideEditorOpen ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (slideEditorOpen) {
+                handleCloseSlideEditor();
+              } else {
+                handleOpenSlideEditor();
+              }
+            }}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+              slideEditorOpen
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/35 dark:text-emerald-200 dark:hover:bg-emerald-950/55'
+                : 'border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-50 dark:border-white/[0.1] dark:bg-white/[0.05] dark:text-slate-200 dark:hover:bg-white/[0.08]',
+            )}
+          >
+            <SquarePen className="size-3.5" />
+            {slideEditorOpen ? '完成编辑' : '编辑当前页'}
+          </button>
+        ) : null}
+      </div>
     ) : null;
 
   const footerCenterSlot = slideEditorOpen ? (
