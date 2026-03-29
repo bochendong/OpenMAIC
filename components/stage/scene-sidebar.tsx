@@ -29,9 +29,9 @@ interface SceneSidebarProps {
   readonly onCollapseChange: (collapsed: boolean) => void;
   readonly onSceneSelect?: (sceneId: string) => void;
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
-  /** 开启虚拟讲师且处于播放语境时传入，用于「2D Live」标签页 */
+  /** 开启虚拟讲师且处于播放语境时传入，用于「虚拟讲师」标签页 */
   readonly live2dPresenter?: TalkingAvatarOverlayState;
-  /** 与画布工具条一致；开始播放时自动切到 2D Live，从播放切到暂停/空闲时回到导航；其余时候可手动切换 */
+  /** 与画布工具条一致；开始播放时自动切到虚拟讲师页，从播放切到暂停/空闲时回到导航；其余时候可手动切换 */
   readonly playbackEngineState?: 'idle' | 'playing' | 'paused';
 }
 

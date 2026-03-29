@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { LIVE2D_PRESENTER_MODELS } from '@/lib/live2d/presenter-models';
 
@@ -69,6 +70,7 @@ export function TalkingAvatarOverlay({
   layout = 'overlay',
   pointerInteraction,
 }: TalkingAvatarOverlayProps) {
+  const { locale } = useI18n();
   const live2dPresenterModelId = useSettingsStore((state) => state.live2dPresenterModelId);
   const modelConfig = LIVE2D_PRESENTER_MODELS[live2dPresenterModelId];
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -342,7 +344,7 @@ export function TalkingAvatarOverlay({
 
         {status === 'error' && (
           <div className="absolute inset-x-2 bottom-2 rounded-xl border border-rose-400/50 bg-black/55 px-2 py-1.5 text-[10px] font-medium text-rose-200 backdrop-blur-sm">
-            Live2D load failed
+            {locale === 'zh-CN' ? '讲师形象加载失败' : 'Unable to load presenter'}
           </div>
         )}
       </div>

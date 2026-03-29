@@ -51,9 +51,17 @@ export interface CourseRecord {
   courseCode?: string;
   /** 课程头像，如 `/avatars/notebook-agents/xxx.avif` */
   avatarUrl?: string;
+  /** 是否在课程商城对其他人可见（仅服务端课程） */
+  listedInCourseStore?: boolean;
   createdAt: number;
   updatedAt: number;
 }
+
+/** 课程商城「社区」列表项（含创作者与笔记本数量） */
+export type CommunityCourseListItem = CourseRecord & {
+  ownerName: string;
+  notebookCount: number;
+};
 
 /**
  * Stage table — 一个 Stage = 一门课程下的一个「笔记本」（互动课件）

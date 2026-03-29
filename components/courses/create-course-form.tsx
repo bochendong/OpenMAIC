@@ -6,6 +6,7 @@ import { createCourse, updateCourse } from '@/lib/utils/course-storage';
 import { useAuthStore } from '@/lib/store/auth';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 export function parseTags(raw: string): string[] {
@@ -151,6 +152,7 @@ export function CreateCourseForm({
   const [purpose, setPurpose] = useState<CoursePurpose>('daily');
   const [university, setUniversity] = useState('');
   const [courseCode, setCourseCode] = useState('');
+  const [listedInCourseStore, setListedInCourseStore] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -163,6 +165,7 @@ export function CreateCourseForm({
     setPurpose(editCourse.purpose);
     setUniversity(editCourse.university ?? '');
     setCourseCode(editCourse.courseCode ?? '');
+    setListedInCourseStore(Boolean(editCourse.listedInCourseStore));
     setError(null);
   }, [editCourse]);
 
@@ -242,6 +245,7 @@ export function CreateCourseForm({
           purpose,
           university: purpose === 'university' ? university : undefined,
           courseCode: purpose === 'university' ? courseCode : undefined,
+          listedInCourseStore,
         });
         onSuccess(editCourse.id);
       } else {
@@ -455,6 +459,23 @@ export function CreateCourseForm({
           </div>
         </div>
       )}
+
+      {editCourse ? (
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-white/15 dark:bg-white/[0.04]">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">在课程商城展示</p>
+            <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              开启后，其他登录用户可在课程商城「社区课程」中看到本课程，并可将课程信息复制到自己的空间（不会复制笔记本内容）。
+            </p>
+          </div>
+          <Switch
+            checked={listedInCourseStore}
+            onCheckedChange={setListedInCourseStore}
+            className="shrink-0"
+            aria-label="在课程商城展示"
+          />
+        </div>
+      ) : null}
 
       {error && (
         <p className="text-sm text-red-600 dark:text-red-400" role="alert">

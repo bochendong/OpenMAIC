@@ -4,14 +4,20 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CourseGalleryCard } from '@/components/course-gallery-card';
 import { useAuthStore } from '@/lib/store/auth';
-import { createCourse, listCourses } from '@/lib/utils/course-storage';
+import {
+  cloneCourseFromStore,
+  createCourse,
+  listCommunityStoreCourses,
+  listCourses,
+} from '@/lib/utils/course-storage';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import { COURSE_STORE_TEMPLATES } from '@/lib/constants/course-store-templates';
-import type { CourseRecord } from '@/lib/utils/database';
+import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
+import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
 import { toast } from 'sonner';
 import { resolveCourseAvatarDisplayUrl } from '@/lib/constants/course-avatars';
 
-function formatDate(ts: number) {
+function formatDate(ts: number | string) {
   return new Date(ts).toLocaleDateString();
 }
 
@@ -31,14 +37,19 @@ function courseSecondaryLabel(course: CourseRecord): string {
 export default function CourseStorePage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
+  const userId = useAuthStore((s) => s.userId);
   const [mine, setMine] = useState<Array<{ course: CourseRecord; notebookCount: number }>>([]);
+  const [community, setCommunity] = useState<CommunityCourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingId, setAddingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!isLoggedIn) return;
     try {
-      const courses = await listCourses();
+      const [courses, communityRows] = await Promise.all([
+        listCourses(),
+        listCommunityStoreCourses().catch(() => [] as CommunityCourseListItem[]),
+      ]);
       const withCounts = await Promise.all(
         courses.map(async (course) => {
           const notebookCount = (await listStagesByCourse(course.id)).length;
@@ -46,6 +57,7 @@ export default function CourseStorePage() {
         }),
       );
       setMine(withCounts);
+      setCommunity(communityRows);
     } finally {
       setLoading(false);
     }
@@ -60,7 +72,7 @@ export default function CourseStorePage() {
   }, [isLoggedIn, router, load]);
 
   const handleAddTemplate = async (tpl: (typeof COURSE_STORE_TEMPLATES)[number]) => {
-    setAddingId(tpl.id);
+    setAddingId(`tpl:${tpl.id}`);
     try {
       const isUni = tpl.purpose === 'university';
       const course = await createCourse({
@@ -82,6 +94,21 @@ export default function CourseStorePage() {
     }
   };
 
+  const handleCloneCommunityCourse = async (item: CommunityCourseListItem) => {
+    setAddingId(`c:${item.id}`);
+    try {
+      const course = await cloneCourseFromStore(item.id);
+      if (userId) markCourseOwnedByUser(userId, course.id);
+      toast.success(`已复制课程「${course.name}」到我的课程`);
+      await load();
+      router.push(`/course/${course.id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '复制失败');
+    } finally {
+      setAddingId(null);
+    }
+  };
+
   if (!isLoggedIn) return null;
 
   return (
@@ -96,10 +123,10 @@ export default function CourseStorePage() {
             课程商城
           </h1>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-            浏览推荐课程模板，一键添加到「我的课程」。添加后可在该课程下创建或从笔记本商城归入互动笔记本。
+            浏览推荐模板与社区课程：模板与社区课均可加入「我的课程」。社区课程由其他用户在「编辑课程」中开启「在课程商城展示」后出现；复制后仅保留课程信息，不含对方笔记本内容。
           </p>
           <div className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-950/25 dark:text-emerald-100">
-            侧栏在未选择课程时，「商城」即本页。选择课程后，侧栏「商城」将打开笔记本商城。
+            侧栏在未选择课程时，「课程商城」即本页。选择课程后，侧栏「商城」将打开笔记本商城。
           </div>
         </section>
 
@@ -135,8 +162,60 @@ export default function CourseStorePage() {
                     subtitle={purposeLabel(tpl.purpose)}
                     secondaryLabel="课程容器"
                     countUnit="个笔记本"
-                    actionLabel={addingId === tpl.id ? '添加中…' : '添加到我的课程'}
+                    actionLabel={addingId === `tpl:${tpl.id}` ? '添加中…' : '添加到我的课程'}
                     onAction={() => handleAddTemplate(tpl)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="mb-10">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">社区课程</h2>
+          {loading ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 2 }).map((_, idx) => (
+                <div
+                  key={idx}
+                  className="h-72 animate-pulse rounded-[26px] bg-white/60 dark:bg-white/5"
+                />
+              ))}
+            </div>
+          ) : community.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-8 text-center text-slate-500 dark:border-white/20 dark:bg-white/5 dark:text-slate-300">
+              暂无社区课程。请其他用户在课程页「编辑课程」中开启「在课程商城展示」，或稍后再来查看。
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {community.map((item, i) => {
+                const cardItem = {
+                  id: item.id,
+                  name: item.name,
+                  description: item.description,
+                  sceneCount: item.notebookCount,
+                  createdAt:
+                    typeof item.createdAt === 'number'
+                      ? item.createdAt
+                      : new Date(item.createdAt).getTime(),
+                  updatedAt:
+                    typeof item.updatedAt === 'number'
+                      ? item.updatedAt
+                      : new Date(item.updatedAt).getTime(),
+                };
+                return (
+                  <CourseGalleryCard
+                    key={item.id}
+                    listIndex={i}
+                    course={cardItem}
+                    tags={item.tags.length > 0 ? item.tags : undefined}
+                    badge="社区课程"
+                    subtitle={formatDate(item.updatedAt)}
+                    secondaryLabel={`创作者 · ${item.ownerName}`}
+                    countUnit="个笔记本"
+                    actionLabel={addingId === `c:${item.id}` ? '复制中…' : '复制到我的课程'}
+                    onAction={() => handleCloneCommunityCourse(item)}
+                    coverAvatarUrl={resolveCourseAvatarDisplayUrl(item.id, item.avatarUrl)}
                   />
                 );
               })}

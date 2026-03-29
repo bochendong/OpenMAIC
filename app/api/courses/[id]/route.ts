@@ -14,6 +14,7 @@ const updateCourseSchema = z.object({
   university: z.string().trim().max(120).optional(),
   courseCode: z.string().trim().max(60).optional(),
   avatarUrl: z.string().trim().max(2048).optional(),
+  listedInCourseStore: z.boolean().optional(),
 });
 
 async function getCourseForUser(userId: string, id: string) {

@@ -15,7 +15,7 @@ export const stageZhCN = {
     ttsSpeechReadyBannerTooltip:
       '本页讲解语音已缓存或已保存；播放时直接使用，不会再次请求 TTS 合成。',
     live2dPresenterToggle: '虚拟讲师',
-    live2dPresenterToggleTooltip: '在左侧栏「2D Live」标签页显示或隐藏 Live2D 虚拟讲师。',
+    live2dPresenterToggleTooltip: '在左侧栏「虚拟讲师」标签页显示或隐藏虚拟讲师形象。',
     ttsSpeechPendingBanner: '部分讲解未就绪',
     ttsSpeechPendingBannerTooltip:
       '本页尚有讲解语音未生成；首次播放时会请求 TTS 并写入本地缓存与笔记本。',
@@ -26,7 +26,7 @@ export const stageZhCN = {
     sidebarTabNav: '导航',
     sidebarTabAsk: '提问',
     sidebarTabAskDisabledHint: '提问入口即将开放',
-    sidebarTabLive2d: '2D Live',
+    sidebarTabLive2d: '虚拟讲师',
     quizViewNotQuizPage: '当前页不是测验，点击下方进入某一测验页：',
     quizViewNoQuizzes: '本课程暂无测验页。',
     rawDataCaption: '按场景类型筛选的大纲与场景（JSON）',
@@ -207,7 +207,7 @@ export const stageEnUS = {
     ttsSpeechReadyBannerTooltip:
       'Narration for this slide is cached or saved. Playback uses it directly without calling TTS again.',
     live2dPresenterToggle: 'Presenter',
-    live2dPresenterToggleTooltip: 'Show or hide the Live2D presenter in the left sidebar (2D Live tab).',
+    live2dPresenterToggleTooltip: 'Show or hide the virtual presenter in the left sidebar (Presenter tab).',
     ttsSpeechPendingBanner: 'Some narration not ready',
     ttsSpeechPendingBannerTooltip:
       'Some speech lines for this slide are not generated yet. They will be synthesized on first play and saved to local cache.',
@@ -217,7 +217,7 @@ export const stageEnUS = {
     sidebarTabNav: 'Scenes',
     sidebarTabAsk: 'Ask',
     sidebarTabAskDisabledHint: 'Ask from here — coming soon',
-    sidebarTabLive2d: '2D Live',
+    sidebarTabLive2d: 'Presenter',
     quizViewNotQuizPage: 'This page is not a quiz. Open one below:',
     quizViewNoQuizzes: 'There are no quiz pages in this course.',
     rawDataCaption: 'Outlines and scenes filtered by scene type (JSON)',

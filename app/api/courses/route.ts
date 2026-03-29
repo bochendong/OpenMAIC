@@ -17,6 +17,7 @@ const createCourseSchema = z.object({
   university: z.string().trim().max(120).optional(),
   courseCode: z.string().trim().max(60).optional(),
   avatarUrl: z.string().trim().max(2048).optional(),
+  listedInCourseStore: z.boolean().optional(),
 });
 
 export async function GET() {
@@ -65,11 +66,13 @@ export async function POST(request: Request) {
     const avatarUrl =
       payload.data.avatarUrl?.trim() || pickRandomCourseAvatarUrl();
 
+    const { listedInCourseStore, ...rest } = payload.data;
     const course = await prisma.course.create({
       data: {
         ownerId: userId,
-        ...payload.data,
+        ...rest,
         avatarUrl,
+        ...(listedInCourseStore !== undefined ? { listedInCourseStore } : {}),
       },
     });
 

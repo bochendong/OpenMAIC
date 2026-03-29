@@ -1,4 +1,4 @@
-import type { CoursePurpose, CourseRecord } from '@/lib/utils/database';
+import type { CommunityCourseListItem, CoursePurpose, CourseRecord } from '@/lib/utils/database';
 import { backendJson } from '@/lib/utils/backend-api';
 
 /** 已切换到后端数据库；保留常量兼容旧代码引用 */
@@ -18,6 +18,7 @@ export interface CreateCourseInput {
   purpose: CoursePurpose;
   university?: string;
   courseCode?: string;
+  listedInCourseStore?: boolean;
 }
 
 export async function createCourse(input: CreateCourseInput): Promise<CourseRecord> {
@@ -33,6 +34,7 @@ export async function createCourse(input: CreateCourseInput): Promise<CourseReco
       purpose: input.purpose,
       university: isUni ? input.university?.trim() || undefined : undefined,
       courseCode: isUni ? input.courseCode?.trim() || undefined : undefined,
+      ...(input.listedInCourseStore !== undefined ? { listedInCourseStore: input.listedInCourseStore } : {}),
     }),
   });
   return data.course;
@@ -53,7 +55,22 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
       purpose: input.purpose,
       university: isUni ? input.university?.trim() || undefined : undefined,
       courseCode: isUni ? input.courseCode?.trim() || undefined : undefined,
+      ...(input.listedInCourseStore !== undefined ? { listedInCourseStore: input.listedInCourseStore } : {}),
     }),
+  });
+  return data.course;
+}
+
+export async function listCommunityStoreCourses(): Promise<CommunityCourseListItem[]> {
+  const data = await backendJson<{ courses: CommunityCourseListItem[] }>('/api/courses/store');
+  return data.courses;
+}
+
+export async function cloneCourseFromStore(sourceCourseId: string): Promise<CourseRecord> {
+  const data = await backendJson<{ course: CourseRecord }>('/api/courses/clone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceCourseId }),
   });
   return data.course;
 }

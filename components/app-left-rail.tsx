@@ -39,6 +39,7 @@ export interface AppLeftRailProps {
 const COURSE_CONTEXT_CLEAR_PREFIXES = [
   '/my-courses',
   '/settings',
+  '/live2d',
   '/login',
   '/courses/new',
   '/notifications',
@@ -60,10 +61,10 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const courseAvatarUrl = useCurrentCourseStore((s) => s.avatarUrl);
   const clearCurrentCourse = useCurrentCourseStore((s) => s.clearCurrentCourse);
 
-  const settingsActive = pathname === '/settings';
-
   const displayName =
     nickname.trim() || authName.trim() || t('profile.defaultNickname');
+
+  const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
 
   const inCourseContext = Boolean(courseId);
   const resolvedCourseAvatar = resolveCourseOrchestratorAvatar(courseId, courseAvatarUrl);
@@ -273,23 +274,25 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     {isLoggedIn ? '已登录' : '本地体验'}
                   </p>
                 </div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => router.push('/settings')}
-                      className={cn(
-                        'flex size-9 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]',
-                        settingsActive &&
-                          'bg-violet-600/14 text-foreground dark:bg-violet-400/[0.18]',
-                      )}
-                      aria-label="设置"
-                    >
-                      <Settings className="size-[18px]" strokeWidth={1.75} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">设置</TooltipContent>
-                </Tooltip>
+                {isChatPage ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => router.push('/settings')}
+                        className={cn(
+                          'flex size-9 shrink-0 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]',
+                          settingsActive &&
+                            'bg-violet-600/14 text-foreground dark:bg-violet-400/[0.18]',
+                        )}
+                        aria-label="设置"
+                      >
+                        <Settings className="size-[18px]" strokeWidth={1.75} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">设置</TooltipContent>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -306,23 +309,25 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 px-2 py-3">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => router.push('/settings')}
-                      className={cn(
-                        'flex size-10 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]',
-                        settingsActive &&
-                          'bg-violet-600/14 text-foreground dark:bg-violet-400/[0.18]',
-                      )}
-                      aria-label="设置"
-                    >
-                      <Settings className="size-[18px]" strokeWidth={1.75} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">设置</TooltipContent>
-                </Tooltip>
+                {isChatPage ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={() => router.push('/settings')}
+                        className={cn(
+                          'flex size-10 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]',
+                          settingsActive &&
+                            'bg-violet-600/14 text-foreground dark:bg-violet-400/[0.18]',
+                        )}
+                        aria-label="设置"
+                      >
+                        <Settings className="size-[18px]" strokeWidth={1.75} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">设置</TooltipContent>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button

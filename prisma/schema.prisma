@@ -115,6 +115,8 @@ model Course {
   university  String?
   courseCode  String?
   avatarUrl   String?
+  /** 开启后出现在「课程商城」社区列表，其他用户可复制课程信息到其空间（不含笔记本） */
+  listedInCourseStore Boolean @default(false)
 
   owner         User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   notebooks     Notebook[]
@@ -125,6 +127,7 @@ model Course {
   updatedAt DateTime @updatedAt
 
   @@index([ownerId, updatedAt(sort: Desc)])
+  @@index([listedInCourseStore, updatedAt(sort: Desc)])
 }
 
 model Notebook {

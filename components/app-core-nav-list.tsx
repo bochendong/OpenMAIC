@@ -2,7 +2,15 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, BookOpen, MessageCircle, ShoppingBag, UsersRound } from 'lucide-react';
+import {
+  Bell,
+  BookOpen,
+  MessageCircle,
+  Settings,
+  ShoppingBag,
+  Sparkles,
+  UsersRound,
+} from 'lucide-react';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -59,7 +67,10 @@ export function AppCoreNavList({
   const storeActive = inCourseContext
     ? pathname === '/store'
     : pathname === '/store/courses' || pathname?.startsWith('/store/courses/');
-  const storeLabel = inCourseContext ? '笔记本商城' : '商城';
+  const storeLabel = inCourseContext ? '笔记本商城' : '课程商城';
+
+  const live2dActive = pathname === '/live2d' || pathname?.startsWith('/live2d/');
+  const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
 
   const coreNavItems: CoreNavItem[] = [
     {
@@ -76,6 +87,27 @@ export function AppCoreNavList({
       tooltip: inCourseContext ? '笔记本商城' : '课程商城',
       icon: ShoppingBag,
       active: storeActive,
+    },
+    /** 进入某门课程后隐藏：讲师形象在课堂内调整即可，避免侧栏过长 */
+    ...(!inCourseContext
+      ? ([
+          {
+            key: 'live2d',
+            href: '/live2d',
+            label: '虚拟讲师',
+            tooltip: '选择虚拟讲师形象',
+            icon: Sparkles,
+            active: live2dActive,
+          },
+        ] satisfies CoreNavItem[])
+      : []),
+    {
+      key: 'settings',
+      href: '/settings',
+      label: '设置',
+      tooltip: '设置',
+      icon: Settings,
+      active: settingsActive,
     },
     ...(inCourseContext
       ? ([

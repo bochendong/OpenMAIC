@@ -24,7 +24,7 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly onSidebarCollapseChange: (collapsed: boolean) => void;
   readonly onSceneSelect?: (sceneId: string) => void;
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
-  /** 播放模式下在左侧栏显示「2D Live」标签与虚拟讲师时传入 */
+  /** 播放模式下在左侧栏显示「虚拟讲师」标签与形象时传入 */
   readonly sceneSidebarLive2d?: TalkingAvatarOverlayState;
 }
 
