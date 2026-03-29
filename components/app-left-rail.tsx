@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, LogOut, NotebookPen, Search, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LogOut, Search, Settings } from 'lucide-react';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { useAuthStore } from '@/lib/store/auth';
 import { useAuthSignOut } from '@/lib/hooks/use-auth-sign-out';
@@ -14,10 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
 import { ChatContactsRail } from '@/components/chat-contacts-rail';
-import {
-  courseOrchestratorChatHref,
-  resolveCourseOrchestratorAvatar,
-} from '@/lib/constants/course-chat';
+import { resolveCourseOrchestratorAvatar } from '@/lib/constants/course-chat';
 
 /** Apple-style glass navigation surface */
 const surfaceClass = cn(
@@ -32,16 +29,6 @@ const scrollClass = cn(
   'dark:[&::-webkit-scrollbar-thumb]:bg-white/20',
   'hover:[&::-webkit-scrollbar-thumb]:bg-slate-900/25 dark:hover:[&::-webkit-scrollbar-thumb]:bg-white/30',
 );
-
-function createNavItemClass(collapsed: boolean, active: boolean) {
-  return cn(
-    'flex min-h-11 w-full items-center gap-3 rounded-[12px] py-2.5 text-left text-sm transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-    collapsed ? 'justify-center px-2' : 'px-3',
-    active
-      ? 'bg-[rgba(0,122,255,0.1)] font-medium text-[#007AFF] dark:bg-[rgba(10,132,255,0.15)] dark:text-[#0A84FF]'
-      : 'font-normal text-[#1d1d1f]/80 dark:text-white/75 hover:bg-black/[0.04] hover:translate-x-0.5 dark:hover:bg-white/[0.06]',
-  );
-}
 
 export interface AppLeftRailProps {
   collapsed: boolean;
@@ -101,43 +88,9 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
     if (shouldClear) clearCurrentCourse();
   }, [pathname, clearCurrentCourse]);
 
-  const createNotebookHref = courseId ? courseOrchestratorChatHref('generate-notebook') : '/create';
-
-  const createNavItem = {
-    key: 'create',
-    href: createNotebookHref,
-    label: '创建笔记本',
-    icon: NotebookPen,
-    active: pathname === '/create',
-  };
-
-  /** 课程列表页以课程为主（页内已有新建课程）；此处不展示「创建笔记本」以免与课程流混淆 */
-  const showCreateNotebook = pathname !== '/my-courses';
-
   const expandIfCollapsed = () => {
     if (collapsed) onCollapsedChange(false);
   };
-
-  const createNotebookBlock = (
-    <div className="shrink-0 border-t border-slate-900/[0.08] pb-2 pt-2 dark:border-white/[0.08]">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Link
-            href={createNavItem.href}
-            className={cn(
-              createNavItemClass(collapsed, createNavItem.active),
-              'border border-slate-900/[0.12] dark:border-white/[0.1]',
-            )}
-            aria-current={createNavItem.active ? 'page' : undefined}
-          >
-            <NotebookPen className="size-[18px] shrink-0 opacity-80" strokeWidth={1.75} />
-            {!collapsed && <span className="truncate">{createNavItem.label}</span>}
-          </Link>
-        </TooltipTrigger>
-        {collapsed && <TooltipContent side="right">{createNavItem.label}</TooltipContent>}
-      </Tooltip>
-    </div>
-  );
 
   return (
     <>
@@ -289,7 +242,6 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   />
                 </Suspense>
               </div>
-              {showCreateNotebook ? createNotebookBlock : null}
             </nav>
           ) : (
             <nav
@@ -307,7 +259,6 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   }}
                 />
               </div>
-              {showCreateNotebook ? createNotebookBlock : null}
             </nav>
           )}
 

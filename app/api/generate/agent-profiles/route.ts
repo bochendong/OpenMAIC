@@ -78,7 +78,9 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Model resolution from request headers ──
-    const { model: languageModel, modelString } = await resolveModelFromHeaders(req);
+    const { model: languageModel, modelString } = await resolveModelFromHeaders(req, {
+      allowOpenAIModelOverride: true,
+    });
 
     // ── Build prompt ──
     const sceneSummary = sceneOutlines?.length

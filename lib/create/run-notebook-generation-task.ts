@@ -12,6 +12,10 @@ import type { Scene, Stage } from '@/lib/types/stage';
 import type { AgentInfo, CoursePersonalizationContext } from '@/lib/generation/pipeline-types';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
 import { loadImageMapping, storeImages } from '@/lib/utils/image-storage';
+import type {
+  OrchestratorOutlineLength,
+  OrchestratorWorkedExampleLevel,
+} from '@/lib/store/orchestrator-notebook-generation';
 
 type NotebookMetadata = {
   name: string;
@@ -22,6 +26,21 @@ type NotebookMetadata = {
 type WebSearchSource = {
   title: string;
   url: string;
+};
+
+type EffectiveMediaFlags = {
+  imageEnabled: boolean;
+  videoEnabled: boolean;
+};
+
+type OutlineCoverageCheck = {
+  totalScenes: number;
+  minSceneCount: number;
+  workedExampleSequenceCount: number;
+  minWorkedExampleSequenceCount: number;
+  missingSceneCount: number;
+  missingWorkedExampleSequences: number;
+  candidateExampleTopics: string[];
 };
 
 type OutlineStreamEvent =
@@ -45,6 +64,8 @@ export type NotebookGenerationProgress =
 export type NotebookGenerationTaskInput = {
   courseId?: string;
   requirement: string;
+  /** 仅覆盖本次 notebook 创建链路所用的 OpenAI 模型；null/undefined 时沿用当前设置 */
+  modelIdOverride?: string | null;
   language?: 'zh-CN' | 'en-US';
   webSearch?: boolean;
   userNickname?: string;
@@ -53,6 +74,14 @@ export type NotebookGenerationTaskInput = {
   onProgress?: (progress: NotebookGenerationProgress) => void;
   /** 与 `/create` + `generation-preview` 一致：整份 PDF 走 `/api/parse-pdf` */
   pdfFile?: File | null;
+  /** 覆盖设置里的「AI 配图」开关；不传则沿用全局设置 */
+  imageGenerationEnabledOverride?: boolean;
+  /** 传入后由大纲 API 注入额外策略（总控侧栏「生成选项」） */
+  outlinePreferences?: {
+    length: OrchestratorOutlineLength;
+    includeQuizScenes: boolean;
+    workedExampleLevel?: OrchestratorWorkedExampleLevel;
+  } | null;
 };
 
 export type NotebookGenerationTaskResult = {
@@ -63,14 +92,24 @@ export type NotebookGenerationTaskResult = {
   researchSources: WebSearchSource[];
 };
 
-function getApiHeaders(): HeadersInit {
+function getApiHeaders(overrides?: {
+  imageGenerationEnabled?: boolean;
+  modelIdOverride?: string | null;
+}): HeadersInit {
   const modelConfig = getCurrentModelConfig();
   const settings = useSettingsStore.getState();
   const imageProviderConfig = settings.imageProvidersConfig?.[settings.imageProviderId];
   const videoProviderConfig = settings.videoProvidersConfig?.[settings.videoProviderId];
+  const imageGenEnabled =
+    overrides?.imageGenerationEnabled !== undefined
+      ? overrides.imageGenerationEnabled
+      : (settings.imageGenerationEnabled ?? false);
+  const modelString = overrides?.modelIdOverride?.trim()
+    ? `openai:${overrides.modelIdOverride.trim()}`
+    : modelConfig.modelString;
   return {
     'Content-Type': 'application/json',
-    'x-model': modelConfig.modelString,
+    'x-model': modelString,
     'x-api-key': modelConfig.apiKey,
     'x-base-url': modelConfig.baseUrl,
     'x-provider-type': modelConfig.providerType || '',
@@ -83,7 +122,7 @@ function getApiHeaders(): HeadersInit {
     'x-video-model': settings.videoModelId || '',
     'x-video-api-key': videoProviderConfig?.apiKey || '',
     'x-video-base-url': videoProviderConfig?.baseUrl || '',
-    'x-image-generation-enabled': String(settings.imageGenerationEnabled ?? false),
+    'x-image-generation-enabled': String(imageGenEnabled),
     'x-video-generation-enabled': String(settings.videoGenerationEnabled ?? false),
   };
 }
@@ -240,10 +279,11 @@ async function generateNotebookMetadata(args: {
   courseContext?: CoursePersonalizationContext;
   signal?: AbortSignal;
   pdfText?: string;
+  getHeaders?: () => HeadersInit;
 }): Promise<NotebookMetadata> {
   const resp = await fetch('/api/generate/notebook-metadata', {
     method: 'POST',
-    headers: getApiHeaders(),
+    headers: (args.getHeaders ?? (() => getApiHeaders()))(),
     body: JSON.stringify({
       requirements: {
         requirement: args.requirement,
@@ -302,6 +342,278 @@ async function maybeRunWebSearch(args: {
   };
 }
 
+function filterOutlineMediaGenerations(
+  outlines: SceneOutline[],
+  flags: EffectiveMediaFlags,
+): SceneOutline[] {
+  return outlines.map((outline) => {
+    if (!outline.mediaGenerations?.length) return outline;
+
+    const mediaGenerations = outline.mediaGenerations.filter((media) => {
+      if (media.type === 'image' && !flags.imageEnabled) return false;
+      if (media.type === 'video' && !flags.videoEnabled) return false;
+      return true;
+    });
+
+    if (mediaGenerations.length === outline.mediaGenerations.length) {
+      return outline;
+    }
+
+    if (mediaGenerations.length === 0) {
+      const nextOutline = { ...outline };
+      delete nextOutline.mediaGenerations;
+      return nextOutline;
+    }
+
+    return {
+      ...outline,
+      mediaGenerations,
+    };
+  });
+}
+
+function getMinimumSceneCount(length: OrchestratorOutlineLength): number {
+  switch (length) {
+    case 'compact':
+      return 6;
+    case 'extended':
+      return 21;
+    case 'standard':
+    default:
+      return 10;
+  }
+}
+
+function getBaseWorkedExampleMinimum(level: OrchestratorWorkedExampleLevel): number {
+  switch (level) {
+    case 'none':
+      return 0;
+    case 'light':
+      return 1;
+    case 'heavy':
+      return 5;
+    case 'moderate':
+    default:
+      return 2;
+  }
+}
+
+function countWorkedExampleSequences(outlines: SceneOutline[]): number {
+  const seenExampleIds = new Set<string>();
+  let contiguousFallbackSequences = 0;
+  let previousWasFallbackExample = false;
+
+  for (const outline of outlines) {
+    const cfg = outline.workedExampleConfig;
+    if (!cfg) {
+      previousWasFallbackExample = false;
+      continue;
+    }
+
+    const exampleId = cfg.exampleId?.trim();
+    if (exampleId) {
+      seenExampleIds.add(exampleId);
+      previousWasFallbackExample = false;
+      continue;
+    }
+
+    if (!previousWasFallbackExample) {
+      contiguousFallbackSequences += 1;
+    }
+    previousWasFallbackExample = true;
+  }
+
+  return seenExampleIds.size + contiguousFallbackSequences;
+}
+
+function collectWorkedExampleCandidateTopics(
+  outlines: SceneOutline[],
+  limit = 6,
+): string[] {
+  const topics: string[] = [];
+  const seen = new Set<string>();
+
+  for (const outline of outlines) {
+    if (outline.type !== 'slide' || outline.workedExampleConfig) continue;
+    const title = outline.title.trim();
+    if (!title) continue;
+
+    const signature = title.toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+
+    const firstKeyPoint = outline.keyPoints.find((item) => item.trim().length > 0)?.trim();
+    topics.push(firstKeyPoint ? `${title} — ${firstKeyPoint}` : title);
+    if (topics.length >= limit) break;
+  }
+
+  return topics;
+}
+
+function analyzeOutlineCoverage(args: {
+  outlines: SceneOutline[];
+  outlinePreferences?: {
+    length: OrchestratorOutlineLength;
+    includeQuizScenes: boolean;
+    workedExampleLevel?: OrchestratorWorkedExampleLevel;
+  } | null;
+}): OutlineCoverageCheck | null {
+  const prefs = args.outlinePreferences;
+  if (!prefs) return null;
+
+  const totalScenes = args.outlines.length;
+  const minSceneCount = getMinimumSceneCount(prefs.length);
+  const pageBudget = Math.max(totalScenes, minSceneCount);
+  const maxWorkedExamplesByBudget = Math.max(0, pageBudget - 4);
+  const desiredWorkedExamples = getBaseWorkedExampleMinimum(prefs.workedExampleLevel ?? 'moderate');
+  const minWorkedExampleSequenceCount = Math.min(desiredWorkedExamples, maxWorkedExamplesByBudget);
+  const workedExampleSequenceCount = countWorkedExampleSequences(args.outlines);
+
+  return {
+    totalScenes,
+    minSceneCount,
+    workedExampleSequenceCount,
+    minWorkedExampleSequenceCount,
+    missingSceneCount: Math.max(0, minSceneCount - totalScenes),
+    missingWorkedExampleSequences: Math.max(
+      0,
+      minWorkedExampleSequenceCount - workedExampleSequenceCount,
+    ),
+    candidateExampleTopics: collectWorkedExampleCandidateTopics(args.outlines),
+  };
+}
+
+function normalizeOutlineCollection(outlines: SceneOutline[]): SceneOutline[] {
+  const seenIds = new Set<string>();
+  return outlines.map((outline, index) => {
+    let id = outline.id?.trim() || nanoid();
+    if (seenIds.has(id)) id = nanoid();
+    seenIds.add(id);
+    return {
+      ...outline,
+      id,
+      order: index + 1,
+    };
+  });
+}
+
+function buildOutlineDedupSignature(outline: SceneOutline): string {
+  const normalizedTitle = outline.title.trim().toLowerCase().replace(/\s+/g, ' ');
+  const cfg = outline.workedExampleConfig;
+  return [
+    outline.type,
+    normalizedTitle,
+    cfg?.exampleId?.trim() || '',
+    cfg?.role || '',
+  ].join('|');
+}
+
+function mergeSupplementalOutlines(
+  currentOutlines: SceneOutline[],
+  supplementalOutlines: SceneOutline[],
+): SceneOutline[] {
+  if (!supplementalOutlines.length) return currentOutlines;
+
+  const seen = new Set(currentOutlines.map(buildOutlineDedupSignature));
+  const uniqueSupplemental = supplementalOutlines.filter((outline) => {
+    const signature = buildOutlineDedupSignature(outline);
+    if (seen.has(signature)) return false;
+    seen.add(signature);
+    return true;
+  });
+
+  if (!uniqueSupplemental.length) return currentOutlines;
+  return normalizeOutlineCollection([...currentOutlines, ...uniqueSupplemental]);
+}
+
+function buildOutlineRepairRequirement(args: {
+  language: 'zh-CN' | 'en-US';
+  originalRequirement: string;
+  currentOutlines: SceneOutline[];
+  coverage: OutlineCoverageCheck;
+  passNumber: number;
+}): string {
+  const targetAdditionalScenes = Math.max(
+    args.coverage.missingSceneCount,
+    args.coverage.missingWorkedExampleSequences > 0
+      ? args.coverage.missingWorkedExampleSequences * 2
+      : 0,
+  );
+  const currentSummary = args.currentOutlines
+    .slice(0, 24)
+    .map((outline, index) => {
+      const suffix = outline.workedExampleConfig
+        ? ` [example:${outline.workedExampleConfig.exampleId || outline.workedExampleConfig.role}]`
+        : '';
+      return `${index + 1}. [${outline.type}] ${outline.title}${suffix} — ${outline.description}`;
+    })
+    .join('\n');
+
+  if (args.language === 'zh-CN') {
+    const topicLines =
+      args.coverage.candidateExampleTopics.length > 0
+        ? args.coverage.candidateExampleTopics.map((topic) => `- ${topic}`).join('\n')
+        : '- 优先围绕当前 notebook 里尚未配套例题的核心知识点、方法与易错点补充';
+
+    return [
+      '你不是在重写整本 notebook，而是在补充已有 notebook 缺失的大纲页。',
+      '',
+      '## 原始用户需求',
+      args.originalRequirement,
+      '',
+      '## 当前大纲缺口',
+      `- 当前共有 ${args.coverage.totalScenes} 个场景，需要至少 ${args.coverage.minSceneCount} 个，因此还需补充至少 ${args.coverage.missingSceneCount} 个场景。`,
+      `- 当前共有 ${args.coverage.workedExampleSequenceCount} 组完整例题 / 走读序列，需要至少 ${args.coverage.minWorkedExampleSequenceCount} 组，因此还需补充至少 ${args.coverage.missingWorkedExampleSequences} 组新的例题序列。`,
+      `- 这是第 ${args.passNumber} 次补充，请优先补足缺口而不是重复已有页。`,
+      '',
+      '## 已有场景摘要（禁止重复）',
+      currentSummary || '暂无',
+      '',
+      '## 例题优先覆盖的知识点',
+      topicLines,
+      '',
+      '## 补充输出要求',
+      `- 只输出“新增”的 scene outlines JSON 数组，不要重写整本课。目标新增约 ${Math.max(1, targetAdditionalScenes)} 个场景。`,
+      '- 不要复用已有标题，不要生成近似重复的页面。',
+      '- 如果补充例题序列，优先使用 `slide` + `workedExampleConfig`，并让序列首张通常为 `role: "problem_statement"`。',
+      '- 每个新增例题都必须有具体原题；数学/矩阵/线性系统类例题必须写出实际方程、矩阵、行变换、中间结果，不能写成“给定一个矩阵”这种空壳题。',
+      '- 若页数不足但例题数量已够，请优先补充承上启下的概念解释、易错点、总结、对比页，而不是堆空标题。',
+      '- 新增内容必须与已有 notebook 连续衔接，形成“概念 -> 例题 -> 概念 -> 例题”的节奏。',
+    ].join('\n');
+  }
+
+  const topicLines =
+    args.coverage.candidateExampleTopics.length > 0
+      ? args.coverage.candidateExampleTopics.map((topic) => `- ${topic}`).join('\n')
+      : '- Prefer major concepts, methods, and pitfalls that still lack their own worked examples';
+
+  return [
+    'Do not rewrite the whole notebook. You are extending an existing notebook with missing outline pages only.',
+    '',
+    '## Original User Requirement',
+    args.originalRequirement,
+    '',
+    '## Current Gaps',
+    `- The notebook currently has ${args.coverage.totalScenes} scenes, but it needs at least ${args.coverage.minSceneCount}, so add at least ${args.coverage.missingSceneCount} more scenes.`,
+    `- It currently has ${args.coverage.workedExampleSequenceCount} worked-example sequences, but it needs at least ${args.coverage.minWorkedExampleSequenceCount}, so add at least ${args.coverage.missingWorkedExampleSequences} new worked-example sequences.`,
+    `- This is repair pass ${args.passNumber}; prioritize filling the gaps instead of repeating existing pages.`,
+    '',
+    '## Existing Scenes Summary (do not duplicate)',
+    currentSummary || 'None',
+    '',
+    '## Topics That Should Gain Worked Examples First',
+    topicLines,
+    '',
+    '## Output Rules',
+    `- Output only the NEW scene outlines as a JSON array. Do not regenerate the full notebook. Aim for about ${Math.max(1, targetAdditionalScenes)} additional scenes.`,
+    '- Do not reuse existing titles or produce near-duplicate pages.',
+    '- When adding worked-example sequences, prefer `slide` scenes with `workedExampleConfig`, and usually start each new sequence with `role: "problem_statement"`.',
+    '- Every new worked example must contain a concrete original problem. For math / matrix / linear-system topics, include actual equations, matrices, row operations, and intermediate results instead of placeholder wording.',
+    '- If page count is short but worked-example count is already sufficient, add bridging concept slides, pitfalls, comparisons, or recap pages instead of hollow filler.',
+    '- The added pages should create a clear "concept -> worked example -> concept -> worked example" rhythm with the existing notebook.',
+  ].join('\n');
+}
+
 function getPresetAgents(): AgentInfo[] {
   const settings = useSettingsStore.getState();
   const registry = useAgentRegistry.getState();
@@ -321,6 +633,7 @@ async function maybeGenerateAgents(args: {
   language: 'zh-CN' | 'en-US';
   courseContext?: CoursePersonalizationContext;
   signal?: AbortSignal;
+  getHeaders?: () => HeadersInit;
 }): Promise<AgentInfo[]> {
   const settings = useSettingsStore.getState();
   if (settings.agentMode !== 'auto') {
@@ -344,7 +657,7 @@ async function maybeGenerateAgents(args: {
 
   const resp = await fetch('/api/generate/agent-profiles', {
     method: 'POST',
-    headers: getApiHeaders(),
+    headers: (args.getHeaders ?? (() => getApiHeaders()))(),
     body: JSON.stringify({
       stageInfo: { name: args.stage.name, description: args.stage.description },
       language: args.language,
@@ -384,10 +697,16 @@ async function generateOutlines(args: {
   pdfText?: string;
   pdfImages?: PdfImage[];
   imageMapping?: ImageMapping;
+  outlinePreferences?: {
+    length: OrchestratorOutlineLength;
+    includeQuizScenes: boolean;
+    workedExampleLevel?: OrchestratorWorkedExampleLevel;
+  } | null;
+  getHeaders?: () => HeadersInit;
 }): Promise<SceneOutline[]> {
   const response = await fetch('/api/generate/scene-outlines-stream', {
     method: 'POST',
-    headers: getApiHeaders(),
+    headers: (args.getHeaders ?? (() => getApiHeaders()))(),
     body: JSON.stringify({
       requirements: {
         requirement: args.requirement,
@@ -400,6 +719,7 @@ async function generateOutlines(args: {
       agents: args.agents,
       coursePurpose: args.coursePurpose,
       courseContext: args.courseContext,
+      outlinePreferences: args.outlinePreferences ?? null,
     }),
     signal: args.signal,
   });
@@ -446,6 +766,104 @@ async function generateOutlines(args: {
   }
 }
 
+async function repairOutlinesIfNeeded(args: {
+  outlines: SceneOutline[];
+  originalRequirement: string;
+  language: 'zh-CN' | 'en-US';
+  researchContext?: string;
+  agents: AgentInfo[];
+  coursePurpose?: 'research' | 'university' | 'daily';
+  courseContext?: CoursePersonalizationContext;
+  signal?: AbortSignal;
+  onProgress?: (progress: NotebookGenerationProgress) => void;
+  pdfText?: string;
+  pdfImages?: PdfImage[];
+  imageMapping?: ImageMapping;
+  outlinePreferences?: {
+    length: OrchestratorOutlineLength;
+    includeQuizScenes: boolean;
+    workedExampleLevel?: OrchestratorWorkedExampleLevel;
+  } | null;
+  effectiveMediaFlags: EffectiveMediaFlags;
+  getHeaders?: () => HeadersInit;
+}): Promise<SceneOutline[]> {
+  if (!args.outlinePreferences) {
+    return normalizeOutlineCollection(args.outlines);
+  }
+
+  let currentOutlines = normalizeOutlineCollection(args.outlines);
+  const maxRepairPasses = 2;
+
+  for (let pass = 1; pass <= maxRepairPasses; pass += 1) {
+    const coverage = analyzeOutlineCoverage({
+      outlines: currentOutlines,
+      outlinePreferences: args.outlinePreferences,
+    });
+
+    if (
+      !coverage ||
+      (coverage.missingSceneCount === 0 && coverage.missingWorkedExampleSequences === 0)
+    ) {
+      return currentOutlines;
+    }
+
+    args.onProgress?.({
+      stage: 'outline',
+      detail:
+        args.language === 'zh-CN'
+          ? `正在补充大纲：还差 ${coverage.missingSceneCount} 页，缺少 ${coverage.missingWorkedExampleSequences} 组完整例题…`
+          : `Repairing outline: ${coverage.missingSceneCount} more scenes and ${coverage.missingWorkedExampleSequences} more worked-example sequences needed…`,
+    });
+
+    const repairRequirement = buildOutlineRepairRequirement({
+      language: args.language,
+      originalRequirement: args.originalRequirement,
+      currentOutlines,
+      coverage,
+      passNumber: pass,
+    });
+
+    const supplementalRawOutlines = await generateOutlines({
+      requirement: repairRequirement,
+      language: args.language,
+      researchContext: args.researchContext,
+      agents: args.agents,
+      coursePurpose: args.coursePurpose,
+      courseContext: args.courseContext,
+      signal: args.signal,
+      onOutline: (count) => {
+        args.onProgress?.({
+          stage: 'outline',
+          detail:
+            args.language === 'zh-CN'
+              ? `正在补充缺失页面（已新增 ${count} 个大纲节点）…`
+              : `Generating supplemental outline pages (${count} added so far)…`,
+          completed: currentOutlines.length + count,
+        });
+      },
+      pdfText: args.pdfText,
+      pdfImages: args.pdfImages,
+      imageMapping: args.imageMapping,
+      outlinePreferences: null,
+      getHeaders: args.getHeaders,
+    });
+
+    const supplementalOutlines = filterOutlineMediaGenerations(
+      supplementalRawOutlines,
+      args.effectiveMediaFlags,
+    );
+    const mergedOutlines = mergeSupplementalOutlines(currentOutlines, supplementalOutlines);
+
+    if (mergedOutlines.length === currentOutlines.length) {
+      return currentOutlines;
+    }
+
+    currentOutlines = mergedOutlines;
+  }
+
+  return currentOutlines;
+}
+
 async function generateSingleScene(args: {
   outline: SceneOutline;
   allOutlines: SceneOutline[];
@@ -457,10 +875,11 @@ async function generateSingleScene(args: {
   signal?: AbortSignal;
   pdfImages?: PdfImage[];
   imageMapping?: ImageMapping;
+  getHeaders?: () => HeadersInit;
 }): Promise<{ scene: Scene; previousSpeeches: string[] }> {
   const contentResp = await fetch('/api/generate/scene-content', {
     method: 'POST',
-    headers: getApiHeaders(),
+    headers: (args.getHeaders ?? (() => getApiHeaders()))(),
     body: JSON.stringify({
       outline: args.outline,
       allOutlines: args.allOutlines,
@@ -491,7 +910,7 @@ async function generateSingleScene(args: {
 
   const actionsResp = await fetch('/api/generate/scene-actions', {
     method: 'POST',
-    headers: getApiHeaders(),
+    headers: (args.getHeaders ?? (() => getApiHeaders()))(),
     body: JSON.stringify({
       outline: contentData.effectiveOutline || args.outline,
       allOutlines: args.allOutlines,
@@ -534,6 +953,22 @@ export async function runNotebookGenerationTask(
 
   const language = input.language || 'zh-CN';
   const webSearch = input.webSearch ?? true;
+  const settings = useSettingsStore.getState();
+  const effectiveMediaFlags: EffectiveMediaFlags = {
+    imageEnabled:
+      input.imageGenerationEnabledOverride !== undefined
+        ? input.imageGenerationEnabledOverride
+        : (settings.imageGenerationEnabled ?? false),
+    videoEnabled: settings.videoGenerationEnabled ?? false,
+  };
+  const mediaForHeaders =
+    input.imageGenerationEnabledOverride !== undefined || input.modelIdOverride !== undefined
+      ? {
+          imageGenerationEnabled: input.imageGenerationEnabledOverride,
+          modelIdOverride: input.modelIdOverride,
+        }
+      : undefined;
+  const getHeaders = () => getApiHeaders(mediaForHeaders);
   input.onProgress?.({ stage: 'preparing', detail: '正在初始化创建任务…' });
 
   try {
@@ -600,6 +1035,7 @@ export async function runNotebookGenerationTask(
       courseContext,
       signal: input.signal,
       pdfText,
+      getHeaders,
     });
 
     const stageId = nanoid(10);
@@ -634,10 +1070,11 @@ export async function runNotebookGenerationTask(
       language,
       courseContext,
       signal: input.signal,
+      getHeaders,
     });
 
     input.onProgress?.({ stage: 'outline', detail: '正在生成课程大纲…', completed: 0 });
-    const outlines = await generateOutlines({
+    const rawOutlines = await generateOutlines({
       requirement,
       language,
       researchContext,
@@ -655,6 +1092,37 @@ export async function runNotebookGenerationTask(
       pdfText,
       pdfImages,
       imageMapping,
+      outlinePreferences: input.outlinePreferences ?? null,
+      getHeaders,
+    });
+
+    const filteredOutlines = filterOutlineMediaGenerations(rawOutlines, effectiveMediaFlags);
+
+    input.onProgress?.({
+      stage: 'outline',
+      detail:
+        language === 'zh-CN'
+          ? '正在检查大纲页数与例题覆盖，并按需补充缺失页面…'
+          : 'Validating outline length and worked-example coverage before scene generation…',
+      completed: filteredOutlines.length,
+    });
+
+    const outlines = await repairOutlinesIfNeeded({
+      outlines: filteredOutlines,
+      originalRequirement: requirement,
+      language,
+      researchContext,
+      agents,
+      coursePurpose: currentCourse?.purpose,
+      courseContext,
+      signal: input.signal,
+      onProgress: input.onProgress,
+      pdfText,
+      pdfImages,
+      imageMapping,
+      outlinePreferences: input.outlinePreferences ?? null,
+      effectiveMediaFlags,
+      getHeaders,
     });
 
     if (!outlines.length) throw new Error('未生成任何课程大纲');
@@ -685,6 +1153,7 @@ export async function runNotebookGenerationTask(
         signal: input.signal,
         pdfImages,
         imageMapping,
+        getHeaders,
       });
       scenes.push(result.scene);
       previousSpeeches = result.previousSpeeches;

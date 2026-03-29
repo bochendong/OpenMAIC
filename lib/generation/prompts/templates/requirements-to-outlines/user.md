@@ -42,6 +42,8 @@ Please generate scene outlines based on the following course requirements.
 
 ---
 
+{{orchestratorPreferences}}
+
 ## Output Requirements
 
 Please automatically infer the following from user requirements:
@@ -98,11 +100,13 @@ By default:
    - Mainly add these for university-oriented courses or when the user explicitly asks for them.
    - Use `slide` scenes with `workedExampleConfig` for teacher-led example explanation.
    - The first scene of an example sequence should usually be a `problem_statement` scene that clearly shows the question before solving it.
+   - The example must contain a concrete original problem. If the source does not provide one, create a representative self-contained problem with actual numbers / matrices / expressions / case details instead of placeholder wording.
    - If the source notes are long and contain multiple major knowledge points, important methods, or multiple exercises, do **not** cover the whole notebook with only one example. Usually give each major knowledge point its own corresponding worked example or worked-example sequence.
    - For university-style lecture notes with many concepts and many problems, prefer repeated "concept -> example explanation" coverage instead of one global concept block followed by one isolated example.
    - For programming topics, use slide scenes that explain code line by line, trace execution, or analyze state changes.
    - For proof-heavy topics, use slide scenes that explain proof format, proof strategy, and the sequence of justified steps.
    - For math / quantitative topics, use step-by-step worked-example slides and explain why each step is valid.
+   - For math / quantitative worked examples, `problemStatement` and `walkthroughSteps` must contain the actual equations, matrices, transformations, intermediate results, or concrete conclusions — not only generic labels such as "do elimination" or "compute the product".
    - For other subjects, use subject-appropriate explanation such as case analysis, source interpretation, essay structure, evidence chains, or problem decomposition.
    - If the user asks for homework, exercises, exam prep, interview prep, practice,刷题, tracing, proving, or solving problems, increase the proportion of worked-example scenes first; add quiz scenes only when student practice is also desired.
 7. **Long questions / long examples**:

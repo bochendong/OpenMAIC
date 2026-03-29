@@ -163,8 +163,9 @@ export interface SceneOutline {
 
 // ==================== Stage 3 Output: Generated Content ====================
 
-import type { PPTElement, SlideBackground } from './slides';
+import type { PPTElement, SlideBackground, SlideTheme } from './slides';
 import type { QuizQuestion } from './stage';
+import type { NotebookContentDocument } from '@/lib/notebook-content';
 
 /**
  * AI-generated slide content
@@ -172,7 +173,9 @@ import type { QuizQuestion } from './stage';
 export interface GeneratedSlideContent {
   elements: PPTElement[];
   background?: SlideBackground;
+  theme?: SlideTheme;
   remark?: string;
+  contentDocument?: NotebookContentDocument;
 }
 
 /**

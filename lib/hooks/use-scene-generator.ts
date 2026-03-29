@@ -256,6 +256,8 @@ export async function ensureMissingSpeechAudioForScene(
       if (visemes?.length) action.visemes = visemes;
       done += 1;
       onProgress?.(done, total);
+      // 让顶栏「讲解就绪」计数随每段生成递增（否则仅 scenes 引用不变，React 不刷新）
+      useStageStore.getState().touchScenes();
     } catch (error) {
       const message =
         error instanceof Error ? error.message : `TTS failed for speech action ${action.id}`;

@@ -369,6 +369,12 @@ Guidance:
 - Use the same `exampleId` across multi-slide example sequences
 - For long problems, split across multiple slide scenes and advance the `role` across those scenes
 - Prefer summarized but faithful statements over dropping the problem entirely
+- Worked examples must be **self-contained and concrete**, not placeholders
+- If the source material does not provide an exact exercise, invent a representative but specific example that matches the topic and difficulty
+- Do not use hollow prompts like "给定一个线性方程组", "计算两个给定矩阵", "Given a system", or "compute two given matrices" as the final `problemStatement`
+- For math / quantitative examples, include actual equations, matrices, values, symbols, or expressions in `problemStatement`
+- For `walkthroughSteps`, do not write only meta-steps like "do elimination", "check the result", or "compute each entry"; include the actual intermediate operations, transformations, or conclusions the teacher will show
+- A learner should be able to read the worked-example fields alone and know exactly what problem is being solved and how the solution proceeds
 
 ### interactiveConfig Structure
 
@@ -411,3 +417,5 @@ Guidance:
 11. Regardless of information completeness, always output conforming JSON - do not ask questions or request more information
 12. **No teacher identity on slides**: Scene titles and keyPoints must be neutral and topic-focused. Never include the teacher's name or role (e.g., avoid "Teacher Wang's Tips", "Teacher's Wishes"). Use generic labels like "Tips", "Summary", "Key Takeaways" instead.
 13. When a problem statement is too long for one slide, split it across multiple consecutive scenes rather than overloading a single page
+14. For every worked-example sequence, include the original problem text or a faithful excerpt before solving
+15. For every worked-example walkthrough page, include enough detail that the learner can follow the full reasoning or calculation, not just the section labels

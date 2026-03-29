@@ -7,6 +7,11 @@ import { useStageStore } from '@/lib/store/stage';
 import { getCourse } from '@/lib/utils/course-storage';
 import { loadStageData, saveStageData } from '@/lib/utils/stage-storage';
 import { backendFetch } from '@/lib/utils/backend-api';
+import {
+  buildNotebookContentDocumentFromInsert,
+  type NotebookContentDocument,
+  renderNotebookContentDocumentToSlide,
+} from '@/lib/notebook-content';
 import type {
   SendNotebookMessageResponse,
   SendNotebookMessageRequest,
@@ -124,170 +129,52 @@ function buildSlideFromInsert(
   title: string,
   description: string,
   keyPoints: string[],
+  document = buildNotebookContentDocumentFromInsert({ title, description, keyPoints }),
 ): Scene['content'] {
-  const mergedText = [description, ...keyPoints].join('\n');
-  const { prose, code } = extractFenceCode(mergedText);
-  const bullets = toBulletItems(prose || description, keyPoints);
-  const subtitle = normalizePlainText(description) || '核心概念拆解与递归流程理解';
-  const stepGroups = [
-    {
-      title: '步骤 1',
-      items: bullets.slice(0, 2),
-    },
-    {
-      title: '步骤 2',
-      items: bullets.slice(2, 4),
-    },
-    {
-      title: '步骤 3',
-      items: bullets.slice(4, 6),
-    },
-  ];
-  const fallbackStepItems = [
-    ['明确问题与输入输出'],
-    ['递归处理子问题'],
-    ['返回并组合结果'],
-  ];
-  const cardLeft = [64, 352, 640];
+  return {
+    type: 'slide',
+    semanticDocument: document,
+    canvas: renderNotebookContentDocumentToSlide({
+      document,
+      fallbackTitle: title,
+    }),
+  } as SlideContent;
+}
 
-  const elements: any[] = [
-    {
-      id: `text_${nanoid(8)}`,
-      type: 'text',
-      left: 64,
-      top: 50,
-      width: 872,
-      height: 66,
-      rotate: 0,
-      content: `<p style="font-size:32px;"><strong>${htmlEscape(title)}</strong></p>`,
-      defaultFontName: 'Microsoft YaHei',
-      defaultColor: '#111827',
-      textType: 'title',
-      lineHeight: 1.3,
-    },
-    {
-      id: `text_${nanoid(8)}`,
-      type: 'text',
-      left: 64,
-      top: 118,
-      width: 856,
-      height: 44,
-      rotate: 0,
-      content: `<p style="font-size:16px;color:#666666;">${htmlEscape(subtitle)}</p>`,
-      defaultFontName: 'Microsoft YaHei',
-      defaultColor: '#334155',
-      textType: 'content',
-      lineHeight: 1.35,
-    },
-    {
-      id: `line_${nanoid(8)}`,
-      type: 'line',
-      start: [64, 176],
-      end: [936, 176],
-      style: 'solid',
-      color: '#e5e7eb',
-      width: 2,
-      points: [],
-    },
-  ];
+function appendKnowledgeToSemanticDocument(
+  document: NotebookContentDocument | undefined,
+  appendKnowledge: string,
+): NotebookContentDocument | undefined {
+  if (!document) return undefined;
 
-  cardLeft.forEach((left, idx) => {
-    const group = stepGroups[idx];
-    const items = group.items.length > 0 ? group.items : fallbackStepItems[idx];
-    elements.push(
-      {
-        id: `shape_${nanoid(8)}`,
-        type: 'shape',
-        left,
-        top: 206,
-        width: 272,
-        height: 252,
-        rotate: 0,
-        viewBox: [200, 200],
-        path: 'M 0 0 L 200 0 L 200 200 L 0 200 Z',
-        fill: idx === 0 ? '#eef2ff' : idx === 1 ? '#ecfeff' : '#fef3c7',
-        fixedRatio: false,
-      },
-      {
-        id: `text_${nanoid(8)}`,
-        type: 'text',
-        left: left + 18,
-        top: 224,
-        width: 236,
-        height: 28,
-        rotate: 0,
-        content: `<p style="font-size:18px;color:#111827;text-align:center;"><strong>${group.title}</strong></p>`,
-        defaultFontName: 'Microsoft YaHei',
-        defaultColor: '#111827',
-        textType: 'content',
-        lineHeight: 1.2,
-      },
-      {
-        id: `text_${nanoid(8)}`,
-        type: 'text',
-        left: left + 18,
-        top: 266,
-        width: 236,
-        height: 168,
-        rotate: 0,
-        content: `<ul>${items.map((i) => `<li>${htmlEscape(i)}</li>`).join('')}</ul>`,
-        defaultFontName: 'Microsoft YaHei',
-        defaultColor: '#1f2937',
-        textType: 'content',
-        lineHeight: 1.45,
-      },
-    );
-  });
+  const { prose, code } = extractFenceCode(appendKnowledge);
+  const normalized = normalizePlainText(prose);
+  const noteTitle = document.language === 'en-US' ? 'Additional Note' : '补充说明';
+  const codeCaption = document.language === 'en-US' ? 'Additional Code' : '补充代码';
+  const blocks = [...document.blocks];
+
+  if (normalized) {
+    blocks.push({
+      type: 'callout',
+      tone: 'info',
+      title: noteTitle,
+      text: normalized,
+    });
+  }
 
   if (code) {
-    elements.push({
-      id: `text_${nanoid(8)}`,
-      type: 'text',
-      left: 64,
-      top: 478,
-      width: 856,
-      height: 68,
-      rotate: 0,
-      content: `<p><strong>代码提示：</strong> 本页重点是递归结构，完整 Python 示例放在下一页讲解。</p>`,
-      defaultFontName: 'Microsoft YaHei',
-      defaultColor: '#475569',
-      textType: 'notes',
-      lineHeight: 1.35,
-    });
-  } else {
-    elements.push({
-      id: `text_${nanoid(8)}`,
-      type: 'text',
-      left: 64,
-      top: 486,
-      width: 856,
-      height: 48,
-      rotate: 0,
-      content: `<p style="font-size:16px;color:#555555;">关键点：递归终止条件 + 子问题拆分方式，决定排序实现的正确性与效率。</p>`,
-      defaultFontName: 'Microsoft YaHei',
-      defaultColor: '#555555',
-      textType: 'notes',
-      lineHeight: 1.35,
+    blocks.push({
+      type: 'code_block',
+      language: 'text',
+      code,
+      caption: codeCaption,
     });
   }
 
   return {
-    type: 'slide',
-    canvas: {
-      id: `slide_${nanoid(8)}`,
-      viewportSize: 1000,
-      viewportRatio: 0.5625,
-      theme: {
-        backgroundColor: '#ffffff',
-        themeColors: ['#5b9bd5', '#ed7d31', '#a5a5a5', '#ffc000', '#4472c4'],
-        fontColor: '#333333',
-        fontName: 'Microsoft YaHei',
-        outline: { color: '#d14424', width: 2, style: 'solid' },
-        shadow: { h: 0, v: 0, blur: 10, color: '#000000' },
-      },
-      elements,
-    },
-  } as SlideContent;
+    ...document,
+    blocks: blocks.slice(0, 64),
+  };
 }
 
 function buildQuizFromInsert(title: string, keyPoints: string[]): Scene['content'] {
@@ -410,6 +297,7 @@ export async function planNotebookMessage(
 
   return {
     answer: data.answer,
+    answerDocument: data.answerDocument,
     references: data.references || [],
     knowledgeGap: data.knowledgeGap,
     operations: data.operations || { insert: [], update: [], delete: [] },
@@ -477,6 +365,10 @@ export async function applyNotebookPlan(
       };
       patch.content = {
         ...content,
+        semanticDocument: appendKnowledgeToSemanticDocument(
+          content.semanticDocument,
+          upd.appendKnowledge,
+        ),
         canvas: { ...content.canvas, elements: [...content.canvas.elements, extra] },
       } as Scene['content'];
     }
@@ -505,7 +397,12 @@ export async function applyNotebookPlan(
       content:
         ins.type === 'quiz'
           ? buildQuizFromInsert(ins.title, ins.keyPoints)
-          : buildSlideFromInsert(ins.title, ins.description, ins.keyPoints),
+          : buildSlideFromInsert(
+              ins.title,
+              ins.description,
+              ins.keyPoints,
+              ins.contentDocument,
+            ),
       actions: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),

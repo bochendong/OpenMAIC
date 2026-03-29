@@ -35,9 +35,100 @@ import { createLogger } from '@/lib/logger';
 import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 import type { CoursePurpose } from '@/lib/utils/database';
+import type {
+  OrchestratorOutlineLength,
+  OrchestratorWorkedExampleLevel,
+} from '@/lib/store/orchestrator-notebook-generation';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
+
+function buildOrchestratorPreferencesBlock(
+  language: 'zh-CN' | 'en-US',
+  prefs?: {
+    length: OrchestratorOutlineLength;
+    includeQuizScenes: boolean;
+    workedExampleLevel?: OrchestratorWorkedExampleLevel;
+  } | null,
+): string {
+  if (!prefs) return '';
+
+  const exampleLevel: OrchestratorWorkedExampleLevel = prefs.workedExampleLevel ?? 'moderate';
+
+  const lengthZh: Record<OrchestratorOutlineLength, string> = {
+    compact:
+      '**篇幅**：简短——总场景数（与幻灯页数大致对应）宜在 **10 个以下**，紧凑成课。',
+    standard:
+      '**篇幅**：中等——总场景数（与幻灯页数大致对应）宜在 **约 10–20 个** 范围内。',
+    extended:
+      '**篇幅**：深入——总场景数（与幻灯页数大致对应）宜 **超过 20 个**，可分阶段展开。',
+  };
+  const lengthEn: Record<OrchestratorOutlineLength, string> = {
+    compact:
+      '**Length**: Brief — target **under 10** scenes (roughly one scene per slide/page); keep it tight.',
+    standard:
+      '**Length**: Standard — target **about 10–20** scenes (roughly one scene per slide/page).',
+    extended:
+      '**Length**: Deep — target **more than 20** scenes (roughly one scene per slide/page); staged progression is OK.',
+  };
+
+  const exampleZh: Record<OrchestratorWorkedExampleLevel, string> = {
+    none:
+      '**例题数量**：**无**——不要规划独立的「老师讲完整例题 / 分步走读」类 `slide` 序列（含证明走读、代码走读、大题拆解等）；以概念、框架与要点为主，除非用户在需求原文中明确要求讲题。',
+    light:
+      '**例题数量（老师带做的完整例题 / 走读，多为 `slide` 序列）**：**少量**——除非用户明确要求，优先概念与框架；完整例题（含证明走读、代码走读、大题分步讲解等）宜控制在 **约 0–1 组**，可提纲式点到为止。',
+    moderate:
+      '**例题数量**：**中等**——安排 **约 2–4 组** 完整例题讲解（可跨多页 `slide`），与知识点穿插，讲清思路与常见错因。',
+    heavy:
+      '**例题数量**：**丰富**——安排 **约 5 组及以上** 完整例题讲解，必要时同一难点用多页 `slide` 分步拆解，并覆盖变式与边界情况（在篇幅允许内）。',
+  };
+  const exampleEn: Record<OrchestratorWorkedExampleLevel, string> = {
+    none:
+      '**Worked-example density**: **None** — do **not** plan dedicated teacher-led full worked-example / step-by-step walkthrough `slide` sequences (proof walkthroughs, code walkthroughs, large-problem decompositions); stay concept/framework-first unless the user explicitly asks for problem walkthroughs in the requirement text.',
+    light:
+      '**Worked-example density (teacher-led walkthroughs, usually `slide` sequences)**: **Light** — unless the user explicitly asks, prioritize concepts/structure; aim for **about 0–1** full worked-example sequences (proof/code/large-problem walkthroughs), keep demos sketch-level.',
+    moderate:
+      '**Worked-example density**: **Moderate** — plan **about 2–4** full worked-example sequences (may span multiple `slide` scenes), interleaved with concepts; explain reasoning and common pitfalls.',
+    heavy:
+      '**Worked-example density**: **Rich** — plan **about 5+** full worked-example sequences; when needed, break hard ideas across multiple `slide` scenes with variants and edge cases (within the page budget).',
+  };
+
+  const quizZh = prefs.includeQuizScenes
+    ? '**测验与题目**：请在合适位置安排若干 `quiz` 场景，用于练习与自测；讲题与例题仍以 `slide` 为主。'
+    : '**测验与题目**：不要规划独立的 `quiz` 类型场景；知识点以 `slide`（及必要的 `interactive`）呈现，尽量不安排测验页。';
+  const quizEn = prefs.includeQuizScenes
+    ? '**Quizzes**: Include several `quiz` scenes for practice/self-check; keep worked teaching mainly on `slide`.'
+    : '**Quizzes**: Do **not** plan standalone `quiz` scenes; teach with `slide` (and `interactive` when helpful), avoid quiz pages.';
+
+  const title =
+    language === 'zh-CN' ? '## 用户在本轮指定的生成偏好' : '## User-selected generation preferences for this run';
+  const lines =
+    language === 'zh-CN'
+      ? [
+          title,
+          '',
+          lengthZh[prefs.length],
+          '',
+          exampleZh[exampleLevel],
+          '',
+          quizZh,
+          '',
+          '以上偏好优先于默认篇幅/例题/测验策略；若与用户原文需求冲突，以用户原文为准。',
+        ]
+      : [
+          title,
+          '',
+          lengthEn[prefs.length],
+          '',
+          exampleEn[exampleLevel],
+          '',
+          quizEn,
+          '',
+          'These preferences override default length/example/quiz heuristics unless the user text explicitly conflicts.',
+        ];
+
+  return lines.join('\n');
+}
 
 function buildCourseContextForPrompt(args: {
   language: 'zh-CN' | 'en-US';
@@ -129,7 +220,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     // Get API configuration from request headers
-    const { model: languageModel, modelInfo, modelString } = await resolveModelFromHeaders(req);
+    const { model: languageModel, modelInfo, modelString } = await resolveModelFromHeaders(req, {
+      allowOpenAIModelOverride: true,
+    });
 
     if (!body.requirements) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Requirements are required');
@@ -143,6 +236,11 @@ export async function POST(req: NextRequest) {
       researchContext?: string;
       agents?: AgentInfo[];
       coursePurpose?: CoursePurpose;
+      outlinePreferences?: {
+        length: OrchestratorOutlineLength;
+        includeQuizScenes: boolean;
+        workedExampleLevel?: OrchestratorWorkedExampleLevel;
+      } | null;
       courseContext?: {
         name?: string;
         description?: string;
@@ -233,6 +331,11 @@ export async function POST(req: NextRequest) {
       courseContext: body.courseContext,
     });
 
+    const orchestratorPreferences = buildOrchestratorPreferencesBlock(
+      requirements.language,
+      body.outlinePreferences ?? null,
+    );
+
     const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
       requirement: requirements.requirement,
       language: requirements.language,
@@ -248,6 +351,7 @@ export async function POST(req: NextRequest) {
       teacherContext,
       purposePolicy,
       courseContext,
+      orchestratorPreferences,
     });
 
     if (!prompts) {

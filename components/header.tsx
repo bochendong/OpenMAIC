@@ -27,13 +27,11 @@ import { getSceneSpeechTtsBanner } from '@/lib/audio/speech-audio-readiness';
 
 interface HeaderProps {
   readonly currentSceneTitle: string;
-  /** 播放模式下与右侧下载按钮并排（音量、倍速、翻页等） */
-  readonly centerSlot?: ReactNode;
-  /** 例如 PPT / 测验 / 原始数据 — 渲染在顶栏正中 */
-  readonly viewToggle?: ReactNode;
+  /** 标题行右侧附加操作，例如编辑当前页 */
+  readonly titleActions?: ReactNode;
 }
 
-export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProps) {
+export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   const { t, locale } = useI18n();
   const router = useRouter();
   const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
@@ -143,8 +141,6 @@ export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProp
         ? `${t('stage.ttsSpeechPendingBannerTooltip')}（${speechTtsBanner.ready}/${speechTtsBanner.total}）`
         : `${t('stage.ttsSpeechPendingBannerTooltip')} (${speechTtsBanner.ready}/${speechTtsBanner.total})`
       : '';
-
-  const stackedToolbar = Boolean(viewToggle || centerSlot);
 
   const metaChipsRow = (
     <TooltipProvider delayDuration={250}>
@@ -257,135 +253,30 @@ export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProp
     <>
       <header
         className={cn(
-          'z-10 shrink-0',
+          'z-10 shrink-0 flex min-h-[4.5rem] items-center px-6 md:px-8',
           'border-b border-slate-900/[0.08] bg-white/70 backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#0d0d10]/55',
-          stackedToolbar ? 'flex flex-col' : 'flex min-h-[4.5rem] items-center px-6 md:px-8',
         )}
       >
-        {stackedToolbar ? (
-          <>
-            {/* 第一行：返回 + 标题 + 导出 */}
-            <div className="flex min-h-[3.25rem] items-center gap-3 px-4 py-2.5 md:px-6 md:py-3">
-              <button
-                type="button"
-                onClick={() => router.push(backHref)}
-                className="shrink-0 rounded-[12px] p-2 text-[#86868b] transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)] hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#a1a1a6] dark:hover:bg-white/[0.06] dark:hover:text-white"
-                title={backTitle}
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <h1
-                className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight text-[#1d1d1f] md:text-xl dark:text-white"
-                suppressHydrationWarning
-              >
-                {currentSceneTitle || t('common.loading')}
-              </h1>
-              <div className="relative shrink-0 min-w-0" ref={exportRef}>
-                {!canExport && !isExporting ? (
-                  <div
-                    className="apple-glass flex max-w-[min(100vw-10rem,280px)] items-center gap-2 rounded-full px-3 py-1.5 text-xs text-[#1d1d1f]/75 dark:text-white/75"
-                    role="status"
-                    title={exportWaitMessage}
-                  >
-                    {exportWaitShowSpinner ? (
-                      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#007AFF] dark:text-[#0A84FF]" />
-                    ) : failedOutlines.length > 0 ? (
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-500 dark:text-amber-400" />
-                    ) : null}
-                    <span className="min-w-0 truncate font-medium">{exportWaitMessage}</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      if (canExport && !isExporting) setExportMenuOpen(!exportMenuOpen);
-                    }}
-                    disabled={!canExport || isExporting}
-                    title={
-                      canExport
-                        ? isExporting
-                          ? t('export.exporting')
-                          : t('export.pptx')
-                        : t('share.notReady')
-                    }
-                    className={cn(
-                      'shrink-0 rounded-full p-2 transition-all',
-                      canExport && !isExporting
-                        ? 'text-[#86868b] hover:bg-black/[0.05] hover:text-[#1d1d1f] hover:shadow-sm dark:text-[#a1a1a6] dark:hover:bg-white/[0.08] dark:hover:text-white'
-                        : 'cursor-not-allowed text-[#86868b]/40 opacity-50 dark:text-[#a1a1a6]/40',
-                    )}
-                  >
-                    {isExporting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                  </button>
-                )}
-                {exportMenuOpen && canExport && !isExporting && (
-                  <div className="apple-glass absolute right-0 top-full z-50 mt-2 min-w-[200px] overflow-hidden rounded-[14px] shadow-[0_12px_40px_rgba(0,0,0,0.12)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.45)]">
-                    <button
-                      onClick={() => {
-                        setExportMenuOpen(false);
-                        exportPPTX();
-                      }}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      <FileDown className="h-4 w-4 shrink-0 text-gray-400" />
-                      <span>{t('export.pptx')}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setExportMenuOpen(false);
-                        exportResourcePack();
-                      }}
-                      className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
-                    >
-                      <Package className="h-4 w-4 shrink-0 text-gray-400" />
-                      <div>
-                        <div>{t('export.resourcePack')}</div>
-                        <div className="text-[11px] text-gray-400 dark:text-gray-500">
-                          {t('export.resourcePackDesc')}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 第二行：元信息（音色 / 语音状态）+ 视图切换 + 播放条 */}
-            <div className="flex flex-col gap-2 border-t border-slate-900/[0.06] px-4 py-2 dark:border-white/[0.06] md:flex-row md:items-center md:gap-3 md:px-6 md:py-2.5">
-              {metaChipsRow}
-              <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-start gap-2 md:ml-auto md:justify-end">
-                {viewToggle ? <div className="shrink-0">{viewToggle}</div> : null}
-                {centerSlot ? (
-                  <div className="flex min-w-0 max-w-full items-center overflow-x-auto md:max-w-[min(100vw-14rem,560px)]">
-                    {centerSlot}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex w-full min-w-0 flex-1 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => router.push(backHref)}
-              className="shrink-0 rounded-[12px] p-2 text-[#86868b] transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)] hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#a1a1a6] dark:hover:bg-white/[0.06] dark:hover:text-white"
-              title={backTitle}
+        <div className="flex w-full min-w-0 flex-1 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push(backHref)}
+            className="shrink-0 rounded-[12px] p-2 text-[#86868b] transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)] hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-[#a1a1a6] dark:hover:bg-white/[0.06] dark:hover:text-white"
+            title={backTitle}
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <h1
+              className="truncate text-xl font-bold tracking-tight text-[#1d1d1f] dark:text-white"
+              suppressHydrationWarning
             >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <h1
-                className="truncate text-xl font-bold tracking-tight text-[#1d1d1f] dark:text-white"
-                suppressHydrationWarning
-              >
-                {currentSceneTitle || t('common.loading')}
-              </h1>
-              <div className="min-w-0">{metaChipsRow}</div>
-            </div>
-            <div className="relative shrink-0 min-w-0" ref={exportRef}>
+              {currentSceneTitle || t('common.loading')}
+            </h1>
+            <div className="min-w-0">{metaChipsRow}</div>
+          </div>
+          {titleActions ? <div className="shrink-0">{titleActions}</div> : null}
+          <div className="relative shrink-0 min-w-0" ref={exportRef}>
             {!canExport && !isExporting ? (
               <div
                 className="apple-glass flex max-w-[min(100vw-10rem,320px)] items-center gap-2 rounded-full px-3 py-1.5 text-xs text-[#1d1d1f]/75 dark:text-white/75"
@@ -455,9 +346,8 @@ export function Header({ currentSceneTitle, centerSlot, viewToggle }: HeaderProp
                 </button>
               </div>
             )}
-            </div>
           </div>
-        )}
+        </div>
       </header>
     </>
   );

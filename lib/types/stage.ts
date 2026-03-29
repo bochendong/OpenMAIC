@@ -2,6 +2,7 @@
 import type { Slide } from '@/lib/types/slides';
 import type { Action } from '@/lib/types/action';
 import type { PBLProjectConfig } from '@/lib/pbl/types';
+import type { NotebookContentDocument } from '@/lib/notebook-content';
 
 export type SceneType = 'slide' | 'quiz' | 'interactive' | 'pbl';
 
@@ -74,6 +75,8 @@ export interface SlideContent {
   type: 'slide';
   // PPTist slide data structure
   canvas: Slide;
+  // Optional semantic source document used to render the slide
+  semanticDocument?: NotebookContentDocument;
 }
 
 /**

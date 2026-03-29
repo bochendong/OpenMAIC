@@ -36,4 +36,4 @@ export const LIVE2D_PRESENTER_MODELS: Record<Live2DPresenterModelId, Live2DPrese
   },
 };
 
-export const DEFAULT_LIVE2D_PRESENTER_MODEL_ID: Live2DPresenterModelId = 'hiyori';
+export const DEFAULT_LIVE2D_PRESENTER_MODEL_ID: Live2DPresenterModelId = 'haru';

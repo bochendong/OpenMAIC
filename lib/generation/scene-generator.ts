@@ -22,6 +22,11 @@ import type { LanguageModel } from 'ai';
 import type { StageStore } from '@/lib/api/stage-api';
 import { createStageAPI } from '@/lib/api/stage-api';
 import { generatePBLContent } from '@/lib/pbl/generate-pbl';
+import {
+  parseNotebookContentDocument,
+  renderNotebookContentDocumentToSlide,
+  type NotebookContentDocument,
+} from '@/lib/notebook-content';
 import { buildPrompt, PROMPT_IDS } from './prompts';
 import { postProcessInteractiveHtml } from './interactive-post-processor';
 import { parseActionsFromStructuredOutput } from './action-parser';
@@ -1064,7 +1069,58 @@ function looksLikeStructuredCode(text: string): boolean {
   return signalCount >= 2;
 }
 
-function shouldUseLocalWorkedExampleTemplate(cfg: WorkedExampleConfig): boolean {
+function looksLikePlaceholderWorkedExampleText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+
+  return [
+    /^给定(一个|某个|若干|两个|一组)/,
+    /^计算(一个|某个|两个|给定的?)/,
+    /^请(写出|判断|计算|证明)/,
+    /^对.+做/,
+    /^继续/,
+    /^根据.+(判断|说明)/,
+    /^确认/,
+    /^检查/,
+    /^汇总/,
+    /^分别计算/,
+    /^Determine\b/i,
+    /^Given\s+(a|an|some|two|the)\b/i,
+    /^Compute\b/i,
+    /^Check\b/i,
+    /^Write\b/i,
+    /^Apply\b/i,
+    /^Continue\b/i,
+    /^Based on\b/i,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function looksLikeConcreteQuantitativeDetail(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return false;
+
+  return (
+    looksLikeRichMathNotation(normalized) ||
+    (/\d/.test(normalized) && /[A-Za-z\u4e00-\u9fff]/.test(normalized)) ||
+    /[\[\]{}|]/.test(normalized) ||
+    /[=+\-*/]/.test(normalized) ||
+    /\b([xyzabcn]|x_\d|y_\d|z_\d|a_\d|b_\d|c_\d)\b/i.test(normalized) ||
+    /(矩阵|增广矩阵|方程组|主元|自由变量|row operation|pivot|free variable|matrix|equation|RREF|Gaussian)/i.test(
+      normalized,
+    )
+  );
+}
+
+function looksLikeQuantitativeWorkedExampleTopic(text: string): boolean {
+  return /(矩阵|线性系统|方程组|消元|高斯|RREF|乘法|matrix|linear system|equation|elimination|gaussian|row reduction)/i.test(
+    text,
+  );
+}
+
+function shouldUseLocalWorkedExampleTemplate(outline: SceneOutline): boolean {
+  const cfg = outline.workedExampleConfig;
+  if (!cfg) return false;
+
   const textBlocks = [
     cfg.problemStatement,
     ...(cfg.givens || []),
@@ -1082,6 +1138,39 @@ function shouldUseLocalWorkedExampleTemplate(cfg: WorkedExampleConfig): boolean 
 
   if (!cfg.codeSnippet?.trim() && textBlocks.some((text) => looksLikeStructuredCode(text))) {
     return false;
+  }
+
+  const topicText = [
+    outline.title,
+    outline.description,
+    ...(outline.keyPoints || []),
+    ...textBlocks,
+  ].join(' ');
+  const walkthroughSteps = (cfg.walkthroughSteps || []).filter(
+    (item): item is string => typeof item === 'string' && item.trim().length > 0,
+  );
+  const quantitativeTopic =
+    cfg.kind === 'math' || looksLikeQuantitativeWorkedExampleTopic(topicText);
+
+  if (cfg.role === 'problem_statement') {
+    const statement = cfg.problemStatement?.trim() || '';
+    if (!statement) return false;
+    if (looksLikePlaceholderWorkedExampleText(statement)) return false;
+    if (quantitativeTopic && !looksLikeConcreteQuantitativeDetail(statement)) return false;
+  }
+
+  if (cfg.role === 'walkthrough') {
+    if (walkthroughSteps.length === 0) return false;
+
+    const detailedSteps = walkthroughSteps.filter(
+      (step) =>
+        !looksLikePlaceholderWorkedExampleText(step) &&
+        (!quantitativeTopic || looksLikeConcreteQuantitativeDetail(step)),
+    );
+
+    if (detailedSteps.length < Math.min(2, walkthroughSteps.length)) {
+      return false;
+    }
   }
 
   return true;
@@ -1749,6 +1838,71 @@ function buildWorkedExampleSlideContent(
   };
 }
 
+function shouldUseSemanticSlideGeneration(
+  outline: SceneOutline,
+  assignedImages?: PdfImage[],
+): boolean {
+  if (assignedImages && assignedImages.length > 0) return false;
+  if (outline.mediaGenerations && outline.mediaGenerations.length > 0) return false;
+  return true;
+}
+
+function extractNotebookContentDocumentFromResponse(response: string): NotebookContentDocument | null {
+  const parsed = parseJsonResponse<unknown>(response);
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  const direct = parseNotebookContentDocument(parsed);
+  if (direct) return direct;
+
+  const wrapped = parseNotebookContentDocument(
+    (parsed as { contentDocument?: unknown }).contentDocument,
+  );
+  return wrapped;
+}
+
+async function generateSemanticSlideContent(
+  outline: SceneOutline,
+  aiCall: AICallFn,
+  agents?: AgentInfo[],
+  courseContext?: CoursePersonalizationContext,
+): Promise<GeneratedSlideContent | null> {
+  const lang = outline.language || 'zh-CN';
+  const teacherContext = formatTeacherPersonaForPrompt(agents);
+  const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
+  const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
+
+  const prompts = buildPrompt(PROMPT_IDS.SLIDE_SEMANTIC_CONTENT, {
+    title: outline.title,
+    description: outline.description,
+    keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
+    teacherContext,
+    coursePersonalization,
+    workedExampleContext,
+  });
+
+  if (!prompts) return null;
+
+  const response = await aiCall(prompts.system, prompts.user);
+  const contentDocument = extractNotebookContentDocumentFromResponse(response);
+  if (!contentDocument) {
+    log.warn(`Semantic slide content parse failed for: ${outline.title}`);
+    return null;
+  }
+
+  const renderedSlide = renderNotebookContentDocumentToSlide({
+    document: contentDocument,
+    fallbackTitle: outline.title,
+  });
+
+  return {
+    elements: renderedSlide.elements,
+    background: renderedSlide.background,
+    theme: renderedSlide.theme,
+    remark: outline.description,
+    contentDocument,
+  };
+}
+
 /**
  * Generate slide content
  */
@@ -1764,10 +1918,7 @@ async function generateSlideContent(
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
 
-  if (
-    outline.workedExampleConfig &&
-    shouldUseLocalWorkedExampleTemplate(outline.workedExampleConfig)
-  ) {
+  if (outline.workedExampleConfig && shouldUseLocalWorkedExampleTemplate(outline)) {
     const localTemplate = buildWorkedExampleSlideContent(outline, {
       assignedImages,
       imageMapping,
@@ -1777,7 +1928,23 @@ async function generateSlideContent(
       log.info(`Using local worked-example template for: ${outline.title}`);
       return localTemplate;
     }
-  } else if (outline.workedExampleConfig) {
+  }
+
+  if (shouldUseSemanticSlideGeneration(outline, assignedImages)) {
+    const semanticContent = await generateSemanticSlideContent(
+      outline,
+      aiCall,
+      agents,
+      courseContext,
+    );
+    if (semanticContent) {
+      log.info(`Using semantic slide content pipeline for: ${outline.title}`);
+      return semanticContent;
+    }
+    log.warn(`Semantic slide content generation failed, falling back to legacy element prompt: ${outline.title}`);
+  }
+
+  if (outline.workedExampleConfig) {
     log.info(
       `Falling back to AI worked-example rendering for notation-rich scene: ${outline.title}`,
     );
@@ -2789,7 +2956,7 @@ export function createSceneWithActions(
       id: nanoid(),
       viewportSize: 1000,
       viewportRatio: 0.5625,
-      theme: defaultTheme,
+      theme: content.theme || defaultTheme,
       elements: content.elements,
       background: content.background,
     };
@@ -2801,6 +2968,7 @@ export function createSceneWithActions(
       content: {
         type: 'slide',
         canvas: slide,
+        semanticDocument: content.contentDocument,
       },
       actions,
     });

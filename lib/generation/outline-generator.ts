@@ -113,6 +113,7 @@ export async function generateSceneOutlinesFromRequirements(
     teacherContext: options?.teacherContext || '',
     purposePolicy: '',
     courseContext: requirements.language === 'zh-CN' ? '无' : 'N/A',
+    orchestratorPreferences: '',
   });
 
   if (!prompts) {

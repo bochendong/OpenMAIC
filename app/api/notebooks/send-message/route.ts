@@ -12,6 +12,12 @@ import { searchWithTavily, formatSearchResultsAsContext } from '@/lib/web-search
 import { resolveWebSearchApiKey } from '@/lib/server/provider-config';
 import type { CoursePurpose } from '@/lib/utils/database';
 import { runWithRequestContext } from '@/lib/server/request-context';
+import {
+  buildNotebookContentDocumentFromInsert,
+  buildNotebookContentDocumentFromText,
+  parseNotebookContentDocument,
+  renderNotebookContentToMarkdown,
+} from '@/lib/notebook-content';
 
 const log = createLogger('NotebookSendMessage');
 
@@ -25,8 +31,16 @@ function stripCodeFences(text: string): string {
   return cleaned.trim();
 }
 
-function sanitizePlan(raw: unknown): NotebookMessagePlan {
+function sanitizePlan(
+  raw: unknown,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
+): NotebookMessagePlan {
   const parsed = (raw || {}) as Partial<NotebookMessagePlan>;
+  const answerDocument = parseNotebookContentDocument(
+    (parsed as { answerDocument?: unknown }).answerDocument,
+  );
+  const answer = String(parsed.answer || '').trim();
+  const fallbackAnswer = language === 'en-US' ? 'No content available yet.' : '暂无内容。';
   const references = Array.isArray(parsed.references)
     ? parsed.references
         .map((x) => ({
@@ -51,9 +65,23 @@ function sanitizePlan(raw: unknown): NotebookMessagePlan {
           keyPoints: Array.isArray((x as { keyPoints?: string[] }).keyPoints)
             ? (x as { keyPoints: string[] }).keyPoints.map((k) => String(k).trim()).filter(Boolean).slice(0, 6)
             : [],
+          contentDocument: parseNotebookContentDocument(
+            (x as { contentDocument?: unknown }).contentDocument,
+          ),
         }))
         .filter((x) => x.afterOrder >= 0 && x.title)
         .slice(0, 4)
+        .map((x) => ({
+          ...x,
+          contentDocument:
+            x.contentDocument ||
+            buildNotebookContentDocumentFromInsert({
+              title: x.title,
+              description: x.description,
+              keyPoints: x.keyPoints,
+              language,
+            }),
+        }))
     : [];
   const update = Array.isArray(ops.update)
     ? ops.update
@@ -76,7 +104,13 @@ function sanitizePlan(raw: unknown): NotebookMessagePlan {
     : [];
 
   return {
-    answer: String(parsed.answer || '').trim(),
+    answer: answer || (answerDocument ? renderNotebookContentToMarkdown(answerDocument) : fallbackAnswer),
+    answerDocument:
+      answerDocument ||
+      buildNotebookContentDocumentFromText({
+        text: answer || fallbackAnswer,
+        language,
+      }),
     references,
     knowledgeGap: Boolean(parsed.knowledgeGap),
     operations: {
@@ -208,10 +242,30 @@ ${allowWrite ? 'allowed' : 'disallowed'}
 Output schema:
 {
   "answer": "string",
+  "answerDocument": {
+    "version": 1,
+    "language": "zh-CN" | "en-US",
+    "title": "optional",
+    "blocks": [
+      { "type": "paragraph", "text": "string" }
+    ]
+  },
   "references": [{"order": 1, "title": "string", "why": "string"}],
   "knowledgeGap": true|false,
   "operations": {
-    "insert": [{"afterOrder": 1, "type": "slide"|"quiz", "title": "string", "description": "string", "keyPoints": ["..."]}],
+    "insert": [{
+      "afterOrder": 1,
+      "type": "slide"|"quiz",
+      "title": "string",
+      "description": "string",
+      "keyPoints": ["..."],
+      "contentDocument": {
+        "version": 1,
+        "language": "zh-CN" | "en-US",
+        "title": "optional",
+        "blocks": [{ "type": "paragraph", "text": "string" }]
+      }
+    }],
     "update": [{"order": 1, "title": "optional", "appendKnowledge": "optional"}],
     "delete": [{"order": 1, "reason": "string"}]
   }
@@ -223,6 +277,20 @@ Rules:
 - if write is disallowed, operations must all be empty arrays.
 - never request full PPT rewrite; only incremental insert/update/delete.
 - keep answer short and practical.
+- answerDocument should be the structured version of the answer for rendering in chat.
+- when the answer or inserted slide contains formulas, derivation steps, code, tables, worked examples, or chemistry expressions, use structured blocks instead of hiding them inside plain paragraph text.
+- supported block types for answerDocument/contentDocument are:
+  - {"type":"heading","level":1-4,"text":"..."}
+  - {"type":"paragraph","text":"..."}
+  - {"type":"bullet_list","items":["..."]}
+  - {"type":"equation","latex":"...","display":true}
+  - {"type":"derivation_steps","title":"optional","steps":[{"expression":"...","format":"latex"|"text"|"chem","explanation":"optional"}]}
+  - {"type":"code_block","language":"python","code":"...","caption":"optional"}
+  - {"type":"table","headers":["..."],"rows":[["..."]],"caption":"optional"}
+  - {"type":"callout","tone":"info"|"success"|"warning"|"danger"|"tip","title":"optional","text":"..."}
+  - {"type":"example","title":"optional","problem":"...","givens":["..."],"goal":"optional","steps":["..."],"answer":"optional","pitfalls":["..."]}
+  - {"type":"chem_formula","formula":"...","caption":"optional"}
+  - {"type":"chem_equation","equation":"...","caption":"optional"}
 `;
 
       log.info(`Notebook send-message [model=${modelString}]`);
@@ -242,7 +310,7 @@ Rules:
         return apiError('PARSE_FAILED', 500, 'Failed to parse notebook send-message result');
       }
 
-      const plan = sanitizePlan(parsedRaw);
+      const plan = sanitizePlan(parsedRaw, body.course?.language || 'zh-CN');
       const response: SendNotebookMessageResponse = {
         ...plan,
         operations: allowWrite

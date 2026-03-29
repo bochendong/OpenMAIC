@@ -13,8 +13,20 @@ export interface TalkingAvatarOverlayState {
   readonly cadence?: TalkingAvatarSpeechCadence;
 }
 
+type MotionPriority = Parameters<Live2DModelInstance['motion']>[2];
+
+export interface TalkingAvatarPointerInteractionState {
+  readonly active: boolean;
+  readonly normalizedX: number;
+  readonly normalizedY: number;
+  readonly engagementKey?: number;
+}
+
 interface TalkingAvatarOverlayProps extends TalkingAvatarOverlayState {
   readonly className?: string;
+  /** `overlay` = 幻灯片角标；`sidebar` = 左侧栏全高面板 */
+  readonly layout?: 'overlay' | 'sidebar';
+  readonly pointerInteraction?: TalkingAvatarPointerInteractionState | null;
 }
 
 const LIVE2D_CORE_SRC = '/live2d/live2dcubismcore.min.js';
@@ -54,6 +66,8 @@ export function TalkingAvatarOverlay({
   currentVisemeId,
   cadence = speaking ? 'fallback' : 'idle',
   className,
+  layout = 'overlay',
+  pointerInteraction,
 }: TalkingAvatarOverlayProps) {
   const live2dPresenterModelId = useSettingsStore((state) => state.live2dPresenterModelId);
   const modelConfig = LIVE2D_PRESENTER_MODELS[live2dPresenterModelId];
@@ -63,6 +77,11 @@ export function TalkingAvatarOverlay({
     playbackRate,
     currentVisemeId,
     cadence,
+  });
+  const interactionStateRef = useRef<TalkingAvatarPointerInteractionState>({
+    active: false,
+    normalizedX: 0,
+    normalizedY: 0,
   });
   const instanceRef = useRef<{
     app: import('pixi.js').Application;
@@ -76,6 +95,14 @@ export function TalkingAvatarOverlay({
   useEffect(() => {
     speechStateRef.current = { speaking, playbackRate, currentVisemeId, cadence };
   }, [cadence, speaking, playbackRate, currentVisemeId]);
+
+  useEffect(() => {
+    interactionStateRef.current = pointerInteraction ?? {
+      active: false,
+      normalizedX: 0,
+      normalizedY: 0,
+    };
+  }, [pointerInteraction]);
 
   useEffect(() => {
     wasSpeakingRef.current = false;
@@ -92,6 +119,32 @@ export function TalkingAvatarOverlay({
 
     wasSpeakingRef.current = speaking;
   }, [modelConfig.speakMotionGroup, speaking, status]);
+
+  useEffect(() => {
+    if (
+      status !== 'ready' ||
+      speaking ||
+      !pointerInteraction?.active ||
+      !pointerInteraction.engagementKey ||
+      modelConfig.speakMotionGroup === modelConfig.idleMotionGroup
+    ) {
+      return;
+    }
+
+    const model = instanceRef.current?.model;
+    if (!model) return;
+
+    void playPresenterMotion(model, modelConfig.speakMotionGroup, {
+      priority: 2,
+    });
+  }, [
+    modelConfig.idleMotionGroup,
+    modelConfig.speakMotionGroup,
+    speaking,
+    pointerInteraction?.active,
+    pointerInteraction?.engagementKey,
+    status,
+  ]);
 
   useEffect(() => {
     if (
@@ -183,15 +236,25 @@ export function TalkingAvatarOverlay({
         height: Math.max(model.height, 1),
       };
 
-      fitModelToFrame(model, mount, baseSize);
+      const syncCanvasToMount = () => {
+        const w = mount.clientWidth;
+        const h = mount.clientHeight;
+        if (w > 0 && h > 0) {
+          app.renderer.resize(w, h);
+          fitModelToFrame(model, mount, baseSize, layout);
+        }
+      };
 
-      const detachPoseHook = attachSpeechPose(model, speechStateRef);
+      syncCanvasToMount();
+
+      const detachPoseHook = attachSpeechPose(model, speechStateRef, interactionStateRef);
       const resizeObserver =
         typeof ResizeObserver !== 'undefined'
-          ? new ResizeObserver(() => fitModelToFrame(model, mount, baseSize))
+          ? new ResizeObserver(() => syncCanvasToMount())
           : null;
 
       resizeObserver?.observe(mount);
+      requestAnimationFrame(() => syncCanvasToMount());
 
       try {
         void model.motion(modelConfig.idleMotionGroup);
@@ -233,15 +296,26 @@ export function TalkingAvatarOverlay({
         mountRef.current.replaceChildren();
       }
     };
-  }, [modelConfig.idleMotionGroup, modelConfig.modelSrc]);
+  }, [layout, modelConfig.idleMotionGroup, modelConfig.modelSrc]);
 
   return (
     <div
       aria-hidden="true"
       title={speechText || undefined}
-      className={cn('pointer-events-none absolute right-3 top-3 z-[108] w-40 sm:w-48', className)}
+      className={cn(
+        'pointer-events-none bg-transparent',
+        layout === 'sidebar'
+          ? 'relative z-0 flex h-full min-h-0 w-full flex-1 flex-col'
+          : 'absolute right-3 top-3 z-[108] w-40 sm:w-48',
+        className,
+      )}
     >
-      <div className="relative overflow-hidden rounded-[20px] bg-transparent shadow-none">
+      <div
+        className={cn(
+          'relative overflow-hidden rounded-[20px] bg-transparent shadow-none',
+          layout === 'sidebar' && 'flex min-h-0 flex-1 flex-col',
+        )}
+      >
         <div className="absolute left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-black/35 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white shadow-[0_1px_6px_rgba(0,0,0,0.35)] backdrop-blur-[2px]">
           <span
             className={cn(
@@ -258,7 +332,12 @@ export function TalkingAvatarOverlay({
 
         <div
           ref={mountRef}
-          className="relative h-52 w-full overflow-hidden bg-transparent [mask-image:linear-gradient(180deg,black_80%,transparent_100%)] sm:h-60"
+          className={cn(
+            'relative w-full overflow-hidden bg-transparent',
+            layout === 'sidebar'
+              ? 'min-h-[200px] flex-1 [mask-image:linear-gradient(180deg,black_85%,transparent_100%)]'
+              : 'h-52 [mask-image:linear-gradient(180deg,black_80%,transparent_100%)] sm:h-60',
+          )}
         />
 
         {status === 'error' && (
@@ -275,10 +354,20 @@ function fitModelToFrame(
   model: Live2DModelInstance,
   mount: HTMLDivElement,
   baseSize: ModelBaseSize,
+  layout: 'overlay' | 'sidebar',
 ) {
   const width = mount.clientWidth;
   const height = mount.clientHeight;
   if (!width || !height) return;
+
+  if (layout === 'sidebar') {
+    model.anchor.set(0.5, 0.5);
+    const scale =
+      Math.min((width * 1.02) / baseSize.width, (height * 0.84) / baseSize.height) * 0.98;
+    model.scale.set(scale);
+    model.position.set(width * 0.5, height * 0.5);
+    return;
+  }
 
   model.anchor.set(0.5, 0);
   const scale = Math.min((width * 1.04) / baseSize.width, (height * 1.12) / baseSize.height) * 1.02;
@@ -294,6 +383,7 @@ function attachSpeechPose(
     currentVisemeId?: number | null;
     cadence: TalkingAvatarSpeechCadence;
   }>,
+  interactionStateRef: React.MutableRefObject<TalkingAvatarPointerInteractionState>,
 ) {
   const internalModel = (
     model as Live2DModelInstance & {
@@ -323,6 +413,7 @@ function attachSpeechPose(
     eyeX: 0,
     eyeY: 0,
     talkEnergy: 0,
+    interactionEnergy: 0,
     targetAngleX: 0,
     targetAngleY: 0,
     targetAngleZ: 0,
@@ -335,6 +426,7 @@ function attachSpeechPose(
 
   const beforeModelUpdate = () => {
     const { speaking, playbackRate, currentVisemeId, cadence } = speechStateRef.current;
+    const interaction = interactionStateRef.current;
     const easedRate = Math.max(0.7, Math.min(1.8, playbackRate || 1));
     const now = performance.now();
     const dt = clamp((now - lastTickAt) / 16.7, 0.6, 2.2);
@@ -375,6 +467,11 @@ function attachSpeechPose(
       talkEnergyTarget,
       1 - Math.pow(1 - (cadence === 'active' ? 0.14 : 0.22), dt),
     );
+    poseState.interactionEnergy = lerp(
+      poseState.interactionEnergy,
+      interaction.active ? 1 : 0,
+      1 - Math.pow(1 - 0.1, dt),
+    );
 
     if (cadence === 'active' && now >= poseState.nextShiftAt) {
       poseState.targetAngleX = randomRange(-4.2, 4.6);
@@ -393,8 +490,32 @@ function attachSpeechPose(
       poseState.targetEyeY = 0;
     }
 
+    if (interaction.active) {
+      const pointerInfluence = speaking ? 0.38 : 1;
+      const pointerAngleX = clamp(interaction.normalizedX * 5.2 * pointerInfluence, -5.2, 5.2);
+      const pointerAngleY = clamp(interaction.normalizedY * 3.4 * pointerInfluence, -3.4, 3.4);
+      const pointerAngleZ = clamp(interaction.normalizedX * -0.7 * pointerInfluence, -0.7, 0.7);
+      const pointerBodyAngleX = clamp(interaction.normalizedX * 1.6 * pointerInfluence, -1.6, 1.6);
+      const pointerEyeX = clamp(interaction.normalizedX * 0.24, -0.24, 0.24);
+      const pointerEyeY = clamp(interaction.normalizedY * 0.14, -0.14, 0.14);
+      const pointerBlend = 0.2 + poseState.interactionEnergy * 0.18;
+
+      poseState.targetAngleX = lerp(poseState.targetAngleX, pointerAngleX, pointerBlend);
+      poseState.targetAngleY = lerp(poseState.targetAngleY, pointerAngleY, pointerBlend);
+      poseState.targetAngleZ = lerp(poseState.targetAngleZ, pointerAngleZ, 0.16);
+      poseState.targetBodyAngleX = lerp(
+        poseState.targetBodyAngleX,
+        pointerBodyAngleX,
+        0.1 + poseState.interactionEnergy * 0.1,
+      );
+      poseState.targetEyeX = lerp(poseState.targetEyeX, pointerEyeX, 0.32);
+      poseState.targetEyeY = lerp(poseState.targetEyeY, pointerEyeY, 0.28);
+    }
+
     const activeMotionWeight =
-      cadence === 'active' ? poseState.talkEnergy : poseState.talkEnergy * 0.35;
+      cadence === 'active'
+        ? Math.max(poseState.talkEnergy, poseState.interactionEnergy * 0.18)
+        : poseState.talkEnergy * 0.22 + poseState.interactionEnergy * 0.28;
     const idleBreath = Math.sin(breathPhase) * 0.5;
     const nodX = Math.sin(gesturePhase) * 2.5 * activeMotionWeight;
     const nodY = Math.cos(gesturePhase * 0.72) * 1.2 * activeMotionWeight;
@@ -498,13 +619,25 @@ function randomRange(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
 
-async function playPresenterMotion(model: Live2DModelInstance, motionGroup: string, delayMs = 0) {
-  if (delayMs > 0) {
-    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+async function playPresenterMotion(
+  model: Live2DModelInstance,
+  motionGroup: string,
+  options:
+    | number
+    | {
+        delayMs?: number;
+        index?: number;
+        priority?: MotionPriority;
+      } = 0,
+) {
+  const resolvedOptions = typeof options === 'number' ? { delayMs: options } : options;
+
+  if ((resolvedOptions.delayMs ?? 0) > 0) {
+    await new Promise((resolve) => window.setTimeout(resolve, resolvedOptions.delayMs));
   }
 
   try {
-    await model.motion(motionGroup);
+    await model.motion(motionGroup, resolvedOptions.index, resolvedOptions.priority);
   } catch {
     // Motion playback is best-effort; our parameter animation still runs.
   }

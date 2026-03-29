@@ -6,13 +6,21 @@
  */
 
 import type { NextRequest } from 'next/server';
-import { getModel, type ModelWithInfo } from '@/lib/ai/providers';
+import { getModel, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
 import { getSystemLLMRuntimeConfig } from '@/lib/server/system-llm-config';
 
 export interface ResolvedModel extends ModelWithInfo {
   /** Original model string (e.g. "openai/gpt-4o-mini") */
   modelString: string;
 }
+
+type ResolveModelOptions = {
+  /**
+   * Allow per-request model overrides, but only for the system-managed OpenAI provider.
+   * API key and base URL still come from server-side system config.
+   */
+  allowOpenAIModelOverride?: boolean;
+};
 
 /**
  * Resolve a language model from explicit parameters.
@@ -25,10 +33,19 @@ export async function resolveModel(_params: {
   baseUrl?: string;
   providerType?: string;
   requiresApiKey?: boolean;
-}): Promise<ResolvedModel> {
+}, options: ResolveModelOptions = {}): Promise<ResolvedModel> {
   const config = await getSystemLLMRuntimeConfig();
   const providerId = 'openai';
-  const modelId = config.modelId;
+  let modelId = config.modelId;
+  const requestedModelString = _params.modelString?.trim();
+
+  if (options.allowOpenAIModelOverride && requestedModelString) {
+    const requested = parseModelString(requestedModelString);
+    if (requested.providerId === 'openai' && requested.modelId.trim()) {
+      modelId = requested.modelId.trim();
+    }
+  }
+
   const modelString = `${providerId}:${modelId}`;
   const { model, modelInfo } = getModel({
     providerId,
@@ -47,12 +64,15 @@ export async function resolveModel(_params: {
  *
  * Reads: x-model, x-api-key, x-base-url, x-provider-type, x-requires-api-key
  */
-export async function resolveModelFromHeaders(req: NextRequest): Promise<ResolvedModel> {
+export async function resolveModelFromHeaders(
+  req: NextRequest,
+  options: ResolveModelOptions = {},
+): Promise<ResolvedModel> {
   return resolveModel({
     modelString: req.headers.get('x-model') || undefined,
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
     providerType: req.headers.get('x-provider-type') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
-  });
+  }, options);
 }

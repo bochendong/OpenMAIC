@@ -1,8 +1,10 @@
 import NextAuth from 'next-auth';
-import { NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { authOptions } from '@/lib/server/auth';
 
 const handler = NextAuth(authOptions);
+
+type NextAuthRouteContext = { params: Promise<{ nextauth: string[] }> };
 
 /** DB 不可达时 NextAuth 可能返回 500 且空 body，SessionProvider 会 CLIENT_FETCH_ERROR；降级为未登录会话以便页面可用。 */
 const NULL_SESSION = {
@@ -19,12 +21,13 @@ function isAuthLogPath(pathname: string) {
 }
 
 async function safeAuthResponse(
-  request: Request,
-  invoke: (req: Request) => ReturnType<typeof handler>,
+  request: NextRequest,
+  context: NextAuthRouteContext,
+  invoke: (req: NextRequest, ctx: NextAuthRouteContext) => ReturnType<typeof handler>,
 ): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   try {
-    const res = await invoke(request);
+    const res = await invoke(request, context);
     if (res.status >= 500 && isSessionPath(pathname)) {
       const text = await res.clone().text();
       if (!text.trim()) {
@@ -55,10 +58,10 @@ async function safeAuthResponse(
   }
 }
 
-export async function GET(request: Request) {
-  return safeAuthResponse(request, handler);
+export async function GET(request: NextRequest, context: NextAuthRouteContext) {
+  return safeAuthResponse(request, context, handler);
 }
 
-export async function POST(request: Request) {
-  return safeAuthResponse(request, handler);
+export async function POST(request: NextRequest, context: NextAuthRouteContext) {
+  return safeAuthResponse(request, context, handler);
 }

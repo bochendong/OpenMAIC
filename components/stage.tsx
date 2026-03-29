@@ -26,22 +26,28 @@ import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import {
   AlertDialog,
+  AlertDialogDescription,
   AlertDialogContent,
+  AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogFooter,
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, SquarePen } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { ClassroomFooter } from '@/components/stage/classroom-footer';
+import { SlideNarrationEditor } from '@/components/stage/slide-narration-editor';
+import { ClassroomSlideCanvasEditor } from '@/components/stage/classroom-slide-canvas-editor';
 
 /** Bottom Roundtable strip in playback classroom — off until we ship the layout again. */
 const SHOW_CLASSROOM_ROUNDTABLE = false;
 
 const RAW_DATA_BASE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive'];
 type SpeechCadence = 'idle' | 'active' | 'pause' | 'fallback';
+type SlideEditTab = 'canvas' | 'narration';
 const CLOSED_VISEME_IDS = new Set([0, 21]);
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
@@ -149,7 +155,9 @@ export function Stage({
   const { t, locale } = useI18n();
   const { mode, getCurrentScene, scenes, currentSceneId, setCurrentSceneId, generatingOutlines } =
     useStageStore();
+  const stageLanguage = useStageStore((s) => s.stage?.language);
   const touchScenes = useStageStore((s) => s.touchScenes);
+  const updateScene = useStageStore((s) => s.updateScene);
   const failedOutlines = useStageStore.use.failedOutlines();
   const outlines = useStageStore((s) => s.outlines);
 
@@ -208,6 +216,10 @@ export function Stage({
   const [mainClassroomView, setMainClassroomView] = useState<'ppt' | 'quiz' | 'raw'>('ppt');
   /** 原始数据下的子 Tab：按场景类型（slide / quiz / interactive / …） */
   const [rawDataSubTab, setRawDataSubTab] = useState<SceneType>('slide');
+  /** 课堂内当前页编辑模式：页面布局 / 讲解稿 */
+  const [slideEditorOpen, setSlideEditorOpen] = useState(false);
+  const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
+  const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
@@ -884,6 +896,77 @@ export function Stage({
     setWhiteboardOpen(!whiteboardOpen);
   };
 
+  const canEditCurrentSlide =
+    mainClassroomView === 'ppt' &&
+    !isPendingScene &&
+    currentScene?.type === 'slide' &&
+    currentScene.content.type === 'slide';
+  const hasActivePlaybackOrLiveSession =
+    engineMode !== 'idle' || chatIsStreaming || isTopicPending || !!discussionTrigger;
+
+  const slideSceneIds = useMemo(
+    () =>
+      scenes
+        .filter((scene) => scene.type === 'slide' && scene.content.type === 'slide')
+        .map((scene) => scene.id),
+    [scenes],
+  );
+  const currentEditableSlideIndex = currentSceneId ? slideSceneIds.indexOf(currentSceneId) : -1;
+  const canGoPrevEditableSlide = currentEditableSlideIndex > 0;
+  const canGoNextEditableSlide =
+    currentEditableSlideIndex >= 0 && currentEditableSlideIndex < slideSceneIds.length - 1;
+
+  const handlePrevEditableSlide = useCallback(() => {
+    if (!canGoPrevEditableSlide) return;
+    gatedSceneSwitch(slideSceneIds[currentEditableSlideIndex - 1]);
+  }, [canGoPrevEditableSlide, currentEditableSlideIndex, gatedSceneSwitch, slideSceneIds]);
+
+  const handleNextEditableSlide = useCallback(() => {
+    if (!canGoNextEditableSlide) return;
+    gatedSceneSwitch(slideSceneIds[currentEditableSlideIndex + 1]);
+  }, [canGoNextEditableSlide, currentEditableSlideIndex, gatedSceneSwitch, slideSceneIds]);
+
+  const forceEnterSlideEditor = useCallback(async () => {
+    if (!canEditCurrentSlide) return;
+    await chatAreaRef.current?.endActiveSession();
+    if (discussionAbortRef.current) {
+      discussionAbortRef.current.abort();
+      discussionAbortRef.current = null;
+    }
+    engineRef.current?.stop();
+    resetSceneState();
+    setWhiteboardOpen(false);
+    setMainClassroomView('ppt');
+    setSlideEditorOpen(true);
+    setSlideEditTab('canvas');
+    setEditEntryConfirmOpen(false);
+  }, [canEditCurrentSlide, resetSceneState, setWhiteboardOpen]);
+
+  const handleOpenSlideEditor = useCallback(() => {
+    if (!canEditCurrentSlide) return;
+    if (hasActivePlaybackOrLiveSession) {
+      setEditEntryConfirmOpen(true);
+      return;
+    }
+    void forceEnterSlideEditor();
+  }, [canEditCurrentSlide, forceEnterSlideEditor, hasActivePlaybackOrLiveSession]);
+
+  const handleCloseSlideEditor = useCallback(() => {
+    setSlideEditorOpen(false);
+    setSlideEditTab('canvas');
+    setWhiteboardOpen(false);
+  }, [setWhiteboardOpen]);
+
+  const saveCurrentSceneActions = useCallback(
+    (nextActions: Action[]) => {
+      if (!currentScene || currentScene.type !== 'slide') return;
+      updateScene(currentScene.id, {
+        actions: nextActions,
+      });
+    },
+    [currentScene, updateScene],
+  );
+
   // Map engine mode to the CanvasArea's expected engine state
   const canvasEngineState = (() => {
     switch (engineMode) {
@@ -899,15 +982,31 @@ export function Stage({
 
   const playbackToolbarLiveSession = chatIsStreaming || isTopicPending || engineMode === 'live';
 
+  useEffect(() => {
+    if (!slideEditorOpen) return;
+    if (
+      mainClassroomView !== 'ppt' ||
+      isPendingScene ||
+      !currentScene ||
+      currentScene.type !== 'slide' ||
+      currentScene.content.type !== 'slide'
+    ) {
+      setSlideEditorOpen(false);
+      setSlideEditTab('canvas');
+    }
+  }, [slideEditorOpen, mainClassroomView, isPendingScene, currentScene]);
+
   const live2dPresenterVisible = useSettingsStore((s) => s.live2dPresenterVisible);
-  const talkingAvatar =
+  /** 与幻灯片角标时代一致：不因 mode 卡在 autonomous 就隐藏侧栏入口（自主模式下为待机姿态） */
+  const live2dSidebarEligible =
     live2dPresenterVisible &&
-    mode === 'playback' &&
-    currentScene?.type === 'slide' &&
     !isPendingScene &&
     !whiteboardOpen &&
     !playbackToolbarLiveSession &&
-    !chatSessionType
+    !chatSessionType;
+
+  const sceneSidebarLive2d = live2dSidebarEligible
+    ? mode === 'playback' && currentScene?.type === 'slide'
       ? {
           speaking: lectureSpeechActive && engineMode === 'playing',
           speechText: lectureSpeech,
@@ -915,7 +1014,8 @@ export function Stage({
           currentVisemeId,
           cadence: speechCadence,
         }
-      : null;
+      : { speaking: false, cadence: 'idle' as const }
+    : undefined;
 
   const showPlaybackStopDiscussion =
     engineMode === 'live' || chatSessionType === 'qa' || chatSessionType === 'discussion';
@@ -969,7 +1069,45 @@ export function Stage({
     }
   }, [rawDataTabTypes, rawDataSubTab]);
 
-  const viewToggle = (
+  const viewToggle = slideEditorOpen ? (
+    <div
+      className={cn(
+        'apple-glass flex items-center gap-0.5 rounded-[14px] p-0.5',
+        'shadow-[0_2px_16px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_20px_rgba(0,0,0,0.25)]',
+      )}
+      role="tablist"
+      aria-label="编辑模式切换"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={slideEditTab === 'canvas'}
+        onClick={() => setSlideEditTab('canvas')}
+        className={cn(
+          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
+          slideEditTab === 'canvas'
+            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
+            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
+        )}
+      >
+        页面
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={slideEditTab === 'narration'}
+        onClick={() => setSlideEditTab('narration')}
+        className={cn(
+          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
+          slideEditTab === 'narration'
+            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
+            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
+        )}
+      >
+        讲解
+      </button>
+    </div>
+  ) : (
     <div
       className={cn(
         'apple-glass flex items-center gap-0.5 rounded-[14px] p-0.5',
@@ -1023,48 +1161,67 @@ export function Stage({
     </div>
   );
 
-  // Calculate scene viewer height (subtract Header: two-row toolbar ≈124px; optional Roundtable reserve)
-  const sceneViewerHeight = (() => {
-    const headerHeight = 124;
-    const roundtableReserve = mode === 'playback' && SHOW_CLASSROOM_ROUNDTABLE ? 192 : 0;
-    return `calc(100% - ${headerHeight + roundtableReserve}px)`;
-  })();
+  const editorStatusSlot = slideEditorOpen ? (
+    <div className="apple-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200">
+      <span className="inline-flex size-2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+      <span>
+        {slideEditTab === 'canvas'
+          ? '编辑模式：页面改动会自动保存'
+          : '编辑模式：讲解修改需要手动保存'}
+      </span>
+    </div>
+  ) : undefined;
+
+  const titleActions =
+    canEditCurrentSlide || slideEditorOpen ? (
+      <button
+        type="button"
+        onClick={() => {
+          if (slideEditorOpen) {
+            handleCloseSlideEditor();
+          } else {
+            handleOpenSlideEditor();
+          }
+        }}
+        className={cn(
+          'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
+          slideEditorOpen
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/35 dark:text-emerald-200 dark:hover:bg-emerald-950/55'
+            : 'border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-50 dark:border-white/[0.1] dark:bg-white/[0.05] dark:text-slate-200 dark:hover:bg-white/[0.08]',
+        )}
+      >
+        <SquarePen className="size-3.5" />
+        {slideEditorOpen ? '完成编辑' : '编辑当前页'}
+      </button>
+    ) : null;
+
+  const footerCenterSlot = slideEditorOpen ? (
+    editorStatusSlot
+  ) : mode === 'playback' && mainClassroomView === 'ppt' ? (
+    <CanvasPlaybackPill
+      currentSceneIndex={currentSceneIndex}
+      scenesCount={totalScenesCount}
+      engineState={canvasEngineState}
+      isLiveSession={playbackToolbarLiveSession}
+      whiteboardOpen={whiteboardOpen}
+      onPrevSlide={handlePreviousScene}
+      onNextSlide={handleNextScene}
+      onPlayPause={handlePlayPause}
+      onWhiteboardClose={handleWhiteboardToggle}
+      showStopDiscussion={showPlaybackStopDiscussion}
+      onStopDiscussion={handleStopDiscussion}
+    />
+  ) : undefined;
 
   return (
     <div className="apple-mesh-bg flex-1 flex min-h-0 overflow-hidden">
       {/* Main Content Area — scene list lives inside CanvasArea, left of the slide */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
         {/* Header */}
-        <Header
-          currentSceneTitle={currentScene?.title || ''}
-          viewToggle={viewToggle}
-          centerSlot={
-            mode === 'playback' && mainClassroomView === 'ppt' ? (
-              <CanvasPlaybackPill
-                currentSceneIndex={currentSceneIndex}
-                scenesCount={totalScenesCount}
-                engineState={canvasEngineState}
-                isLiveSession={playbackToolbarLiveSession}
-                whiteboardOpen={whiteboardOpen}
-                onPrevSlide={handlePreviousScene}
-                onNextSlide={handleNextScene}
-                onPlayPause={handlePlayPause}
-                onWhiteboardClose={handleWhiteboardToggle}
-                showStopDiscussion={showPlaybackStopDiscussion}
-                onStopDiscussion={handleStopDiscussion}
-              />
-            ) : undefined
-          }
-        />
+        <Header currentSceneTitle={currentScene?.title || ''} titleActions={titleActions} />
 
         {/* Canvas Area — PPT 视图 / 原始数据 */}
-        <div
-          className="overflow-hidden relative flex-1 min-h-0 isolate"
-          style={{
-            height: sceneViewerHeight,
-          }}
-          suppressHydrationWarning
-        >
+        <div className="overflow-hidden relative flex-1 min-h-0 isolate" suppressHydrationWarning>
           {mainClassroomView === 'raw' ? (
             <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
               <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
@@ -1104,12 +1261,29 @@ export function Stage({
               quizScenes={quizScenesInCourse}
               onSwitchScene={gatedSceneSwitch}
             />
+          ) : slideEditorOpen && slideEditTab === 'narration' && currentScene?.type === 'slide' ? (
+            <SlideNarrationEditor
+              scene={currentScene}
+              sceneIndex={currentSceneIndex}
+              totalScenes={totalScenesCount}
+              language={stageLanguage}
+              canGoPrev={canGoPrevEditableSlide}
+              canGoNext={canGoNextEditableSlide}
+              onGoPrev={handlePrevEditableSlide}
+              onGoNext={handleNextEditableSlide}
+              onSaveActions={saveCurrentSceneActions}
+            />
+          ) : slideEditorOpen && slideEditTab === 'canvas' && currentScene?.type === 'slide' ? (
+            <ClassroomSlideCanvasEditor
+              currentScene={currentScene}
+              currentSceneIndex={currentSceneIndex}
+            />
           ) : (
             <CanvasArea
               currentScene={currentScene}
               currentSceneIndex={currentSceneIndex}
               scenesCount={totalScenesCount}
-              mode={mode}
+              mode={slideEditorOpen ? 'autonomous' : mode}
               engineState={canvasEngineState}
               isLiveSession={playbackToolbarLiveSession || !!chatSessionType}
               whiteboardOpen={whiteboardOpen}
@@ -1129,9 +1303,9 @@ export function Stage({
                 (chatIsStreaming && (chatSessionType === 'qa' || chatSessionType === 'discussion'))
               }
               onStopDiscussion={handleStopDiscussion}
-              hideToolbar={mode === 'playback'}
+              hideToolbar={mode === 'playback' || slideEditorOpen}
               isPendingScene={isPendingScene}
-              talkingAvatar={talkingAvatar}
+              sceneSidebarLive2d={sceneSidebarLive2d}
               isGenerationFailed={
                 isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
               }
@@ -1143,6 +1317,8 @@ export function Stage({
             />
           )}
         </div>
+
+        <ClassroomFooter leadingSlot={viewToggle} trailingSlot={footerCenterSlot} />
 
         {/* Roundtable Area */}
         {mode === 'playback' && SHOW_CLASSROOM_ROUNDTABLE && (
@@ -1339,6 +1515,23 @@ export function Stage({
               className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-0 shadow-md shadow-amber-200/50 dark:shadow-amber-900/30"
             >
               {t('common.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={editEntryConfirmOpen} onOpenChange={setEditEntryConfirmOpen}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>进入编辑模式？</AlertDialogTitle>
+            <AlertDialogDescription>
+              进入编辑会暂停当前讲解，并结束这页正在进行的互动或讨论。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void forceEnterSlideEditor()}>
+              继续编辑
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

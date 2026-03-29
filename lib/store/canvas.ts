@@ -194,7 +194,7 @@ const initialState = {
 
   // Canvas viewport
   canvasScale: 1,
-  canvasPercentage: 90,
+  canvasPercentage: 100,
   viewportSize: 1000,
   viewportRatio: 0.5625, // 16:9
   canvasDragged: false,

@@ -7,7 +7,7 @@ export const settingsZhCN = {
     theme: '主题',
     themeDesc: '选择主题模式（浅色/深色/跟随系统）',
     live2dPresenter: '讲课角色',
-    live2dPresenterDesc: '选择播放幻灯片时右上角显示的 Live2D 讲师模型，切换后立即生效。',
+    live2dPresenterDesc: '选择左侧栏「2D Live」中显示的 Live2D 讲师模型，切换后立即生效。',
     notebookChatWrites: '允许根据回答写入笔记本',
     notebookChatWritesDesc: '在笔记本对话中，允许 AI 根据回答插入、更新或删除页面。默认开启。',
     themeOptions: {
@@ -621,7 +621,7 @@ export const settingsEnUS = {
     themeDesc: 'Select theme mode (Light/Dark/System)',
     live2dPresenter: 'Lecture presenter',
     live2dPresenterDesc:
-      'Choose the Live2D presenter shown in the top-right during slide playback. Changes apply immediately.',
+      'Choose the Live2D presenter shown in the left sidebar (2D Live tab) during playback. Changes apply immediately.',
     notebookChatWrites: 'Allow answer-based notebook writes',
     notebookChatWritesDesc:
       'In notebook chat, allow the AI to insert, update, or delete pages based on answers. On by default.',

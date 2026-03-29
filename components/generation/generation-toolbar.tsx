@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useMemo } from 'react';
-import { Globe, Paperclip, FileText, X, Globe2, Volume2, ChevronDown, Check } from 'lucide-react';
+import { Globe, Paperclip, FileText, X, Globe2, Volume2, ChevronDown } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -339,16 +339,33 @@ export function GenerationToolbar({
   );
 }
 
+/** 合成 Select value；\u001e 不会出现在常规 provider / model id 中 */
+function modelPairValue(providerId: string, modelId: string) {
+  return `${providerId}\u001e${modelId}`;
+}
+
+function parseModelPairValue(value: string): { providerId: ProviderId; modelId: string } {
+  const i = value.indexOf('\u001e');
+  if (i < 0) return { providerId: value as ProviderId, modelId: '' };
+  return { providerId: value.slice(0, i) as ProviderId, modelId: value.slice(i + 1) };
+}
+
 function SystemModelBadge({
   modelId,
   providerId,
   providersConfig,
   onModelChange,
+  triggerClassName,
+  readOnly = false,
 }: {
   modelId: string;
   providerId: ProviderId;
   providersConfig: ProvidersConfig;
   onModelChange: (providerId: ProviderId, modelId: string) => void;
+  /** 与侧栏 Select 行对齐时传入，替代默认紫色胶囊样式 */
+  triggerClassName?: string;
+  /** 只读展示当前系统模型，不允许在当前上下文中切换 */
+  readOnly?: boolean;
 }) {
   const modelOptions = useMemo(() => {
     const options: Array<{
@@ -395,47 +412,60 @@ function SystemModelBadge({
 
   const canSelectModel = modelOptions.length > 0;
 
-  if (canSelectModel) {
+  if (canSelectModel && !readOnly) {
     return (
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none whitespace-nowrap border',
-              'border-violet-200/60 dark:border-violet-700/50 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
-            )}
-          >
-            <img src="/logos/openai.svg" alt="Model" className="size-3.5 rounded-sm" />
-            <span className="font-mono">{modelId}</span>
-            <ChevronDown className="size-3.5 opacity-80" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 p-1.5">
-          <div className="max-h-64 overflow-y-auto">
-            {modelOptions.map((m) => {
-              const selected = m.providerId === providerId && m.modelId === modelId;
-              return (
-                <button
-                  key={`${m.providerId}:${m.modelId}`}
-                  type="button"
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors',
-                    selected ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300' : 'hover:bg-muted/70',
-                  )}
-                  onClick={() => onModelChange(m.providerId, m.modelId)}
-                >
-                  <img src={m.providerIcon || '/logos/openai.svg'} alt="" className="size-3.5 rounded-sm shrink-0" />
-                  <span className="min-w-0 flex-1 truncate font-mono">
-                    {m.providerId}:{m.modelId}
-                  </span>
-                  {selected && <Check className="size-3.5 shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-        </PopoverContent>
-      </Popover>
+      <Select
+        value={modelPairValue(providerId, modelId)}
+        onValueChange={(v) => {
+          const { providerId: pid, modelId: mid } = parseModelPairValue(v);
+          if (mid) onModelChange(pid, mid);
+        }}
+      >
+        <SelectTrigger
+          size="sm"
+          className={cn(
+            triggerClassName
+              ? cn(
+                  'font-normal focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                  triggerClassName,
+                )
+              : cn(
+                  'h-8 w-fit max-w-[min(100%,16rem)] rounded-full border font-medium',
+                  'border-violet-200/60 bg-violet-100 text-violet-700',
+                  'dark:border-violet-700/50 dark:bg-violet-900/30 dark:text-violet-300',
+                  'data-[size=sm]:h-8',
+                ),
+          )}
+        >
+          <SelectValue className={cn('font-mono', triggerClassName && 'min-w-0 flex-1 truncate text-left')} />
+        </SelectTrigger>
+        <SelectContent
+          position={triggerClassName ? 'item-aligned' : 'popper'}
+          align="start"
+          sideOffset={triggerClassName ? 4 : 6}
+          className={cn('max-h-64', !triggerClassName && 'min-w-72')}
+        >
+          {modelOptions.map((m) => (
+            <SelectItem
+              key={modelPairValue(m.providerId, m.modelId)}
+              value={modelPairValue(m.providerId, m.modelId)}
+              textValue={`${m.providerId}:${m.modelId}`}
+              className="py-2 text-xs"
+            >
+              <span className="flex items-center gap-2">
+                <img
+                  src={m.providerIcon || '/logos/openai.svg'}
+                  alt=""
+                  className="size-3.5 shrink-0 rounded-sm"
+                />
+                <span className="min-w-0 flex-1 truncate font-mono">
+                  {m.providerId}:{m.modelId}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     );
   }
 
@@ -445,12 +475,22 @@ function SystemModelBadge({
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium select-none whitespace-nowrap border',
-            'border-violet-200/60 dark:border-violet-700/50 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
+            'inline-flex items-center gap-1.5 text-xs select-none outline-none transition-[color,box-shadow]',
+            triggerClassName
+              ? cn(
+                  'font-normal focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                  triggerClassName,
+                )
+              : cn(
+                  'rounded-full px-2.5 py-1 font-medium whitespace-nowrap border',
+                  'border-violet-200/60 dark:border-violet-700/50 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300',
+                ),
           )}
         >
-          <img src="/logos/openai.svg" alt="OpenAI" className="size-3.5 rounded-sm" />
-          <span className="font-mono">{modelId}</span>
+          <img src="/logos/openai.svg" alt="" className="size-3.5 shrink-0 rounded-sm" />
+          <span className={cn('font-mono', triggerClassName && 'min-w-0 flex-1 truncate text-left')}>
+            {modelId}
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent>系统统一使用 OpenAI 模型</TooltipContent>
@@ -461,8 +501,12 @@ function SystemModelBadge({
 /** Read-only model badge for pages that used to offer model selection. */
 export function GenerationModelSelector({
   onSettingsOpen: _onSettingsOpen,
+  triggerClassName,
+  readOnly = false,
 }: {
   onSettingsOpen: (section?: SettingsSection) => void;
+  triggerClassName?: string;
+  readOnly?: boolean;
 }) {
   const providerId = useSettingsStore((s) => s.providerId);
   const currentModelId = useSettingsStore((s) => s.modelId);
@@ -474,6 +518,8 @@ export function GenerationModelSelector({
       providerId={providerId}
       providersConfig={providersConfig}
       onModelChange={setModel}
+      triggerClassName={triggerClassName}
+      readOnly={readOnly}
     />
   );
 }
@@ -481,8 +527,10 @@ export function GenerationModelSelector({
 /** 朗读音色：与设置 → 语音合成中的 TTS 音色一致，可快速切换 */
 export function ComposerVoiceSelector({
   onSettingsOpen,
+  triggerClassName,
 }: {
   onSettingsOpen: (section?: SettingsSection) => void;
+  triggerClassName?: string;
 }) {
   const { t, locale } = useI18n();
   const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
@@ -504,20 +552,48 @@ export function ComposerVoiceSelector({
             <button
               type="button"
               className={cn(
-                'inline-flex max-w-[min(100%,11rem)] items-center gap-1.5 rounded-full border px-2.5 py-1 text-left text-xs font-medium select-none',
-                'border-emerald-200/70 bg-emerald-50 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-100',
+                'inline-flex items-center gap-1.5 text-left text-xs select-none outline-none transition-[color,box-shadow]',
+                triggerClassName
+                  ? cn(
+                      'font-normal focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                      triggerClassName,
+                    )
+                  : cn(
+                      'max-w-[min(100%,11rem)] rounded-full border px-2.5 py-1 font-medium',
+                      'border-emerald-200/70 bg-emerald-50 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/40 dark:text-emerald-100',
+                    ),
               )}
               aria-haspopup="dialog"
               aria-expanded={open}
             >
-              <Volume2 className="size-3.5 shrink-0 opacity-90" aria-hidden />
-              <span className="min-w-0 truncate">{currentLabel}</span>
+              <Volume2
+                className={cn(
+                  'size-3.5 shrink-0',
+                  triggerClassName ? 'text-muted-foreground' : 'opacity-90',
+                )}
+                aria-hidden
+              />
+              <span className={cn('min-w-0 truncate', triggerClassName && 'flex-1 text-foreground')}>
+                {currentLabel}
+              </span>
+              {triggerClassName ? (
+                <ChevronDown className="size-4 shrink-0 opacity-70 text-muted-foreground" aria-hidden />
+              ) : null}
             </button>
           </PopoverTrigger>
         </TooltipTrigger>
         <TooltipContent side="top">{t('toolbar.ttsHint')}</TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-[min(100vw-1.5rem,22rem)] p-0 sm:w-[26rem]" align="start" sideOffset={6}>
+      <PopoverContent
+        className={cn(
+          'p-0',
+          triggerClassName
+            ? 'w-[var(--radix-popover-trigger-width)]'
+            : 'w-[min(100vw-1.5rem,22rem)] sm:w-[26rem]',
+        )}
+        align="start"
+        sideOffset={6}
+      >
         <div className="border-b border-border/60 px-3 py-2">
           <p className="text-xs font-medium text-foreground">{t('toolbar.ttsTitle')}</p>
           <p className="text-[11px] text-muted-foreground">{t('toolbar.ttsHint')}</p>

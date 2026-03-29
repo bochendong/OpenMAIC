@@ -81,7 +81,9 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'requirements.requirement is required');
     }
 
-    const { model, modelString } = await resolveModelFromHeaders(req);
+    const { model, modelString } = await resolveModelFromHeaders(req, {
+      allowOpenAIModelOverride: true,
+    });
     const pdfHint = pdfText ? pdfText.slice(0, 4000) : '';
 
     const systemPrompt =

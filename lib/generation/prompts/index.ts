@@ -23,6 +23,7 @@ export {
 export const PROMPT_IDS = {
   REQUIREMENTS_TO_OUTLINES: 'requirements-to-outlines',
   SLIDE_CONTENT: 'slide-content',
+  SLIDE_SEMANTIC_CONTENT: 'slide-semantic-content',
   QUIZ_CONTENT: 'quiz-content',
   SLIDE_ACTIONS: 'slide-actions',
   QUIZ_ACTIONS: 'quiz-actions',

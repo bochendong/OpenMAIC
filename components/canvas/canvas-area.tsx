@@ -9,10 +9,7 @@ import { SceneSidebar } from '@/components/stage/scene-sidebar';
 import { SceneProvider } from '@/lib/contexts/scene-context';
 import { Whiteboard } from '@/components/whiteboard';
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
-import {
-  TalkingAvatarOverlay,
-  type TalkingAvatarOverlayState,
-} from '@/components/canvas/talking-avatar-overlay';
+import type { TalkingAvatarOverlayState } from '@/components/canvas/talking-avatar-overlay';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -27,7 +24,8 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly onSidebarCollapseChange: (collapsed: boolean) => void;
   readonly onSceneSelect?: (sceneId: string) => void;
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
-  readonly talkingAvatar?: TalkingAvatarOverlayState | null;
+  /** 播放模式下在左侧栏显示「2D Live」标签与虚拟讲师时传入 */
+  readonly sceneSidebarLive2d?: TalkingAvatarOverlayState;
 }
 
 export function CanvasArea({
@@ -55,7 +53,7 @@ export function CanvasArea({
   isPendingScene,
   isGenerationFailed,
   onRetryGeneration,
-  talkingAvatar,
+  sceneSidebarLive2d,
 }: CanvasAreaProps) {
   const { t } = useI18n();
   const showControls = mode === 'playback' && !whiteboardOpen;
@@ -107,6 +105,8 @@ export function CanvasArea({
           onCollapseChange={onSidebarCollapseChange}
           onSceneSelect={onSceneSelect}
           onRetryOutline={onRetryOutline}
+          live2dPresenter={sceneSidebarLive2d}
+          playbackEngineState={engineState}
         />
         <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
           <div
@@ -133,16 +133,6 @@ export function CanvasArea({
                   <SceneRenderer scene={currentScene} mode={mode} />
                 </SceneProvider>
               </div>
-            )}
-
-            {currentScene?.type === 'slide' && talkingAvatar && !whiteboardOpen && (
-              <TalkingAvatarOverlay
-                speaking={talkingAvatar.speaking}
-                speechText={talkingAvatar.speechText}
-                playbackRate={talkingAvatar.playbackRate}
-                currentVisemeId={talkingAvatar.currentVisemeId}
-                cadence={talkingAvatar.cadence}
-              />
             )}
 
             {/* Pending Scene Loading Overlay */}
@@ -211,9 +201,7 @@ export function CanvasArea({
               <div
                 className={cn(
                   'absolute top-4 text-gray-200 dark:text-gray-700 font-black text-4xl opacity-50 pointer-events-none select-none mix-blend-multiply dark:mix-blend-screen',
-                  currentScene?.type === 'slide' && talkingAvatar
-                    ? 'right-44 sm:right-52'
-                    : 'right-4',
+                  'right-4',
                 )}
               >
                 {(currentSceneIndex + 1).toString().padStart(2, '0')}

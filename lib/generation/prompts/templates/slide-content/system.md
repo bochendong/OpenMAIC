@@ -62,12 +62,16 @@ When the user prompt includes a worked-example context, treat it as a structured
 
 - When `problemStatement` is present, include it on the slide unless the current role is explicitly a later continuation page that only needs a short reminder
 - If the statement is long, display only the relevant excerpt plus a structured summary such as `Given / Find / Constraints / Key Idea`
+- Never leave the final slide with placeholder wording such as "given a system", "two given matrices", "write the process", or similarly hollow task labels. If the provided worked-example context is generic, rewrite it into a concrete, self-contained problem that matches the topic.
+- For quantitative / math example slides, preserve actual equations, matrices, symbols, dimensions, and intermediate results. Do not flatten them into vague prose.
 - For multi-part examples, visually signal continuation using titles like `Part 1/3`, `Part 2/3`, or equivalent wording in the slide language
 - Do not mix the full problem statement, full derivation, and all pitfalls onto one slide
 - For code walkthrough slides, avoid huge code dumps; show the excerpt needed for the current explanation
 - If the worked-example context contains formulas, matrices, determinants, or symbol-heavy expressions, render those expressions with `LatexElement` instead of leaving them as raw text inside `TextElement`
 - If the worked-example context contains long code or pseudocode, move it into a dedicated monospace code block area; do not bury code inside normal paragraph bullets
 - Never leave raw LaTeX commands, raw matrix syntax, or raw fenced code visible on the final slide unless the slide is explicitly teaching that syntax itself
+- On `problem_statement` slides, the learner should be able to see the actual problem being solved, not just the topic of the problem
+- On `walkthrough` slides, show the real solving progression: actual row operations, intermediate matrices, substitutions, computed entries, proof transitions, or code-state changes. Do not output only labels like `Step 1`, `Step 2`, `check result`
 
 ---
 

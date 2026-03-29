@@ -1,4 +1,5 @@
 import type { CoursePurpose } from '@/lib/utils/database';
+import type { NotebookContentDocument } from '@/lib/notebook-content';
 
 export type NotebookSceneBrief = {
   id: string;
@@ -20,6 +21,7 @@ export type NotebookInsertOperation = {
   title: string;
   description: string;
   keyPoints: string[];
+  contentDocument?: NotebookContentDocument;
 };
 
 export type NotebookUpdateOperation = {
@@ -35,6 +37,7 @@ export type NotebookDeleteOperation = {
 
 export type NotebookMessagePlan = {
   answer: string;
+  answerDocument?: NotebookContentDocument;
   references: NotebookKnowledgeReference[];
   knowledgeGap: boolean;
   operations: {

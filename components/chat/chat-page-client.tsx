@@ -80,10 +80,13 @@ import {
 } from '@/lib/constants/course-chat';
 import type { ProtocolMessageEnvelope } from '@/lib/types/agent-chat-protocol';
 import { runNotebookGenerationTask, type NotebookGenerationProgress } from '@/lib/create/run-notebook-generation-task';
+import { useOrchestratorNotebookGenStore } from '@/lib/store/orchestrator-notebook-generation';
 import {
   OrchestratorNotebookProgressPanel,
   OrchestratorRemoteTaskBanner,
 } from '@/components/chat/orchestrator-notebook-progress';
+import { NotebookContentView } from '@/components/notebook-content/notebook-content-view';
+import { buildNotebookContentDocumentFromText, type NotebookContentDocument } from '@/lib/notebook-content';
 
 type NotebookChatMessage =
   | {
@@ -95,6 +98,7 @@ type NotebookChatMessage =
   | {
       role: 'assistant';
       answer: string;
+      answerDocument?: NotebookContentDocument;
       references: NotebookKnowledgeReference[];
       knowledgeGap: boolean;
       prerequisiteHints?: string[];
@@ -236,6 +240,32 @@ function buildChatMessage(
       actions: options.actions,
       attachments: options.attachments,
     },
+  };
+}
+
+function appendNotebookAnswerCallout(args: {
+  document?: NotebookContentDocument;
+  fallbackText: string;
+  tone: 'info' | 'success' | 'warning' | 'danger' | 'tip';
+  title?: string;
+  text: string;
+}): NotebookContentDocument {
+  const base =
+    args.document ||
+    buildNotebookContentDocumentFromText({
+      text: args.fallbackText,
+    });
+  return {
+    ...base,
+    blocks: [
+      ...base.blocks,
+      {
+        type: 'callout',
+        tone: args.tone,
+        title: args.title,
+        text: args.text,
+      },
+    ],
   };
 }
 
@@ -2031,12 +2061,24 @@ export function ChatPageClient() {
         const answer = shouldGenerateSlides
           ? `${plan.answer}\n\n${appliedLabel ? `已补充内容：${appliedLabel}。` : '已补充相关 slides。'}现在可以开始听讲/查看新增内容了。`
           : plan.answer;
+        const answerDocument = shouldGenerateSlides
+          ? appendNotebookAnswerCallout({
+              document: plan.answerDocument,
+              fallbackText: answer,
+              tone: 'success',
+              title: '已补充内容',
+              text: appliedLabel
+                ? `${appliedLabel}。现在可以开始听讲或查看新增内容了。`
+                : '已补充相关 slides，现在可以开始听讲或查看新增内容了。',
+            })
+          : plan.answerDocument;
 
         const assistantPayload: Omit<
           Extract<NotebookChatMessage, { role: 'assistant' }>,
           'role' | 'at'
         > = {
           answer,
+          answerDocument,
           references: plan.references || [],
           knowledgeGap: plan.knowledgeGap,
           prerequisiteHints: plan.prerequisiteHints,
@@ -2169,9 +2211,30 @@ export function ChatPageClient() {
           : !applyNotebookWrites && hasNotebookWrites(plan)
             ? `${plan.answer}\n\n${t('chat.notebookWritesDisabledHint')}`
             : plan.answer;
+      const answerDocument =
+        shouldGenerateSlides && applyNotebookWrites
+          ? appendNotebookAnswerCallout({
+              document: plan.answerDocument,
+              fallbackText: finalAnswer,
+              tone: 'success',
+              title: '已补充内容',
+              text: appliedLabel
+                ? `${appliedLabel}。现在可以开始听讲或查看新增内容了。`
+                : '已补充相关 slides，现在可以开始听讲或查看新增内容了。',
+            })
+          : !applyNotebookWrites && hasNotebookWrites(plan)
+            ? appendNotebookAnswerCallout({
+                document: plan.answerDocument,
+                fallbackText: finalAnswer,
+                tone: 'info',
+                title: '未自动写入笔记本',
+                text: t('chat.notebookWritesDisabledHint'),
+              })
+            : plan.answerDocument;
       const assistantMsg: NotebookChatMessage = {
         role: 'assistant',
         answer: finalAnswer,
+        answerDocument,
         references: plan.references || [],
         knowledgeGap: plan.knowledgeGap,
         prerequisiteHints: plan.prerequisiteHints,
@@ -2372,14 +2435,22 @@ export function ChatPageClient() {
             });
           }
 
+          const orchGen = useOrchestratorNotebookGenStore.getState();
           const created = await runNotebookGenerationTask({
             courseId: courseId || undefined,
             requirement: mergedPrompt,
-            language: 'zh-CN',
-            webSearch: true,
+            modelIdOverride: orchGen.modelIdOverride,
+            language: orchGen.language,
+            webSearch: orchGen.webSearch,
             userNickname: nickname.trim() || undefined,
             signal: controller.signal,
             pdfFile: pdfFileForPipeline,
+            imageGenerationEnabledOverride: orchGen.useAiImages,
+            outlinePreferences: {
+              length: orchGen.outlineLength,
+              includeQuizScenes: orchGen.includeQuizScenes,
+              workedExampleLevel: orchGen.workedExampleLevel ?? 'moderate',
+            },
             onProgress: (progress) => {
               if (progress.stage === 'completed') {
                 return;
@@ -2787,7 +2858,11 @@ export function ChatPageClient() {
                   <ContextMenu>
                     <ContextMenuTrigger asChild>
                       <div className="max-w-[min(100%,640px)] rounded-2xl border border-slate-900/[0.08] bg-white/90 px-4 py-3 text-sm shadow-sm dark:border-white/[0.1] dark:bg-black/40">
-                        <p className="whitespace-pre-wrap break-words text-foreground">{m.answer}</p>
+                        {m.answerDocument ? (
+                          <NotebookContentView document={m.answerDocument} />
+                        ) : (
+                          <p className="whitespace-pre-wrap break-words text-foreground">{m.answer}</p>
+                        )}
                         {m.references.length > 0 ? (
                           <div className="mt-3 border-t border-slate-900/[0.06] pt-3 dark:border-white/[0.08]">
                             <p className="text-xs font-semibold text-muted-foreground">页码引用</p>
@@ -3001,7 +3076,13 @@ export function ChatPageClient() {
         {mode === 'agent' && isCourseOrchestrator && orchestratorViewMode === 'private' ? (
           <Tabs
             value={orchestratorComposerMode}
-            onValueChange={(v) => setOrchestratorComposerMode(v as OrchestratorComposerMode)}
+            onValueChange={(v) => {
+              const mode = v as OrchestratorComposerMode;
+              setOrchestratorComposerMode(mode);
+              const next = new URLSearchParams(searchParams.toString());
+              next.set('composer', mode);
+              router.replace(`/chat?${next.toString()}`, { scroll: false });
+            }}
             className="mb-2 w-full"
           >
             <TabsList variant="default" className="grid min-h-9 w-full min-w-0 grid-cols-2 gap-0 p-[3px]">

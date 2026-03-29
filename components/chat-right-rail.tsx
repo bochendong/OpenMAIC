@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Bot, ChevronLeft, ChevronRight, Loader2, NotebookPen, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
@@ -15,6 +15,7 @@ import {
   courseOrchestratorChatHref,
   resolveCourseOrchestratorAvatar,
 } from '@/lib/constants/course-chat';
+import { OrchestratorGenerateOptionsPanel } from '@/components/chat/orchestrator-generate-options-panel';
 import { listAgentsForCourse, type CourseAgentListItem } from '@/lib/utils/course-agents';
 import { listStagesByCourse, loadStageData, type StageListItem } from '@/lib/utils/stage-storage';
 import { listActiveAgentTasksByCourse } from '@/lib/utils/agent-task-storage';
@@ -128,6 +129,9 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
   }, [courseId, courseAvatarUrl]);
   const notebookId = searchParams.get('notebook');
   const agentId = searchParams.get('agent');
+  const composer = searchParams.get('composer');
+  const isOrchestratorGenerateMode =
+    agentId === COURSE_ORCHESTRATOR_ID && !notebookId && composer === 'generate-notebook';
 
   const [notebookStage, setNotebookStage] = useState<StageListItem | null>(null);
   const [resolvedAgent, setResolvedAgent] = useState<CourseAgentListItem | null>(null);
@@ -138,8 +142,23 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
   const [tasksLoading, setTasksLoading] = useState(false);
   const [notebookScenes, setNotebookScenes] = useState<Scene[]>([]);
   const [notebookScenesLoading, setNotebookScenesLoading] = useState(false);
+  const [railTab, setRailTab] = useState('profile');
+  const prevOrchestratorGenRef = useRef(false);
 
   const createHref = courseId ? courseOrchestratorChatHref('generate-notebook') : '/create';
+
+  useEffect(() => {
+    if (isOrchestratorGenerateMode && !prevOrchestratorGenRef.current) {
+      setRailTab('generate-options');
+    }
+    prevOrchestratorGenRef.current = isOrchestratorGenerateMode;
+  }, [isOrchestratorGenerateMode]);
+
+  useEffect(() => {
+    if (!isOrchestratorGenerateMode && railTab === 'generate-options') {
+      setRailTab('profile');
+    }
+  }, [isOrchestratorGenerateMode, railTab]);
 
   useEffect(() => {
     if (!courseId) {
@@ -688,15 +707,24 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
           </nav>
         ) : (
           <>
-            <Tabs defaultValue="profile" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <Tabs
+              value={railTab}
+              onValueChange={setRailTab}
+              className="flex min-h-0 flex-1 flex-col overflow-hidden"
+            >
               <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-900/[0.08] px-2 pb-2 pt-2 dark:border-white/[0.08]">
                 <TabsList
                   className={cn(
                     'grid min-h-9 min-w-0 flex-1',
-                    notebookId ? 'grid-cols-3' : 'grid-cols-2',
+                    isOrchestratorGenerateMode || notebookId ? 'grid-cols-3' : 'grid-cols-2',
                   )}
                   variant="default"
                 >
+                  {isOrchestratorGenerateMode ? (
+                    <TabsTrigger value="generate-options" className="text-xs">
+                      生成选项
+                    </TabsTrigger>
+                  ) : null}
                   <TabsTrigger value="profile" className="text-xs">
                     当前对象
                   </TabsTrigger>
@@ -731,6 +759,14 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
                 </button>
               </div>
 
+              {isOrchestratorGenerateMode ? (
+                <TabsContent
+                  value="generate-options"
+                  className={cn(profileTabShellClass, 'min-h-0 overflow-y-auto', thinScrollbarClass)}
+                >
+                  <OrchestratorGenerateOptionsPanel />
+                </TabsContent>
+              ) : null}
               <TabsContent value="profile" className={profileTabShellClass}>
                 {profileBody()}
               </TabsContent>
@@ -749,9 +785,11 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
                 </TabsContent>
               ) : null}
             </Tabs>
-            <div className="shrink-0 border-t border-slate-900/[0.08] px-2 py-2 dark:border-white/[0.08]">
-              <AppCoreNavList collapsed={false} tooltipSide="left" />
-            </div>
+            {railTab !== 'generate-options' ? (
+              <div className="shrink-0 border-t border-slate-900/[0.08] px-2 py-2 dark:border-white/[0.08]">
+                <AppCoreNavList collapsed={false} tooltipSide="left" />
+              </div>
+            ) : null}
           </>
         )}
       </div>

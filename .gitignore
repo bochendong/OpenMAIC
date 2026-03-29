@@ -75,7 +75,9 @@ next-env.d.ts
 /logs
 
 # docs
-/docs
+/docs/*
+!/docs/course-settings-generation-effects.md
+!/docs/notebook-generation-sidebar-options.md
 
 # OS / 杂项
 Thumbs.db
