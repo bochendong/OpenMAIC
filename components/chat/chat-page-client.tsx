@@ -83,6 +83,7 @@ import {
   type StageListItem,
 } from '@/lib/utils/stage-storage';
 import {
+  cancelAgentTask,
   createAgentTask,
   listAgentTasksByCourse,
   listChildTasks,
@@ -1300,6 +1301,7 @@ export function ChatPageClient() {
     detail: string;
     notebookId?: string;
   } | null>(null);
+  const [orchestratorTaskCancelling, setOrchestratorTaskCancelling] = useState(false);
   const [orchestratorComposerMode, setOrchestratorComposerMode] =
     useState<OrchestratorComposerMode>('send-message');
   const abortRef = useRef<AbortController | null>(null);
@@ -1315,6 +1317,7 @@ export function ChatPageClient() {
   /** 总控「创建笔记本」任务 id，用于轮询检测完成并补发气泡 */
   const trackedOrchestratorCreateTaskIdRef = useRef<string | null>(null);
   const orchestratorCompletionAnnouncedRef = useRef<string | null>(null);
+  const ORCHESTRATOR_TASK_STALE_MS = 20 * 60 * 1000;
 
   const selectedAgent = useMemo(
     () => agents.find((a) => a.id === agentId) ?? null,
@@ -1340,6 +1343,35 @@ export function ChatPageClient() {
     : agentId
       ? ('agent' as const)
       : ('none' as const);
+
+  const handleCancelOrchestratorTask = useCallback(async () => {
+    const taskId = activeOrchestratorTaskId || trackedOrchestratorCreateTaskIdRef.current;
+    if (!taskId || orchestratorTaskCancelling) return;
+
+    setOrchestratorTaskCancelling(true);
+    try {
+      abortRef.current?.abort();
+      await cancelAgentTask(taskId, '任务已取消。可重新发起创建或继续修改需求。');
+      trackedOrchestratorCreateTaskIdRef.current = null;
+      orchestratorCompletionAnnouncedRef.current = taskId;
+      setActiveOrchestratorTaskId(null);
+      setOrchestratorPipelineProgress(null);
+      setOrchestratorRemoteTask(null);
+      setSending(false);
+      setContactTaskHint(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '取消任务失败';
+      setAgThread((prev) => [
+        ...prev,
+        buildChatMessage(`取消任务失败：${message}`, {
+          senderName: '系统',
+          originalRole: 'agent',
+        }),
+      ]);
+    } finally {
+      setOrchestratorTaskCancelling(false);
+    }
+  }, [activeOrchestratorTaskId, orchestratorTaskCancelling]);
 
   useEffect(() => {
     if (!courseId) return;
@@ -1795,6 +1827,24 @@ export function ChatPageClient() {
             (t.status === 'running' || t.status === 'waiting'),
         );
 
+        if (
+          createActive &&
+          !orchestratorPipelineProgress &&
+          !sending &&
+          Date.now() - createActive.updatedAt > ORCHESTRATOR_TASK_STALE_MS
+        ) {
+          await updateAgentTask(createActive.id, {
+            status: 'failed',
+            detail: '任务已超时中断，可能是浏览器或电脑在生成过程中关闭。请重新发起。',
+          });
+          if (!alive) return;
+          if (trackedOrchestratorCreateTaskIdRef.current === createActive.id) {
+            trackedOrchestratorCreateTaskIdRef.current = null;
+          }
+          setOrchestratorRemoteTask(null);
+          return;
+        }
+
         if (createActive) {
           trackedOrchestratorCreateTaskIdRef.current = createActive.id;
         }
@@ -1893,7 +1943,14 @@ export function ChatPageClient() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [courseId, isCourseOrchestrator, orchestratorViewMode, orchestratorPipelineProgress]);
+  }, [
+    courseId,
+    isCourseOrchestrator,
+    orchestratorViewMode,
+    orchestratorPipelineProgress,
+    sending,
+    ORCHESTRATOR_TASK_STALE_MS,
+  ]);
 
   useEffect(() => {
     setPendingAttachments([]);
@@ -1912,6 +1969,15 @@ export function ChatPageClient() {
       const realTasks = tasks.filter((t) => !isMockTaskLike(t));
       if (!alive) return;
       const active = realTasks.find((t) => t.status === 'running' || t.status === 'waiting');
+      if (active && Date.now() - active.updatedAt > ORCHESTRATOR_TASK_STALE_MS) {
+        await updateAgentTask(active.id, {
+          status: 'failed',
+          detail: '任务已超时中断，可能是浏览器或电脑在处理中关闭。请重新发起。',
+        });
+        if (!alive) return;
+        setContactTaskHint(null);
+        return;
+      }
       setContactTaskHint(active?.detail || (active ? active.title : null));
     };
     void sync();
@@ -1920,7 +1986,7 @@ export function ChatPageClient() {
       alive = false;
       window.clearInterval(timer);
     };
-  }, [agentId]);
+  }, [agentId, ORCHESTRATOR_TASK_STALE_MS]);
 
   useEffect(() => {
     if (!courseId || !isCourseOrchestrator || orchestratorViewMode !== 'private') return;
@@ -3145,11 +3211,17 @@ export function ChatPageClient() {
           : null}
 
         {mode === 'agent' && isCourseOrchestrator && orchestratorPipelineProgress ? (
-          <OrchestratorNotebookProgressPanel progress={orchestratorPipelineProgress} />
+          <OrchestratorNotebookProgressPanel
+            progress={orchestratorPipelineProgress}
+            onCancel={handleCancelOrchestratorTask}
+            cancelPending={orchestratorTaskCancelling}
+          />
         ) : mode === 'agent' && isCourseOrchestrator && orchestratorRemoteTask ? (
           <OrchestratorRemoteTaskBanner
             detail={orchestratorRemoteTask.detail}
             notebookId={orchestratorRemoteTask.notebookId}
+            onCancel={handleCancelOrchestratorTask}
+            cancelPending={orchestratorTaskCancelling}
           />
         ) : sending ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">

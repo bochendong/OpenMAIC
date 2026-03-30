@@ -91,7 +91,9 @@
  */
 
 import * as SpeechSDK from 'microsoft-cognitiveservices-speech-sdk';
-import type { SpeechVisemeCue } from '@/lib/types/action';
+import type { MouthCue, SpeechVisemeCue } from '@/lib/types/action';
+import { normalizeAzureVisemesToMouthCues } from './mouth-cues';
+import { analyzeMouthCuesFromAudio } from './rhubarb-lip-sync';
 import type { TTSModelConfig } from './types';
 import { TTS_PROVIDERS } from './constants';
 
@@ -102,6 +104,7 @@ export interface TTSGenerationResult {
   audio: Uint8Array;
   format: string;
   visemes?: SpeechVisemeCue[];
+  mouthCues?: MouthCue[];
 }
 
 /**
@@ -121,21 +124,27 @@ export async function generateTTS(
     throw new Error(`API key required for TTS provider: ${config.providerId}`);
   }
 
+  let result: TTSGenerationResult;
   switch (config.providerId) {
     case 'openai-tts':
-      return await generateOpenAITTS(config, text);
+      result = await generateOpenAITTS(config, text);
+      break;
 
     case 'azure-tts':
-      return await generateAzureTTS(config, text);
+      result = await generateAzureTTS(config, text);
+      break;
 
     case 'glm-tts':
-      return await generateGLMTTS(config, text);
+      result = await generateGLMTTS(config, text);
+      break;
 
     case 'qwen-tts':
-      return await generateQwenTTS(config, text);
+      result = await generateQwenTTS(config, text);
+      break;
 
     case 'elevenlabs-tts':
-      return await generateElevenLabsTTS(config, text);
+      result = await generateElevenLabsTTS(config, text);
+      break;
 
     case 'browser-native-tts':
       throw new Error(
@@ -145,6 +154,15 @@ export async function generateTTS(
     default:
       throw new Error(`Unsupported TTS provider: ${config.providerId}`);
   }
+
+  if (!result.mouthCues?.length && config.providerId !== 'azure-tts') {
+    const analyzedMouthCues = await analyzeMouthCuesFromAudio(result.audio, result.format, text);
+    if (analyzedMouthCues?.length) {
+      result.mouthCues = analyzedMouthCues;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -231,6 +249,7 @@ async function generateAzureTTS(
             audio: new Uint8Array(speechResult.audioData),
             format: 'mp3',
             visemes,
+            mouthCues: normalizeAzureVisemesToMouthCues(visemes),
           });
         },
         (error) => {

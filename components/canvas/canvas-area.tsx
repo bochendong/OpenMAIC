@@ -2,7 +2,7 @@
 
 import { useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play } from 'lucide-react';
+import { Play, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SceneRenderer } from '@/components/stage/scene-renderer';
 import { SceneSidebar } from '@/components/stage/scene-sidebar';
@@ -26,6 +26,8 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
   /** 播放模式下在左侧栏显示「虚拟讲师」标签与形象时传入 */
   readonly sceneSidebarLive2d?: TalkingAvatarOverlayState;
+  readonly playPauseDisabled?: boolean;
+  readonly playPauseBusy?: boolean;
 }
 
 export function CanvasArea({
@@ -54,6 +56,8 @@ export function CanvasArea({
   isGenerationFailed,
   onRetryGeneration,
   sceneSidebarLive2d,
+  playPauseDisabled = false,
+  playPauseBusy = false,
 }: CanvasAreaProps) {
   const { t } = useI18n();
   const showControls = mode === 'playback' && !whiteboardOpen;
@@ -66,7 +70,7 @@ export function CanvasArea({
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!showControls || isLiveSession || currentScene?.type !== 'slide') return;
+      if (!showControls || isLiveSession || currentScene?.type !== 'slide' || playPauseDisabled) return;
       // Don't trigger page play/pause when clicking inside a video element's visual area.
       // Video elements may be visually covered by other slide elements (e.g. text),
       // so we check click coordinates against all video element bounding rects.
@@ -85,7 +89,7 @@ export function CanvasArea({
       }
       onPlayPause();
     },
-    [showControls, isLiveSession, onPlayPause, currentScene?.type],
+    [showControls, isLiveSession, onPlayPause, currentScene?.type, playPauseDisabled],
   );
 
   return (
@@ -219,10 +223,14 @@ export function CanvasArea({
                   className="absolute inset-0 z-[102] flex items-center justify-center pointer-events-none"
                 >
                   <motion.div
-                    className="opacity-50 group-hover/canvas:opacity-100 transition-opacity duration-300 pointer-events-auto cursor-pointer"
+                    className={cn(
+                      'opacity-50 group-hover/canvas:opacity-100 transition-opacity duration-300 pointer-events-auto',
+                      playPauseDisabled ? 'cursor-not-allowed' : 'cursor-pointer',
+                    )}
                     exit={{ pointerEvents: 'none' }}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (playPauseDisabled) return;
                       onPlayPause();
                     }}
                   >
@@ -242,7 +250,11 @@ export function CanvasArea({
                       className="flex h-20 w-20 items-center justify-center rounded-full bg-white/95 shadow-[0_6px_32px_rgba(0,122,255,0.2),inset_0_0_0_1px_rgba(255,255,255,0.8)] dark:bg-[#2c2c2e]/95 dark:shadow-[0_6px_36px_rgba(10,132,255,0.25),inset_0_0_0_1px_rgba(255,255,255,0.06)]"
                       style={{ willChange: 'transform' }}
                     >
-                      <Play className="ml-0.5 h-7 w-7 fill-[#007AFF]/90 text-[#007AFF] dark:fill-[#0A84FF]/90 dark:text-[#0A84FF]" />
+                      {playPauseBusy ? (
+                        <Loader2 className="h-7 w-7 animate-spin text-[#007AFF] dark:text-[#0A84FF]" />
+                      ) : (
+                        <Play className="ml-0.5 h-7 w-7 fill-[#007AFF]/90 text-[#007AFF] dark:fill-[#0A84FF]/90 dark:text-[#0A84FF]" />
+                      )}
                     </motion.div>
                   </motion.div>
                 </motion.div>

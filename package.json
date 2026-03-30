@@ -93,6 +93,7 @@
     "radix-ui": "^1.4.3",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "rhubarb-lip-sync-wasm": "^0.1.8",
     "shadcn": "^3.6.3",
     "sharp": "^0.34.5",
     "shiki": "^3.21.0",

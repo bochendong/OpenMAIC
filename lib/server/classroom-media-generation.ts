@@ -251,6 +251,8 @@ export async function generateTTSForClassroom(
 
         speechAction.audioId = audioId;
         speechAction.audioUrl = mediaServingUrl(baseUrl, classroomId, `audio/${filename}`);
+        if (result.visemes?.length) speechAction.visemes = result.visemes;
+        if (result.mouthCues?.length) speechAction.mouthCues = result.mouthCues;
         log.info(`Generated TTS: ${filename} (${result.audio.length} bytes)`);
       } catch (err) {
         log.warn(`TTS generation failed for action ${action.id}:`, err);

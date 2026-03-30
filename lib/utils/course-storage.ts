@@ -18,6 +18,7 @@ export interface CreateCourseInput {
   purpose: CoursePurpose;
   university?: string;
   courseCode?: string;
+  avatarUrl?: string;
   listedInCourseStore?: boolean;
   coursePriceCents?: number;
 }
@@ -35,6 +36,7 @@ export async function createCourse(input: CreateCourseInput): Promise<CourseReco
       purpose: input.purpose,
       university: isUni ? input.university?.trim() || undefined : undefined,
       courseCode: isUni ? input.courseCode?.trim() || undefined : undefined,
+      avatarUrl: input.avatarUrl?.trim() || undefined,
       coursePriceCents: input.coursePriceCents ?? 0,
       ...(input.listedInCourseStore !== undefined
         ? { listedInCourseStore: input.listedInCourseStore }
@@ -61,6 +63,7 @@ export async function updateCourse(id: string, input: UpdateCourseInput): Promis
         purpose: input.purpose,
         university: isUni ? input.university?.trim() || undefined : undefined,
         courseCode: isUni ? input.courseCode?.trim() || undefined : undefined,
+        avatarUrl: input.avatarUrl?.trim() || undefined,
         coursePriceCents: input.coursePriceCents ?? 0,
         ...(input.listedInCourseStore !== undefined
           ? { listedInCourseStore: input.listedInCourseStore }

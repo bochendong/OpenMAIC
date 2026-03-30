@@ -102,6 +102,21 @@ export async function updateAgentTask(
   });
 }
 
+export async function cancelAgentTask(id: string, detail = '任务已取消'): Promise<void> {
+  await backendJson<{ envelope: { id: string } }>(`/api/agent-tasks/${encodeURIComponent(id)}/envelopes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      envelopeType: 'task_partial',
+      payload: {
+        detail,
+      },
+      taskStatus: 'cancelled',
+      taskError: detail,
+    }),
+  });
+}
+
 export async function listActiveAgentTasksByCourse(courseId: string): Promise<AgentTaskRecord[]> {
   const data = await backendJson<{ tasks: AgentTaskApi[] }>(
     `/api/agent-tasks?courseId=${encodeURIComponent(courseId)}`,

@@ -65,6 +65,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({ error: 'Course not found' }, { status: 404 });
     }
 
+    if (payload.data.listedInCourseStore === true && existing.sourceCourseId) {
+      return NextResponse.json(
+        { error: '购买得到的课程副本不能再次发布到商城' },
+        { status: 400 },
+      );
+    }
+
     const shouldPublishCourse = payload.data.listedInCourseStore === true;
     const shouldUnpublishCourse = payload.data.listedInCourseStore === false;
     const course = await prisma.course.update({

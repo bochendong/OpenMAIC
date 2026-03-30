@@ -5,8 +5,11 @@ import type { CoursePurpose, CourseRecord } from '@/lib/utils/database';
 import { createCourse, updateCourse } from '@/lib/utils/course-storage';
 import { useAuthStore } from '@/lib/store/auth';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
+import {
+  COURSE_AVATAR_PRESET_URLS,
+  resolveCourseAvatarDisplayUrl,
+} from '@/lib/constants/course-avatars';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 export function parseTags(raw: string): string[] {
@@ -152,10 +155,11 @@ export function CreateCourseForm({
   const [purpose, setPurpose] = useState<CoursePurpose>('daily');
   const [university, setUniversity] = useState('');
   const [courseCode, setCourseCode] = useState('');
-  const [listedInCourseStore, setListedInCourseStore] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState('');
   const [coursePrice, setCoursePrice] = useState('0');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const publishLockedByPurchase = Boolean(editCourse?.sourceCourseId);
 
   useEffect(() => {
     if (!editCourse) return;
@@ -166,9 +170,14 @@ export function CreateCourseForm({
     setPurpose(editCourse.purpose);
     setUniversity(editCourse.university ?? '');
     setCourseCode(editCourse.courseCode ?? '');
-    setListedInCourseStore(Boolean(editCourse.listedInCourseStore));
+    setAvatarUrl(editCourse.avatarUrl ?? '');
     setCoursePrice(String(editCourse.coursePriceCents ?? 0));
     setError(null);
+  }, [editCourse]);
+
+  useEffect(() => {
+    if (editCourse) return;
+    setAvatarUrl((prev) => prev.trim() || COURSE_AVATAR_PRESET_URLS[0] || '');
   }, [editCourse]);
 
   const tagInputRef = useRef<HTMLInputElement>(null);
@@ -249,7 +258,7 @@ export function CreateCourseForm({
           purpose,
           university: purpose === 'university' ? university : undefined,
           courseCode: purpose === 'university' ? courseCode : undefined,
-          listedInCourseStore,
+          avatarUrl,
           coursePriceCents,
         });
         onSuccess(editCourse.id);
@@ -262,6 +271,7 @@ export function CreateCourseForm({
           purpose,
           university: purpose === 'university' ? university : undefined,
           courseCode: purpose === 'university' ? courseCode : undefined,
+          avatarUrl,
           coursePriceCents,
         });
         if (userId) markCourseOwnedByUser(userId, course.id);
@@ -469,22 +479,42 @@ export function CreateCourseForm({
         </div>
       )}
 
-      {editCourse ? (
-        <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-white/15 dark:bg-white/[0.04]">
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">在课程商城展示</p>
+      <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/50 p-4 dark:border-white/15 dark:bg-white/[0.04]">
+        <div className="flex items-center gap-3">
+          <img
+            src={resolveCourseAvatarDisplayUrl(editCourse?.id, avatarUrl)}
+            alt=""
+            className="size-14 rounded-2xl border border-slate-200/80 bg-white object-cover shadow-sm dark:border-white/15 dark:bg-slate-900"
+          />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-slate-800 dark:text-slate-100">课程头像</p>
             <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              开启后，其他登录用户可在课程商城看到本课程；发布课程时会默认发布该课程下的全部笔记本。用户购买后会复制整门课程和全部笔记本到自己的空间。
+              课程卡片、课程主页和课程总控都会使用这张头像。
             </p>
           </div>
-          <Switch
-            checked={listedInCourseStore}
-            onCheckedChange={setListedInCourseStore}
-            className="shrink-0"
-            aria-label="在课程商城展示"
-          />
         </div>
-      ) : null}
+        <div className="grid grid-cols-5 gap-2 sm:grid-cols-7">
+          {COURSE_AVATAR_PRESET_URLS.slice(0, 21).map((url) => {
+            const active = avatarUrl === url;
+            return (
+              <button
+                key={url}
+                type="button"
+                onClick={() => setAvatarUrl(url)}
+                className={cn(
+                  'overflow-hidden rounded-2xl border-2 bg-white transition-all dark:bg-slate-900',
+                  active
+                    ? 'border-violet-500 ring-2 ring-violet-200 dark:ring-violet-500/30'
+                    : 'border-transparent hover:border-slate-200 dark:hover:border-white/15',
+                )}
+                aria-label="选择课程头像"
+              >
+                <img src={url} alt="" className="aspect-square w-full object-cover" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {editCourse ? (
         <div>
@@ -493,6 +523,7 @@ export function CreateCourseForm({
             <input
               value={coursePrice}
               onChange={(e) => setCoursePrice(e.target.value.replace(/[^\d]/g, ''))}
+              disabled={publishLockedByPurchase}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-violet-500/0 transition-[box-shadow,border-color] focus:border-violet-400 focus:ring-2 focus:ring-violet-500/20 dark:border-white/15 dark:bg-white/5 dark:text-white"
               placeholder="0"
               inputMode="numeric"

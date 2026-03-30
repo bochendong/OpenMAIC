@@ -77,6 +77,9 @@ const FILENAMES = [
 ] as const;
 
 const FILES: readonly string[] = FILENAMES;
+export const NOTEBOOK_AGENT_AVATAR_PRESET_URLS = FILES.map(
+  (filename) => `${NOTEBOOK_AGENT_AVATAR_PUBLIC_PREFIX}${filename}`,
+);
 
 function hashStringToUint32(s: string): number {
   let h = 2166136261;
@@ -89,18 +92,18 @@ function hashStringToUint32(s: string): number {
 
 /** 随机选一张 notebook-agents 头像的完整 public URL 路径 */
 export function pickRandomNotebookAgentAvatarUrl(): string {
-  if (FILES.length === 0) return '/avatars/assist-2.png';
-  const i = Math.floor(Math.random() * FILES.length);
-  return `${NOTEBOOK_AGENT_AVATAR_PUBLIC_PREFIX}${FILES[i]}`;
+  if (NOTEBOOK_AGENT_AVATAR_PRESET_URLS.length === 0) return '/avatars/assist-2.png';
+  const i = Math.floor(Math.random() * NOTEBOOK_AGENT_AVATAR_PRESET_URLS.length);
+  return NOTEBOOK_AGENT_AVATAR_PRESET_URLS[i];
 }
 
 /**
  * 按 seed（建议用笔记本 stageId）稳定映射到一张头像，同一笔记本始终相同、且会持久化在 IndexedDB。
  */
 export function pickStableNotebookAgentAvatarUrl(seed: string): string {
-  if (FILES.length === 0) return '/avatars/assist-2.png';
-  const i = hashStringToUint32(seed) % FILES.length;
-  return `${NOTEBOOK_AGENT_AVATAR_PUBLIC_PREFIX}${FILES[i]}`;
+  if (NOTEBOOK_AGENT_AVATAR_PRESET_URLS.length === 0) return '/avatars/assist-2.png';
+  const i = hashStringToUint32(seed) % NOTEBOOK_AGENT_AVATAR_PRESET_URLS.length;
+  return NOTEBOOK_AGENT_AVATAR_PRESET_URLS[i];
 }
 
 /** 卡片展示：优先已保存的笔记本 `avatarUrl`，否则按笔记本 id 稳定映射（与课程总管头像池分离）。 */

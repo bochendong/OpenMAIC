@@ -59,10 +59,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     const existing = await prisma.notebook.findFirst({
       where: { id, ownerId: userId },
-      select: { id: true },
+      select: { id: true, sourceNotebookId: true },
     });
     if (!existing) {
       return NextResponse.json({ error: 'Notebook not found' }, { status: 404 });
+    }
+
+    if (payload.data.listedInNotebookStore === true && existing.sourceNotebookId) {
+      return NextResponse.json(
+        { error: '购买得到的笔记本副本不能再次发布到商城' },
+        { status: 400 },
+      );
     }
 
     const nextCourseId = payload.data.courseId;

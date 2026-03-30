@@ -17,9 +17,13 @@ import { PlaybackEngine, computePlaybackView } from '@/lib/playback';
 import type { EngineMode, TriggerEvent, Effect } from '@/lib/playback';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
-import type { Action, DiscussionAction, SpeechAction } from '@/lib/types/action';
+import type { Action, DiscussionAction, MouthShape, SpeechAction } from '@/lib/types/action';
 import type { Scene, SceneType, SlideContent } from '@/lib/types/stage';
 import type { SceneOutline } from '@/lib/types/generation';
+import {
+  normalizeAzureVisemesToMouthCues,
+  resolveCurrentMouthCueFrame,
+} from '@/lib/audio/mouth-cues';
 // Playback state persistence removed — refresh always starts from the beginning
 import { ChatArea, type ChatAreaRef } from '@/components/chat/chat-area';
 import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/registry/store';
@@ -50,57 +54,11 @@ const SHOW_CLASSROOM_ROUNDTABLE = false;
 const RAW_DATA_BASE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive'];
 type SpeechCadence = 'idle' | 'active' | 'pause' | 'fallback';
 type SlideEditTab = 'canvas' | 'narration';
-const CLOSED_VISEME_IDS = new Set([0, 21]);
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
   const key = `stage.sceneType.${type}`;
   const label = tr(key);
   return label === key ? type : label;
-}
-
-function resolveCurrentVisemeFrame(
-  visemes: SpeechAction['visemes'],
-  currentTimeMs: number,
-): { visemeId: number | null; cadence: 'active' | 'pause' } {
-  if (!visemes?.length) {
-    return { visemeId: null, cadence: 'pause' };
-  }
-
-  let currentIndex = -1;
-  for (let i = 0; i < visemes.length; i++) {
-    if (currentTimeMs >= visemes[i].offsetMs) {
-      currentIndex = i;
-    } else {
-      break;
-    }
-  }
-
-  if (currentIndex < 0) {
-    return { visemeId: null, cadence: 'pause' };
-  }
-
-  const current = visemes[currentIndex];
-  const next = visemes[currentIndex + 1];
-  const isClosedCue = CLOSED_VISEME_IDS.has(current.visemeId);
-
-  if (!next) {
-    const tailHoldMs = isClosedCue ? 42 : 126;
-    return currentTimeMs - current.offsetMs > tailHoldMs
-      ? { visemeId: null, cadence: 'pause' }
-      : { visemeId: current.visemeId, cadence: 'active' };
-  }
-
-  const gapMs = Math.max(0, next.offsetMs - current.offsetMs);
-  const holdRatio = isClosedCue ? 0.12 : 0.44;
-  const holdMs = Math.min(isClosedCue ? 78 : 150, gapMs * holdRatio);
-  const pauseStartMs = current.offsetMs + holdMs;
-  const pauseWindowMs = next.offsetMs - pauseStartMs;
-
-  if (pauseWindowMs >= 88 && currentTimeMs >= pauseStartMs && currentTimeMs < next.offsetMs - 16) {
-    return { visemeId: null, cadence: 'pause' };
-  }
-
-  return { visemeId: current.visemeId, cadence: 'active' };
 }
 
 /** 原始数据里折叠 slide 画布，避免 JSON 过大 */
@@ -179,7 +137,7 @@ export function Stage({
   const [lectureSpeech, setLectureSpeech] = useState<string | null>(null); // From PlaybackEngine (lecture)
   const [lectureSpeechActive, setLectureSpeechActive] = useState(false);
   const [currentSpeechAction, setCurrentSpeechAction] = useState<SpeechAction | null>(null);
-  const [currentVisemeId, setCurrentVisemeId] = useState<number | null>(null);
+  const [currentMouthShape, setCurrentMouthShape] = useState<MouthShape | null>(null);
   const [speechCadence, setSpeechCadence] = useState<SpeechCadence>('idle');
   const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
   const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
@@ -223,6 +181,7 @@ export function Stage({
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
   const [mathRepairPending, setMathRepairPending] = useState(false);
+  const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
@@ -328,7 +287,7 @@ export function Stage({
     setLectureSpeech(null);
     setLectureSpeechActive(false);
     setCurrentSpeechAction(null);
-    setCurrentVisemeId(null);
+    setCurrentMouthShape(null);
     setSpeechCadence('idle');
     setSpeechProgress(null);
     setShowEndFlash(false);
@@ -410,8 +369,8 @@ export function Stage({
         setLectureSpeech(speech.text);
         setLectureSpeechActive(true);
         setCurrentSpeechAction(speech);
-        setCurrentVisemeId(null);
-        setSpeechCadence(speech.visemes?.length ? 'pause' : 'fallback');
+        setCurrentMouthShape(null);
+        setSpeechCadence(speech.mouthCues?.length || speech.visemes?.length ? 'pause' : 'fallback');
         // Add to lecture session with incrementing index for dedup
         // Chat area pacing is handled by the StreamBuffer (onTextReveal)
         if (lectureSessionIdRef.current) {
@@ -433,7 +392,7 @@ export function Stage({
         // Clearing here causes fallback to idleText (first sentence).
         setLectureSpeechActive(false);
         setCurrentSpeechAction(null);
-        setCurrentVisemeId(null);
+        setCurrentMouthShape(null);
         setSpeechCadence('idle');
         setActiveBubbleId(null);
       },
@@ -506,7 +465,7 @@ export function Stage({
         // effect handles the reset.
         setLectureSpeechActive(false);
         setCurrentSpeechAction(null);
-        setCurrentVisemeId(null);
+        setCurrentMouthShape(null);
         setPlaybackCompleted(true);
 
         // End lecture session on playback complete
@@ -606,19 +565,22 @@ export function Stage({
   }, [playbackSpeed]);
 
   useEffect(() => {
-    if (!lectureSpeechActive || !currentSpeechAction?.visemes?.length) {
-      setCurrentVisemeId(null);
+    const mouthCues = currentSpeechAction?.mouthCues?.length
+      ? currentSpeechAction.mouthCues
+      : normalizeAzureVisemesToMouthCues(currentSpeechAction?.visemes);
+
+    if (!lectureSpeechActive || !mouthCues?.length) {
+      setCurrentMouthShape(null);
       setSpeechCadence(lectureSpeechActive ? 'fallback' : 'idle');
       return;
     }
 
     let frameId = 0;
-    const visemes = currentSpeechAction.visemes;
 
     const tick = () => {
       const currentTimeMs = audioPlayerRef.current.getCurrentTime();
-      const frame = resolveCurrentVisemeFrame(visemes, currentTimeMs);
-      setCurrentVisemeId((prev) => (prev === frame.visemeId ? prev : frame.visemeId));
+      const frame = resolveCurrentMouthCueFrame(mouthCues, currentTimeMs);
+      setCurrentMouthShape((prev) => (prev === frame.mouthShape ? prev : frame.mouthShape));
       setSpeechCadence((prev) => (prev === frame.cadence ? prev : frame.cadence));
       frameId = window.requestAnimationFrame(tick);
     };
@@ -759,7 +721,7 @@ export function Stage({
   // play/pause toggle
   const handlePlayPause = async () => {
     const engine = engineRef.current;
-    if (!engine) return;
+    if (!engine || speechAudioPreparing) return;
 
     const mode = engine.getMode();
     if (mode === 'playing' || mode === 'live') {
@@ -815,19 +777,25 @@ export function Stage({
               ? `正在生成语音（0/${missingCount}）…`
               : `Generating speech (0/${missingCount})…`,
           );
-          const ttsReady = await ensureMissingSpeechAudioForScene(
-            sceneForTts,
-            undefined,
-            (done, total) => {
-              toast.loading(
-                locale === 'zh-CN'
-                  ? `正在生成语音（${done}/${total}）…`
-                  : `Generating speech (${done}/${total})…`,
-                { id: loadingId },
-              );
-            },
-          );
-          toast.dismiss(loadingId);
+          setSpeechAudioPreparing(true);
+          let ttsReady: Awaited<ReturnType<typeof ensureMissingSpeechAudioForScene>>;
+          try {
+            ttsReady = await ensureMissingSpeechAudioForScene(
+              sceneForTts,
+              undefined,
+              (done, total) => {
+                toast.loading(
+                  locale === 'zh-CN'
+                    ? `正在生成语音（${done}/${total}）…`
+                    : `Generating speech (${done}/${total})…`,
+                  { id: loadingId },
+                );
+              },
+            );
+          } finally {
+            setSpeechAudioPreparing(false);
+            toast.dismiss(loadingId);
+          }
           if (!ttsReady.ok) {
             toast.error(
               locale === 'zh-CN'
@@ -1094,7 +1062,7 @@ export function Stage({
           speaking: lectureSpeechActive && engineMode === 'playing',
           speechText: lectureSpeech,
           playbackRate: playbackSpeed,
-          currentVisemeId,
+          currentMouthShape,
           cadence: speechCadence,
         }
       : { speaking: false, cadence: 'idle' as const }
@@ -1339,6 +1307,8 @@ export function Stage({
       onWhiteboardClose={handleWhiteboardToggle}
       showStopDiscussion={showPlaybackStopDiscussion}
       onStopDiscussion={handleStopDiscussion}
+      playPauseDisabled={speechAudioPreparing}
+      playPauseBusy={speechAudioPreparing}
     />
   ) : undefined;
 
@@ -1426,6 +1396,8 @@ export function Stage({
               onPrevSlide={handlePreviousScene}
               onNextSlide={handleNextScene}
               onPlayPause={handlePlayPause}
+              playPauseDisabled={speechAudioPreparing}
+              playPauseBusy={speechAudioPreparing}
               onWhiteboardClose={handleWhiteboardToggle}
               showStopDiscussion={
                 engineMode === 'live' ||

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Play, Pause, PencilLine, Volume1, Volume2, VolumeX, Repeat } from 'lucide-react';
+import { Play, Pause, PencilLine, Volume1, Volume2, VolumeX, Repeat, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -45,6 +45,8 @@ export interface CanvasPlaybackPillProps {
   readonly onWhiteboardClose: () => void;
   readonly showStopDiscussion?: boolean;
   readonly onStopDiscussion?: () => void;
+  readonly playPauseDisabled?: boolean;
+  readonly playPauseBusy?: boolean;
   readonly className?: string;
 }
 
@@ -60,6 +62,8 @@ export function CanvasPlaybackPill({
   onWhiteboardClose,
   showStopDiscussion,
   onStopDiscussion,
+  playPauseDisabled = false,
+  playPauseBusy = false,
   className,
 }: CanvasPlaybackPillProps) {
   const { t } = useI18n();
@@ -239,16 +243,20 @@ export function CanvasPlaybackPill({
       ) : showPlayPause ? (
         <button
           onClick={onPlayPause}
+          disabled={playPauseDisabled}
           className={cn(
             ctrlBtn,
             'w-9 h-9',
+            playPauseDisabled && 'cursor-not-allowed opacity-65 hover:bg-transparent active:scale-100',
             engineState === 'playing'
               ? 'text-[#007AFF] dark:text-[#0A84FF]'
               : 'text-[#86868b] dark:text-[#a1a1a6]',
           )}
           aria-label={engineState === 'playing' ? 'Pause' : 'Play'}
         >
-          {engineState === 'playing' ? (
+          {playPauseBusy ? (
+            <Loader2 className="size-[18px] shrink-0 animate-spin" strokeWidth={2.25} />
+          ) : engineState === 'playing' ? (
             <Pause className="size-[18px] shrink-0" strokeWidth={2.25} />
           ) : (
             <Play className="size-[18px] shrink-0 ml-px" strokeWidth={2.25} />

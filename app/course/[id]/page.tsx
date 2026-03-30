@@ -24,7 +24,10 @@ import { listCourses } from '@/lib/utils/course-storage';
 import { toast } from 'sonner';
 import { resolveCourseAvatarDisplayUrl } from '@/lib/constants/course-avatars';
 import { courseOrchestratorChatHref } from '@/lib/constants/course-chat';
-import { resolveNotebookAgentAvatarDisplayUrl } from '@/lib/constants/notebook-agent-avatars';
+import {
+  NOTEBOOK_AGENT_AVATAR_PRESET_URLS,
+  resolveNotebookAgentAvatarDisplayUrl,
+} from '@/lib/constants/notebook-agent-avatars';
 import {
   Dialog,
   DialogContent,
@@ -55,6 +58,8 @@ export default function CourseDetailPage() {
   const [moveTargets, setMoveTargets] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [editCourseOpen, setEditCourseOpen] = useState(false);
+  const [editingNotebookAvatar, setEditingNotebookAvatar] = useState<StageListItem | null>(null);
+  const coursePublishLocked = Boolean(course?.sourceCourseId);
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -134,6 +139,10 @@ export default function CourseDetailPage() {
 
   const handleTogglePublishCourse = async () => {
     if (!course) return;
+    if (course.sourceCourseId) {
+      toast.error('购买得到的课程副本不能再次发布到商城');
+      return;
+    }
     try {
       await updateCourse(course.id, {
         name: course.name,
@@ -157,6 +166,10 @@ export default function CourseDetailPage() {
   };
 
   const handleTogglePublishNotebook = async (notebook: StageListItem) => {
+    if (notebook.sourceNotebookId) {
+      toast.error('购买得到的笔记本副本不能再次发布到商城');
+      return;
+    }
     try {
       let notebookPriceCents = notebook.notebookPriceCents ?? 0;
       if (!notebook.listedInNotebookStore) {
@@ -178,6 +191,18 @@ export default function CourseDetailPage() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '操作失败');
+    }
+  };
+
+  const handleUpdateNotebookAvatar = async (notebookId: string, avatarUrl: string) => {
+    try {
+      await updateStageStoreMeta(notebookId, { avatarUrl });
+      const list = await listStagesByCourse(id);
+      setNotebooks(list);
+      toast.success('已更新笔记本头像');
+      setEditingNotebookAvatar(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : '更新头像失败');
     }
   };
 
@@ -279,9 +304,14 @@ export default function CourseDetailPage() {
                     type="button"
                     variant="outline"
                     className="h-11 rounded-xl border-slate-200 bg-white/80 dark:border-white/20 dark:bg-white/5"
+                    disabled={coursePublishLocked}
                     onClick={() => void handleTogglePublishCourse()}
                   >
-                    {course.listedInCourseStore ? '取消发布课程' : '发布课程'}
+                    {coursePublishLocked
+                      ? '已购副本不可发布'
+                      : course.listedInCourseStore
+                        ? '取消发布课程'
+                        : '发布课程'}
                   </Button>
                   <Button
                     asChild
@@ -317,7 +347,15 @@ export default function CourseDetailPage() {
                     priceLabel={`¥${((nb.notebookPriceCents ?? 0) / 100).toFixed(2)}`}
                     actionLabel="打开笔记本"
                     onAction={() => router.push(`/classroom/${nb.id}`)}
-                    secondaryActionLabel={nb.listedInNotebookStore ? '取消发布' : '发布'}
+                    onEdit={() => setEditingNotebookAvatar(nb)}
+                    secondaryActionLabel={
+                      nb.sourceNotebookId
+                        ? '已购副本不可发布'
+                        : nb.listedInNotebookStore
+                          ? '取消发布'
+                          : '发布'
+                    }
+                    secondaryActionDisabled={Boolean(nb.sourceNotebookId)}
                     onSecondaryAction={() => void handleTogglePublishNotebook(nb)}
                     moveToCourseTargets={moveTargets}
                     onMoveToCourse={(targetCourseId) => handleMoveNotebook(nb.id, targetCourseId)}
@@ -349,6 +387,67 @@ export default function CourseDetailPage() {
                     if (next) setCourse(next);
                   }}
                 />
+              </DialogContent>
+            </Dialog>
+            <Dialog
+              open={Boolean(editingNotebookAvatar)}
+              onOpenChange={(open) => {
+                if (!open) setEditingNotebookAvatar(null);
+              }}
+            >
+              <DialogContent
+                className="max-h-[min(90dvh,720px)] w-full max-w-lg gap-0 overflow-y-auto p-6 sm:max-w-lg"
+                showCloseButton
+              >
+                <DialogHeader className="pr-8 text-left">
+                  <DialogTitle className="text-lg font-semibold">更换笔记本头像</DialogTitle>
+                  <DialogDescription>
+                    这张头像会显示在笔记本卡片、聊天联系人和课堂相关入口中。
+                  </DialogDescription>
+                </DialogHeader>
+                {editingNotebookAvatar ? (
+                  <div className="mt-6 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={resolveNotebookAgentAvatarDisplayUrl(
+                          editingNotebookAvatar.id,
+                          editingNotebookAvatar.avatarUrl,
+                        )}
+                        alt=""
+                        className="size-16 rounded-2xl border border-slate-200/80 bg-white object-cover shadow-sm dark:border-white/15 dark:bg-slate-900"
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white">
+                          {editingNotebookAvatar.name}
+                        </p>
+                        <p className="text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                          选择一张新的笔记本头像。
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-5 gap-2 sm:grid-cols-7">
+                      {NOTEBOOK_AGENT_AVATAR_PRESET_URLS.slice(0, 28).map((url) => {
+                        const active = editingNotebookAvatar.avatarUrl === url;
+                        return (
+                          <button
+                            key={url}
+                            type="button"
+                            onClick={() => void handleUpdateNotebookAvatar(editingNotebookAvatar.id, url)}
+                            className={cn(
+                              'overflow-hidden rounded-2xl border-2 bg-white transition-all dark:bg-slate-900',
+                              active
+                                ? 'border-violet-500 ring-2 ring-violet-200 dark:ring-violet-500/30'
+                                : 'border-transparent hover:border-slate-200 dark:hover:border-white/15',
+                            )}
+                            aria-label="选择笔记本头像"
+                          >
+                            <img src={url} alt="" className="aspect-square w-full object-cover" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
               </DialogContent>
             </Dialog>
           </>

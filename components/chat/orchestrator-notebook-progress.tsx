@@ -76,9 +76,13 @@ function progressMotionKey(p: NotebookGenerationProgress): string {
 export function OrchestratorNotebookProgressPanel({
   progress,
   className,
+  onCancel,
+  cancelPending = false,
 }: {
   progress: NotebookGenerationProgress;
   className?: string;
+  onCancel?: () => void;
+  cancelPending?: boolean;
 }) {
   const { t } = useI18n();
   const stepId = progressToVisualizerStepId(progress);
@@ -132,6 +136,16 @@ export function OrchestratorNotebookProgressPanel({
                 查看笔记本
               </Link>
             ) : null}
+            {onCancel ? (
+              <button
+                type="button"
+                onClick={onCancel}
+                disabled={cancelPending}
+                className="mt-2 inline-flex rounded-full border border-rose-500/20 bg-rose-500/8 px-3 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-200"
+              >
+                {cancelPending ? '正在取消…' : '取消任务'}
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -144,10 +158,14 @@ export function OrchestratorRemoteTaskBanner({
   detail,
   notebookId,
   className,
+  onCancel,
+  cancelPending = false,
 }: {
   detail: string;
   notebookId?: string;
   className?: string;
+  onCancel?: () => void;
+  cancelPending?: boolean;
 }) {
   return (
     <div className={cn('flex items-start gap-2', className)} role="status" aria-live="polite">
@@ -165,6 +183,18 @@ export function OrchestratorRemoteTaskBanner({
               >
                 进入互动教室查看页面生成
               </Link>
+            ) : null}
+            {onCancel ? (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={cancelPending}
+                  className="inline-flex rounded-full border border-rose-500/20 bg-rose-500/8 px-3 py-1 text-xs font-medium text-rose-700 transition-colors hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-60 dark:text-rose-200"
+                >
+                  {cancelPending ? '正在取消…' : '取消任务'}
+                </button>
+              </div>
             ) : null}
           </div>
         </div>

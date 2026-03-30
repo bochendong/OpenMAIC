@@ -7,8 +7,7 @@ import { useSettingsStore } from '@/lib/store/settings';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
 import type { AgentInfo, CoursePersonalizationContext } from '@/lib/generation/generation-pipeline';
 import type { Scene } from '@/lib/types/stage';
-import type { Action, SpeechAction, SpeechVisemeCue } from '@/lib/types/action';
-import type { TTSProviderId } from '@/lib/audio/types';
+import type { MouthCue, SpeechAction, SpeechVisemeCue } from '@/lib/types/action';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { createLogger } from '@/lib/logger';
@@ -131,7 +130,7 @@ export async function generateAndStoreTTS(
   audioId: string,
   text: string,
   signal?: AbortSignal,
-): Promise<{ audioUrl: string; visemes?: SpeechVisemeCue[] }> {
+): Promise<{ audioUrl: string; visemes?: SpeechVisemeCue[]; mouthCues?: MouthCue[] }> {
   const settings = useSettingsStore.getState();
   if (settings.ttsProviderId === 'browser-native-tts') return { audioUrl: '' };
 
@@ -146,6 +145,7 @@ export async function generateAndStoreTTS(
     return {
       audioUrl: `data:audio/${cached.format};base64,${cached.base64}`,
       visemes: cached.visemes,
+      mouthCues: cached.mouthCues,
     };
   }
 
@@ -176,10 +176,11 @@ export async function generateAndStoreTTS(
     throw err;
   }
   void audioId;
-  await setCachedTtsAudio(cacheKey, data.format, data.base64, data.visemes);
+  await setCachedTtsAudio(cacheKey, data.format, data.base64, data.visemes, data.mouthCues);
   return {
     audioUrl: `data:audio/${data.format};base64,${data.base64}`,
     visemes: data.visemes,
+    mouthCues: data.mouthCues,
   };
 }
 
@@ -202,9 +203,14 @@ async function generateTTSForScene(
     const audioId = `tts_${action.id}`;
     action.audioId = audioId;
     try {
-      const { audioUrl, visemes } = await generateAndStoreTTS(audioId, action.text, signal);
+      const { audioUrl, visemes, mouthCues } = await generateAndStoreTTS(
+        audioId,
+        action.text,
+        signal,
+      );
       if (audioUrl) action.audioUrl = audioUrl;
       if (visemes?.length) action.visemes = visemes;
+      if (mouthCues?.length) action.mouthCues = mouthCues;
     } catch (error) {
       failedCount++;
       lastError = error instanceof Error ? error.message : `TTS failed for action ${action.id}`;
@@ -251,9 +257,14 @@ export async function ensureMissingSpeechAudioForScene(
     const audioId = action.audioId || `tts_${action.id}`;
     action.audioId = audioId;
     try {
-      const { audioUrl, visemes } = await generateAndStoreTTS(audioId, action.text, signal);
+      const { audioUrl, visemes, mouthCues } = await generateAndStoreTTS(
+        audioId,
+        action.text,
+        signal,
+      );
       if (audioUrl) action.audioUrl = audioUrl;
       if (visemes?.length) action.visemes = visemes;
+      if (mouthCues?.length) action.mouthCues = mouthCues;
       done += 1;
       onProgress?.(done, total);
       // 让顶栏「讲解就绪」计数随每段生成递增（否则仅 scenes 引用不变，React 不刷新）

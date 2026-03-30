@@ -228,6 +228,7 @@ export async function updateStageStoreMeta(
     name?: string;
     description?: string;
     tags?: string[];
+    avatarUrl?: string;
   },
 ): Promise<void> {
   await backendJson<{ notebook: NotebookApiRow }>(`/api/notebooks/${encodeURIComponent(stageId)}`, {

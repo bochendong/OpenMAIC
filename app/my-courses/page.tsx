@@ -32,17 +32,17 @@ function purposeLabel(p: CourseRecord['purpose']): string {
   return '日常使用';
 }
 
-function courseSecondaryLabel(course: CourseRecord): string {
-  const base = purposeLabel(course.purpose);
-  if (course.purpose !== 'university') return base;
-  const uniBits = [course.university?.trim(), course.courseCode?.trim()].filter(Boolean);
-  return uniBits.length > 0 ? `${base} · ${uniBits.join(' · ')}` : base;
-}
-
 export default function MyCoursesPage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const userId = useAuthStore((s) => s.userId);
+  const creatorDisplay = useAuthStore((s) => {
+    const n = s.name.trim();
+    if (n) return n;
+    const e = s.email.trim();
+    if (e) return e.split('@')[0] ?? e;
+    return '我';
+  });
   const [courses, setCourses] = useState<Array<{ course: CourseRecord; notebookCount: number }>>(
     [],
   );
@@ -100,6 +100,10 @@ export default function MyCoursesPage() {
   };
 
   const handleTogglePublishCourse = async (course: CourseRecord) => {
+    if (course.sourceCourseId) {
+      toast.error('购买得到的课程副本不能再次发布到商城');
+      return;
+    }
     try {
       await updateCourse(course.id, {
         name: course.name,
@@ -271,17 +275,28 @@ export default function MyCoursesPage() {
                     }}
                   >
                     <CourseGalleryCard
-                      listIndex={i}
                       course={cardItem}
                       tags={course.tags.length > 0 ? course.tags : undefined}
-                      badge="我的课程"
+                      badge={purposeLabel(course.purpose)}
                       subtitle={formatDate(course.updatedAt)}
-                      secondaryLabel={courseSecondaryLabel(course)}
+                      useRatingOnCover
+                      creatorName={creatorDisplay}
+                      courseMetaChips={{
+                        school: course.university?.trim() || undefined,
+                        courseCode: course.courseCode?.trim() || undefined,
+                      }}
                       countUnit="个笔记本"
                       priceLabel={`¥${((course.coursePriceCents ?? 0) / 100).toFixed(2)}`}
                       actionLabel="进入课程"
                       onAction={() => router.push(`/course/${course.id}`)}
-                      secondaryActionLabel={course.listedInCourseStore ? '取消发布' : '发布'}
+                      secondaryActionLabel={
+                        course.sourceCourseId
+                          ? '已购副本不可发布'
+                          : course.listedInCourseStore
+                            ? '取消发布'
+                            : '发布'
+                      }
+                      secondaryActionDisabled={Boolean(course.sourceCourseId)}
                       onSecondaryAction={() => void handleTogglePublishCourse(course)}
                       coverAvatarUrl={resolveCourseAvatarDisplayUrl(course.id, course.avatarUrl)}
                       onEdit={() => {

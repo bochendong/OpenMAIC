@@ -42,6 +42,14 @@ export interface SpeechVisemeCue {
   animation?: string;
 }
 
+export type MouthShape = 'closed' | 'A' | 'I' | 'U' | 'E' | 'O';
+
+export interface MouthCue {
+  startMs: number;
+  endMs: number;
+  shape: MouthShape;
+}
+
 /** Speech — teacher narration (wait for TTS to finish) */
 export interface SpeechAction extends ActionBase {
   type: 'speech';
@@ -49,6 +57,7 @@ export interface SpeechAction extends ActionBase {
   audioId?: string;
   audioUrl?: string; // Server-generated TTS audio URL
   visemes?: SpeechVisemeCue[];
+  mouthCues?: MouthCue[];
   voice?: string;
   speed?: number; // default 1.0
 }

@@ -4,14 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CourseGalleryCard } from '@/components/course-gallery-card';
 import { useAuthStore } from '@/lib/store/auth';
-import {
-  cloneCourseFromStore,
-  createCourse,
-  listCommunityStoreCourses,
-  listCourses,
-} from '@/lib/utils/course-storage';
+import { cloneCourseFromStore, listCommunityStoreCourses, listCourses } from '@/lib/utils/course-storage';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
-import { COURSE_STORE_TEMPLATES } from '@/lib/constants/course-store-templates';
 import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
 import { toast } from 'sonner';
@@ -27,17 +21,17 @@ function purposeLabel(p: CourseRecord['purpose']): string {
   return '日常使用';
 }
 
-function courseSecondaryLabel(course: CourseRecord): string {
-  const base = purposeLabel(course.purpose);
-  if (course.purpose !== 'university') return base;
-  const uniBits = [course.university?.trim(), course.courseCode?.trim()].filter(Boolean);
-  return uniBits.length > 0 ? `${base} · ${uniBits.join(' · ')}` : base;
-}
-
 export default function CourseStorePage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const userId = useAuthStore((s) => s.userId);
+  const creatorDisplay = useAuthStore((s) => {
+    const n = s.name.trim();
+    if (n) return n;
+    const e = s.email.trim();
+    if (e) return e.split('@')[0] ?? e;
+    return '我';
+  });
   const [mine, setMine] = useState<Array<{ course: CourseRecord; notebookCount: number }>>([]);
   const [community, setCommunity] = useState<CommunityCourseListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,29 +65,6 @@ export default function CourseStorePage() {
     void load();
   }, [isLoggedIn, router, load]);
 
-  const handleAddTemplate = async (tpl: (typeof COURSE_STORE_TEMPLATES)[number]) => {
-    setAddingId(`tpl:${tpl.id}`);
-    try {
-      const isUni = tpl.purpose === 'university';
-      const course = await createCourse({
-        name: tpl.name,
-        description: tpl.description,
-        language: tpl.language,
-        tags: tpl.tags,
-        purpose: tpl.purpose,
-        university: isUni ? tpl.university : undefined,
-        courseCode: isUni ? tpl.courseCode : undefined,
-      });
-      toast.success(`已添加课程「${course.name}」`);
-      await load();
-      router.push(`/course/${course.id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : '添加失败');
-    } finally {
-      setAddingId(null);
-    }
-  };
-
   const handleCloneCommunityCourse = async (item: CommunityCourseListItem) => {
     setAddingId(`c:${item.id}`);
     try {
@@ -123,52 +94,11 @@ export default function CourseStorePage() {
             课程商城
           </h1>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-            浏览推荐模板与社区课程。创作者可为课程定价并发布到商城；用户购买课程后，会把整门课程连同全部笔记本深拷贝到自己的空间。
+            浏览社区课程。创作者可为课程定价并发布到商城；用户购买课程后，会把整门课程连同全部笔记本深拷贝到自己的空间。
           </p>
           <div className="mt-4 rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3 py-2 text-sm text-emerald-950 dark:border-emerald-500/25 dark:bg-emerald-950/25 dark:text-emerald-100">
             侧栏在未选择课程时，「课程商城」即本页。选择课程后，侧栏「商城」将打开笔记本商城。
           </div>
-        </section>
-
-        <section className="mb-10">
-          <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">推荐模板</h2>
-          {loading ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, idx) => (
-                <div
-                  key={idx}
-                  className="h-72 animate-pulse rounded-[26px] bg-white/60 dark:bg-white/5"
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {COURSE_STORE_TEMPLATES.map((tpl, i) => {
-                const cardItem = {
-                  id: tpl.id,
-                  name: tpl.name,
-                  description: tpl.description,
-                  sceneCount: 0,
-                  createdAt: Date.now(),
-                  updatedAt: Date.now(),
-                };
-                return (
-                  <CourseGalleryCard
-                    key={tpl.id}
-                    listIndex={i}
-                    course={cardItem}
-                    tags={tpl.tags}
-                    badge="课程模板"
-                    subtitle={purposeLabel(tpl.purpose)}
-                    secondaryLabel="课程容器"
-                    countUnit="个笔记本"
-                    actionLabel={addingId === `tpl:${tpl.id}` ? '添加中…' : '添加到我的课程'}
-                    onAction={() => handleAddTemplate(tpl)}
-                  />
-                );
-              })}
-            </div>
-          )}
         </section>
 
         <section className="mb-10">
@@ -239,11 +169,11 @@ export default function CourseStorePage() {
           </h2>
           {loading ? null : mine.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-8 text-center text-slate-500 dark:border-white/20 dark:bg-white/5 dark:text-slate-300">
-              暂无课程。可在上方从模板添加，或前往「我的课程」新建空白课程。
+              暂无课程。请前往「我的课程」新建课程。
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-              {mine.map(({ course, notebookCount }, i) => {
+              {mine.map(({ course, notebookCount }) => {
                 const cardItem = {
                   id: course.id,
                   name: course.name,
@@ -255,12 +185,16 @@ export default function CourseStorePage() {
                 return (
                   <CourseGalleryCard
                     key={course.id}
-                    listIndex={i}
                     course={cardItem}
                     tags={course.tags.length > 0 ? course.tags : undefined}
-                    badge="我的课程"
+                    badge={purposeLabel(course.purpose)}
                     subtitle={formatDate(course.updatedAt)}
-                    secondaryLabel={courseSecondaryLabel(course)}
+                    useRatingOnCover
+                    creatorName={creatorDisplay}
+                    courseMetaChips={{
+                      school: course.university?.trim() || undefined,
+                      courseCode: course.courseCode?.trim() || undefined,
+                    }}
                     countUnit="个笔记本"
                     actionLabel="进入课程"
                     onAction={() => router.push(`/course/${course.id}`)}

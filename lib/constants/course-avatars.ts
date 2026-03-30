@@ -55,6 +55,7 @@ const FILENAMES = [
 ] as const;
 
 const FILES: readonly string[] = FILENAMES;
+export const COURSE_AVATAR_PRESET_URLS = FILES.map((filename) => `${COURSE_AVATAR_PUBLIC_PREFIX}${filename}`);
 
 function hashStringToUint32(s: string): number {
   let h = 2166136261;
@@ -67,18 +68,18 @@ function hashStringToUint32(s: string): number {
 
 /** 新建课程时随机一张「课程主管」头像 */
 export function pickRandomCourseAvatarUrl(): string {
-  if (FILES.length === 0) return '/avatars/assist-2.png';
-  const i = Math.floor(Math.random() * FILES.length);
-  return `${COURSE_AVATAR_PUBLIC_PREFIX}${FILES[i]}`;
+  if (COURSE_AVATAR_PRESET_URLS.length === 0) return '/avatars/assist-2.png';
+  const i = Math.floor(Math.random() * COURSE_AVATAR_PRESET_URLS.length);
+  return COURSE_AVATAR_PRESET_URLS[i];
 }
 
 /**
  * 按课程 id 稳定映射；用于缺省补全与无 DB 字段时的展示（与写入 DB 后一致）。
  */
 export function pickStableCourseAvatarUrl(seed: string): string {
-  if (FILES.length === 0) return '/avatars/assist-2.png';
-  const i = hashStringToUint32(seed) % FILES.length;
-  return `${COURSE_AVATAR_PUBLIC_PREFIX}${FILES[i]}`;
+  if (COURSE_AVATAR_PRESET_URLS.length === 0) return '/avatars/assist-2.png';
+  const i = hashStringToUint32(seed) % COURSE_AVATAR_PRESET_URLS.length;
+  return COURSE_AVATAR_PRESET_URLS[i];
 }
 
 /**

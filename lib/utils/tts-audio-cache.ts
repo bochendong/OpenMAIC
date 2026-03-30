@@ -3,14 +3,14 @@
  */
 
 import type { Scene } from '@/lib/types/stage';
-import type { SpeechAction, SpeechVisemeCue } from '@/lib/types/action';
+import type { MouthCue, SpeechAction, SpeechVisemeCue } from '@/lib/types/action';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('TtsAudioCache');
 
 const DB_NAME = 'openmaic-tts-audio';
 const STORE = 'clips';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -56,9 +56,12 @@ export async function buildTtsCacheKey(
   return fallbackTtsCacheKey(payload);
 }
 
-export async function getCachedTtsAudio(
-  cacheKey: string,
-): Promise<{ format: string; base64: string; visemes?: SpeechVisemeCue[] } | null> {
+export async function getCachedTtsAudio(cacheKey: string): Promise<{
+  format: string;
+  base64: string;
+  visemes?: SpeechVisemeCue[];
+  mouthCues?: MouthCue[];
+} | null> {
   if (typeof indexedDB === 'undefined') return null;
   try {
     const db = await openDb();
@@ -68,11 +71,21 @@ export async function getCachedTtsAudio(
       req.onerror = () => reject(req.error);
       req.onsuccess = () => {
         const row = req.result as
-          | { format?: string; base64?: string; visemes?: SpeechVisemeCue[] }
+          | {
+              format?: string;
+              base64?: string;
+              visemes?: SpeechVisemeCue[];
+              mouthCues?: MouthCue[];
+            }
           | undefined;
         db.close();
         if (row?.format && row?.base64) {
-          resolve({ format: row.format, base64: row.base64, visemes: row.visemes });
+          resolve({
+            format: row.format,
+            base64: row.base64,
+            visemes: row.visemes,
+            mouthCues: row.mouthCues,
+          });
         } else resolve(null);
       };
     });
@@ -87,6 +100,7 @@ export async function setCachedTtsAudio(
   format: string,
   base64: string,
   visemes?: SpeechVisemeCue[],
+  mouthCues?: MouthCue[],
 ): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   try {
@@ -100,6 +114,7 @@ export async function setCachedTtsAudio(
         format,
         base64,
         visemes,
+        mouthCues,
         createdAt: Date.now(),
       });
     });
@@ -134,6 +149,7 @@ export async function hydrateSpeechAudioFromTtsCache(
     if (hit) {
       sa.audioUrl = `data:audio/${hit.format};base64,${hit.base64}`;
       if (hit.visemes?.length) sa.visemes = hit.visemes;
+      if (hit.mouthCues?.length) sa.mouthCues = hit.mouthCues;
       touched = true;
     }
   }

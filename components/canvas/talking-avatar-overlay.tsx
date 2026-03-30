@@ -5,11 +5,14 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { LIVE2D_PRESENTER_MODELS } from '@/lib/live2d/presenter-models';
+import type { MouthShape } from '@/lib/types/action';
+import { mapAzureVisemeToLegacyMouthShape } from '@/lib/audio/mouth-cues';
 
 export interface TalkingAvatarOverlayState {
   readonly speaking: boolean;
   readonly speechText?: string | null;
   readonly playbackRate?: number;
+  readonly currentMouthShape?: MouthShape | null;
   readonly currentVisemeId?: number | null;
   readonly cadence?: TalkingAvatarSpeechCadence;
 }
@@ -64,6 +67,7 @@ export function TalkingAvatarOverlay({
   speaking,
   speechText,
   playbackRate = 1,
+  currentMouthShape,
   currentVisemeId,
   cadence = speaking ? 'fallback' : 'idle',
   className,
@@ -77,6 +81,7 @@ export function TalkingAvatarOverlay({
   const speechStateRef = useRef({
     speaking,
     playbackRate,
+    currentMouthShape,
     currentVisemeId,
     cadence,
   });
@@ -95,8 +100,14 @@ export function TalkingAvatarOverlay({
   const wasSpeakingRef = useRef(false);
 
   useEffect(() => {
-    speechStateRef.current = { speaking, playbackRate, currentVisemeId, cadence };
-  }, [cadence, speaking, playbackRate, currentVisemeId]);
+    speechStateRef.current = {
+      speaking,
+      playbackRate,
+      currentMouthShape,
+      currentVisemeId,
+      cadence,
+    };
+  }, [cadence, speaking, playbackRate, currentMouthShape, currentVisemeId]);
 
   useEffect(() => {
     interactionStateRef.current = pointerInteraction ?? {
@@ -181,9 +192,10 @@ export function TalkingAvatarOverlay({
 
   useEffect(() => {
     let cancelled = false;
+    const mountElement = mountRef.current;
 
     const setup = async () => {
-      const mount = mountRef.current;
+      const mount = mountElement;
       if (!mount) return;
 
       setStatus('loading');
@@ -203,7 +215,7 @@ export function TalkingAvatarOverlay({
       }
       live2dModule.SoundManager?.destroy?.();
 
-      if (cancelled || !mountRef.current) return;
+      if (cancelled || !mountElement) return;
 
       const app = new PIXI.Application({
         antialias: true,
@@ -294,8 +306,8 @@ export function TalkingAvatarOverlay({
         .catch(() => {
           // Ignore cleanup failures for optional motion audio.
         });
-      if (mountRef.current) {
-        mountRef.current.replaceChildren();
+      if (mountElement) {
+        mountElement.replaceChildren();
       }
     };
   }, [layout, modelConfig.idleMotionGroup, modelConfig.modelSrc]);
@@ -382,6 +394,7 @@ function attachSpeechPose(
   speechStateRef: React.MutableRefObject<{
     speaking: boolean;
     playbackRate: number;
+    currentMouthShape?: MouthShape | null;
     currentVisemeId?: number | null;
     cadence: TalkingAvatarSpeechCadence;
   }>,
@@ -427,7 +440,8 @@ function attachSpeechPose(
   let lastTickAt = performance.now();
 
   const beforeModelUpdate = () => {
-    const { speaking, playbackRate, currentVisemeId, cadence } = speechStateRef.current;
+    const { speaking, playbackRate, currentMouthShape, currentVisemeId, cadence } =
+      speechStateRef.current;
     const interaction = interactionStateRef.current;
     const easedRate = Math.max(0.7, Math.min(1.8, playbackRate || 1));
     const now = performance.now();
@@ -437,7 +451,10 @@ function attachSpeechPose(
     const mouthPhase = now / (210 / easedRate);
     const gesturePhase = now / (620 / easedRate);
     const breathPhase = now / 1100;
-    const baseTarget = resolveMouthPose(currentVisemeId, cadence);
+    const baseTarget = resolveMouthPose(
+      currentMouthShape ?? mapAzureVisemeToLegacyMouthShape(currentVisemeId),
+      cadence,
+    );
     const rhythmicOpen =
       cadence === 'fallback'
         ? ((Math.sin(mouthPhase) + 1) / 2) * 0.34
@@ -579,34 +596,31 @@ function attachSpeechPose(
 }
 
 function resolveMouthPose(
-  visemeId: number | null | undefined,
+  mouthShape: MouthShape | null | undefined,
   cadence: TalkingAvatarSpeechCadence,
 ): MouthPose {
   if (cadence === 'idle' || cadence === 'pause') {
     return { open: 0, form: 0 };
   }
 
-  if (visemeId == null) {
+  if (mouthShape == null) {
     return cadence === 'fallback' ? { open: 0.12, form: 0.08 } : { open: 0.08, form: 0.04 };
   }
 
-  if (visemeId === 0 || visemeId === 21) {
-    return { open: 0.02, form: -0.04 };
+  switch (mouthShape) {
+    case 'closed':
+      return { open: 0.02, form: 0 };
+    case 'A':
+      return { open: 0.82, form: 0.08 };
+    case 'I':
+      return { open: 0.34, form: 0.62 };
+    case 'U':
+      return { open: 0.28, form: -0.58 };
+    case 'E':
+      return { open: 0.44, form: 0.34 };
+    case 'O':
+      return { open: 0.56, form: -0.36 };
   }
-
-  if (visemeId >= 1 && visemeId <= 7) {
-    return { open: 0.18, form: 0.04 };
-  }
-
-  if (visemeId >= 8 && visemeId <= 13) {
-    return { open: 0.34, form: 0.16 };
-  }
-
-  if (visemeId >= 14 && visemeId <= 17) {
-    return { open: 0.48, form: -0.24 };
-  }
-
-  return { open: 0.64, form: 0.3 };
 }
 
 function clamp(value: number, min: number, max: number) {
