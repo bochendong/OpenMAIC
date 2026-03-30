@@ -11,7 +11,7 @@ function ownerDisplayName(owner: { name: string | null; email: string | null }):
     const local = e.split('@')[0]?.trim();
     return local || e;
   }
-  return '用户';
+  return '匿名创作者';
 }
 
 export async function GET() {

@@ -141,7 +141,7 @@ export default function CourseStorePage() {
                     tags={item.tags.length > 0 ? item.tags : undefined}
                     badge="社区课程"
                     subtitle={formatDate(item.updatedAt)}
-                    secondaryLabel={`创作者 · ${item.ownerName}`}
+                    creatorName={item.ownerName}
                     countUnit="个笔记本"
                     priceLabel={`¥${((item.coursePriceCents ?? 0) / 100).toFixed(2)}`}
                     ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}

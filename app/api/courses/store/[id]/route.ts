@@ -8,7 +8,7 @@ function ownerDisplayName(owner: { name: string | null; email: string | null }):
   if (n) return n;
   const e = owner.email?.trim();
   if (e) return e.split('@')[0] || e;
-  return '用户';
+  return '匿名创作者';
 }
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {

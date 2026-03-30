@@ -37,6 +37,31 @@ function isImageUrl(src: string | null | undefined): src is string {
   );
 }
 
+function extractRatingScore(ratingLabel?: string | null): number | null {
+  const text = ratingLabel?.trim();
+  if (!text) return null;
+  const match = text.match(/(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const value = Number.parseFloat(match[1]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function ratingChipTone(score: number | null): string {
+  if (score == null) {
+    return 'border-white/65 bg-white/75 text-slate-500 dark:border-white/15 dark:bg-black/30 dark:text-slate-400';
+  }
+  if (score >= 4.5) {
+    return 'border-emerald-200/90 bg-emerald-50/85 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/40 dark:text-emerald-100';
+  }
+  if (score >= 4.0) {
+    return 'border-sky-200/90 bg-sky-50/85 text-sky-800 dark:border-sky-500/30 dark:bg-sky-950/40 dark:text-sky-100';
+  }
+  if (score >= 3.0) {
+    return 'border-amber-200/90 bg-amber-50/85 text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100';
+  }
+  return 'border-rose-200/90 bg-rose-50/85 text-rose-800 dark:border-rose-500/30 dark:bg-rose-950/40 dark:text-rose-100';
+}
+
 /** 对齐 notebook-agent-sidebar `notebookCardStyles.notebookCardSx` + `NotebookCard.js` 布局 */
 
 interface CourseGalleryCardProps {
@@ -83,7 +108,7 @@ interface CourseGalleryCardProps {
   deleteDialogDescription?: string;
   priceLabel?: string;
   ratingLabel?: string;
-  /** 为 true 时封面右上角显示评分（ratingLabel）或「无评分」，不再显示 subtitle（如日期） */
+  /** 兼容旧调用；当前若传入 ratingLabel，会统一显示在封面右上角 */
   useRatingOnCover?: boolean;
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
@@ -141,17 +166,20 @@ export function CourseGalleryCard({
     course.description?.trim() ||
     (course.name.length > 120 ? `${course.name.slice(0, 120)}…` : course.name);
 
+  const ratingScore = extractRatingScore(ratingLabel);
+  const showRatingOnCover = Boolean(ratingLabel?.trim()) || useRatingOnCover;
+
   const coverRightLabel =
     listIndex !== undefined
       ? `#${String(listIndex + 1).padStart(2, '0')}`
-      : useRatingOnCover
+      : showRatingOnCover
         ? ratingLabel?.trim() || '无评分'
         : subtitle;
 
   const coverRightIsRatingChip =
-    listIndex === undefined && useRatingOnCover && Boolean(ratingLabel?.trim());
+    listIndex === undefined && showRatingOnCover;
   const coverRightIsNoRatingChip =
-    listIndex === undefined && useRatingOnCover && !ratingLabel?.trim();
+    listIndex === undefined && showRatingOnCover && !ratingLabel?.trim();
 
   const showCoverBadge = Boolean(badge?.trim());
 
@@ -254,7 +282,7 @@ export function CourseGalleryCard({
               className={cn(
                 'shrink-0 rounded-md border px-2.5 py-0.5 text-[11px] backdrop-blur-sm',
                 coverRightIsRatingChip
-                  ? 'border-amber-200/90 bg-amber-50/85 text-amber-800 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100'
+                  ? ratingChipTone(ratingScore)
                   : coverRightIsNoRatingChip
                     ? 'border-white/65 bg-white/75 text-slate-500 dark:border-white/15 dark:bg-black/30 dark:text-slate-400'
                     : 'border-white/65 bg-white/75 text-slate-700 dark:border-white/15 dark:bg-black/30 dark:text-slate-100',
@@ -341,6 +369,13 @@ export function CourseGalleryCard({
                   ? `创建者 · ${creatorName.trim()}`
                   : secondaryLabel}
               </p>
+              {priceLabel ? (
+                <div className="mt-2">
+                  <span className="inline-flex items-center rounded-full border border-emerald-200/90 bg-emerald-50/80 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-950/30 dark:text-emerald-200">
+                    {priceLabel}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
           {onEdit || onDelete ? (
@@ -377,20 +412,7 @@ export function CourseGalleryCard({
               ) : null}
             </div>
           ) : null}
-          {priceLabel ? (
-            <span className="inline-flex shrink-0 items-center self-center rounded-md border border-emerald-200/90 bg-emerald-50/80 px-2 py-0.5 text-[11px] text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-950/30 dark:text-emerald-200">
-              {priceLabel}
-            </span>
-          ) : null}
         </div>
-
-        {ratingLabel && !useRatingOnCover ? (
-          <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
-            <span className="inline-flex items-center rounded-md border border-amber-200/90 bg-amber-50/80 px-2 py-0.5 text-[11px] text-amber-700 dark:border-amber-500/25 dark:bg-amber-950/30 dark:text-amber-200">
-              {ratingLabel}
-            </span>
-          </div>
-        ) : null}
 
         <p
           className="line-clamp-3 min-h-[4.875rem] text-[13px] leading-[1.8] text-slate-600 dark:text-slate-300"
@@ -399,25 +421,28 @@ export function CourseGalleryCard({
           {description}
         </p>
 
-        {tags && tags.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tags.slice(0, 8).map((tag, i) => (
-              <span
-                key={`${i}-${tag}`}
-                className="rounded-full border border-violet-200/80 bg-violet-50/85 px-2 py-0.5 text-[10.5px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-950/35 dark:text-violet-200"
-              >
-                {tag}
-              </span>
-            ))}
-            {tags.length > 8 ? (
-              <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[10.5px] text-slate-500 dark:border-white/15 dark:text-slate-400">
-                +{tags.length - 8}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="mt-3 min-h-[3.25rem]">
+          {tags && tags.length > 0 ? (
+            <div className="flex flex-wrap content-start gap-1.5">
+              {tags.slice(0, 8).map((tag, i) => (
+                <span
+                  key={`${i}-${tag}`}
+                  className="rounded-full border border-violet-200/80 bg-violet-50/85 px-2 py-0.5 text-[10.5px] font-medium text-violet-700 dark:border-violet-500/30 dark:bg-violet-950/35 dark:text-violet-200"
+                >
+                  {tag}
+                </span>
+              ))}
+              {tags.length > 8 ? (
+                <span className="rounded-full border border-slate-200 px-2 py-0.5 text-[10.5px] text-slate-500 dark:border-white/15 dark:text-slate-400">
+                  +{tags.length - 8}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 min-h-[2.1rem]">
+          <div className="flex flex-wrap content-start gap-2">
           {courseMetaChips?.school?.trim() ? (
             <span className="inline-flex items-center rounded-md border border-slate-200/90 bg-white/80 px-2 py-0.5 text-[11px] text-slate-600 dark:border-white/12 dark:bg-white/5 dark:text-slate-300">
               {courseMetaChips.school.trim()}
@@ -437,9 +462,10 @@ export function CourseGalleryCard({
             <School className="size-3.5 shrink-0 opacity-80" strokeWidth={1.75} />
             {course.sceneCount} {countUnit}
           </span>
+          </div>
         </div>
 
-        <div className="mt-5 flex gap-2">
+        <div className="mt-auto flex gap-2 pt-5">
           <button
             type="button"
             onClick={(e) => {
