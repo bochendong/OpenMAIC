@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, BookOpenCheck, Layers3, Sparkles } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseGalleryCard } from '@/components/course-gallery-card';
 import { useAuthStore } from '@/lib/store/auth';
@@ -15,7 +16,6 @@ import type { Slide } from '@/lib/types/slides';
 import { listCourses } from '@/lib/utils/course-storage';
 import type { CourseRecord } from '@/lib/utils/database';
 import { notebookCourseContext } from '@/lib/utils/course-display';
-import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { resolveNotebookAgentAvatarDisplayUrl } from '@/lib/constants/notebook-agent-avatars';
 
@@ -54,11 +54,10 @@ export default function StorePage() {
   const [loading, setLoading] = useState(true);
 
   const courseById = useMemo(
-    () => new Map(courseRecords.map((c) => [c.id, c] as const)),
+    () => new Map(courseRecords.map((course) => [course.id, course] as const)),
     [courseRecords],
   );
 
-  /** 与 `listStages()` 一致：IndexedDB `stages` 表中的全部笔记本（按更新时间倒序） */
   const loadStoreData = useCallback(
     async (opts?: { silent?: boolean }) => {
       if (!isLoggedIn) return;
@@ -88,7 +87,6 @@ export default function StorePage() {
     void loadStoreData();
   }, [isLoggedIn, currentCourseId, router, loadStoreData]);
 
-  /** 从其他页签/课堂返回时刷新，避免列表与本地数据库不一致 */
   useEffect(() => {
     if (!isLoggedIn || !currentCourseId) return;
     const onVisible = () => {
@@ -97,6 +95,19 @@ export default function StorePage() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [isLoggedIn, currentCourseId, loadStoreData]);
+
+  const sortedNotebooks = useMemo(
+    () => [...notebooks].sort((a, b) => b.updatedAt - a.updatedAt),
+    [notebooks],
+  );
+  const recommendedNotebooks = useMemo(
+    () => sortedNotebooks.filter((nb) => nb.courseId !== currentCourseId).slice(0, 6),
+    [currentCourseId, sortedNotebooks],
+  );
+  const inCourseNotebooks = useMemo(
+    () => sortedNotebooks.filter((nb) => nb.courseId === currentCourseId).slice(0, 3),
+    [currentCourseId, sortedNotebooks],
+  );
 
   if (!isLoggedIn) return null;
 
@@ -109,88 +120,213 @@ export default function StorePage() {
   }
 
   return (
-    <div className="min-h-full w-full apple-mesh-bg relative overflow-hidden">
-      <div className="pointer-events-none absolute inset-0">
-        <div className="animate-orb-2 absolute -top-40 right-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(88,86,214,0.06)_0%,transparent_70%)]" />
-        <div className="animate-orb-1 absolute bottom-0 left-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(0,122,255,0.05)_0%,transparent_70%)]" />
-      </div>
-      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-12 pt-8 md:px-8">
-        <section className="mb-6 apple-glass rounded-[28px] p-6">
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
-            笔记本商城
-          </h1>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-            浏览你账号下全部互动笔记本。当前已选课程为下方操作目标：可将未归属或其它课程的笔记本一键加入该课程，或直接进入课堂。
-          </p>
-          <div
-            className={cn(
-              'mt-4 rounded-xl border px-3 py-2 text-sm',
-              'border-violet-200/80 bg-violet-50/80 text-violet-950 dark:border-violet-500/25 dark:bg-violet-950/30 dark:text-violet-100',
-            )}
-          >
-            当前目标课程：<span className="font-medium">{currentCourseName || currentCourseId}</span>
-            <span className="text-muted-foreground">
-              {' '}
-              — 若笔记本尚不在该课程下，主按钮为「加入当前课程」；已在该课程下则进入课堂。
-            </span>
+    <div className="store-shell store-grid min-h-full w-full overflow-hidden">
+      <main className="relative z-10 mx-auto w-full max-w-[92rem] px-4 pb-20 pt-8 md:px-8 lg:px-10">
+        <section className="store-hero-panel relative overflow-hidden rounded-[40px] px-6 py-8 md:px-10 md:py-10">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+            <div className="max-w-3xl">
+              <p className="text-sm font-medium tracking-[0.22em] text-slate-500 uppercase dark:text-slate-400">
+                Notebook Library
+              </p>
+              <h1 className="mt-4 text-4xl font-semibold tracking-[-0.045em] text-slate-950 md:text-6xl dark:text-white">
+                为当前课程继续挑选合适的互动笔记本。
+              </h1>
+              <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600 md:text-lg dark:text-slate-300">
+                当前目标课程为
+                <span className="font-semibold text-slate-900 dark:text-white">
+                  {` ${currentCourseName || currentCourseId} `}
+                </span>
+                。这里展示你账号下全部笔记本，并把“加入课程”和“直接进入”拆成更清晰的内容商店体验。
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const target = recommendedNotebooks[0] ?? sortedNotebooks[0];
+                    if (!target) return;
+                    router.push(`/classroom/${target.id}`);
+                  }}
+                  className="store-cta-primary rounded-full px-5 py-3 text-sm font-semibold"
+                >
+                  浏览精选笔记本
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/course/${currentCourseId}`)}
+                  className="store-cta-secondary rounded-full px-5 py-3 text-sm font-semibold"
+                >
+                  返回当前课程
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-1">
+              <div className="store-section-panel rounded-[28px] p-5">
+                <p className="text-sm text-slate-500 dark:text-slate-400">目标课程</p>
+                <p className="mt-2 flex items-center gap-2 text-xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">
+                  <BookOpenCheck className="size-5" />
+                  {currentCourseName || '未命名课程'}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  新加入的笔记本会直接归入这门课程，用于继续组织课堂内容。
+                </p>
+              </div>
+              <div className="store-section-panel rounded-[28px] p-5">
+                <p className="text-sm text-slate-500 dark:text-slate-400">你的内容库</p>
+                <p className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                  {notebooks.length}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  所有互动笔记本都会在这里整理成可继续复用的内容货架。
+                </p>
+              </div>
+              <div className="store-section-panel rounded-[28px] p-5">
+                <p className="text-sm text-slate-500 dark:text-slate-400">已在课程内</p>
+                <p className="mt-2 flex items-center gap-2 text-base font-semibold text-slate-950 dark:text-white">
+                  <Layers3 className="size-4" />
+                  {inCourseNotebooks.length} 本可直接进入
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  已归属当前课程的笔记本会把主操作切换为“进入笔记本”。
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
-        {loading ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, idx) => (
-              <div
-                key={idx}
-                className="h-72 animate-pulse rounded-[26px] bg-white/60 dark:bg-white/5"
-              />
-            ))}
+        <section className="mt-12">
+          <div className="mb-6 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+                Curated For This Course
+              </p>
+              <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                推荐加入当前课程
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                优先展示还没有归入当前课程的笔记本，方便你快速补充教学内容。
+              </p>
+            </div>
           </div>
-        ) : notebooks.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-slate-500 dark:border-white/20 dark:bg-white/5 dark:text-slate-300">
-            后端数据库中还没有笔记本记录。先在首页或课堂里创建并保存内容，保存后会出现在此列表。
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {notebooks.map((nb, i) => {
-              const tags = tagsForNotebook(nb, courseById);
-              const { parentCourseName, schoolLine } = notebookCourseContext(nb, courseById);
-              const inCurrentCourse =
-                Boolean(currentCourseId) && nb.courseId === currentCourseId;
-              const needsJoin = Boolean(currentCourseId) && !inCurrentCourse;
-              const actionLabel = needsJoin ? '加入当前课程' : '进入笔记本';
-              return (
-                <CourseGalleryCard
-                  key={nb.id}
-                  listIndex={i}
-                  course={nb}
-                  coverAvatarUrl={resolveNotebookAgentAvatarDisplayUrl(nb.id, nb.avatarUrl)}
-                  slide={thumbnails[nb.id]}
-                  tags={tags}
-                  showNotebookCourseMeta
-                  parentCourseName={parentCourseName}
-                  schoolLine={schoolLine}
-                  badge="我的笔记本"
-                  subtitle={formatDate(nb.updatedAt)}
-                  secondaryLabel=""
-                  actionLabel={actionLabel}
-                  onAction={async () => {
-                    if (needsJoin && currentCourseId) {
-                      try {
-                        await moveStageToCourse(nb.id, currentCourseId);
-                        toast.success('已将该笔记本加入当前课程');
-                        await loadStoreData({ silent: true });
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : '操作失败');
+
+          {loading ? (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <div key={idx} className="h-[30rem] animate-pulse rounded-[32px] bg-white/70 dark:bg-white/6" />
+              ))}
+            </div>
+          ) : recommendedNotebooks.length === 0 ? (
+            <div className="store-section-panel rounded-[32px] p-10 text-center">
+              <p className="text-lg font-semibold text-slate-950 dark:text-white">
+                当前内容都已经整理进这门课程了
+              </p>
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300">
+                你没有额外的笔记本可加入当前课程。可以返回首页继续创建新内容，或直接进入现有笔记本。
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {recommendedNotebooks.map((nb) => {
+                const tags = tagsForNotebook(nb, courseById);
+                const { parentCourseName, schoolLine } = notebookCourseContext(nb, courseById);
+                const needsJoin = nb.courseId !== currentCourseId;
+                return (
+                  <CourseGalleryCard
+                    key={nb.id}
+                    variant="notebook"
+                    course={nb}
+                    slide={thumbnails[nb.id]}
+                    badge={needsJoin ? '可加入当前课程' : '已在当前课程'}
+                    subtitle={`更新于 ${formatDate(nb.updatedAt)}`}
+                    secondaryLabel={needsJoin ? '跨课程内容补充' : '当前课程内容'}
+                    actionLabel={needsJoin ? '加入当前课程' : '进入笔记本'}
+                    onAction={async () => {
+                      if (needsJoin) {
+                        try {
+                          await moveStageToCourse(nb.id, currentCourseId);
+                          toast.success('已将该笔记本加入当前课程');
+                          await loadStoreData({ silent: true });
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : '操作失败');
+                        }
+                        return;
                       }
-                      return;
-                    }
-                    router.push(`/classroom/${nb.id}`);
-                  }}
-                />
-              );
-            })}
+                      router.push(`/classroom/${nb.id}`);
+                    }}
+                    tags={tags}
+                    showNotebookCourseMeta
+                    parentCourseName={parentCourseName}
+                    schoolLine={schoolLine}
+                    countUnit="页"
+                    coverAvatarUrl={resolveNotebookAgentAvatarDisplayUrl(nb.id, nb.avatarUrl)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {inCourseNotebooks.length > 0 ? (
+          <section className="mt-14">
+            <div className="mb-6 flex items-end justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+                  Already In Course
+                </p>
+                <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                  已经在当前课程中的内容
+                </h2>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+              {inCourseNotebooks.map((nb) => {
+                const tags = tagsForNotebook(nb, courseById);
+                const { parentCourseName, schoolLine } = notebookCourseContext(nb, courseById);
+                return (
+                  <CourseGalleryCard
+                    key={nb.id}
+                    variant="notebook"
+                    course={nb}
+                    slide={thumbnails[nb.id]}
+                    badge="当前课程"
+                    subtitle={`更新于 ${formatDate(nb.updatedAt)}`}
+                    secondaryLabel="可继续教学与编辑"
+                    actionLabel="进入笔记本"
+                    onAction={() => router.push(`/classroom/${nb.id}`)}
+                    tags={tags}
+                    showNotebookCourseMeta
+                    parentCourseName={parentCourseName}
+                    schoolLine={schoolLine}
+                    countUnit="页"
+                    coverAvatarUrl={resolveNotebookAgentAvatarDisplayUrl(nb.id, nb.avatarUrl)}
+                  />
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <section className="mt-14">
+          <div className="store-section-panel flex flex-col gap-6 rounded-[36px] px-6 py-7 md:flex-row md:items-center md:justify-between md:px-8">
+            <div>
+              <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                <Sparkles className="size-4" />
+                需要新的课程内容来源？
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">
+                回到课程商城，继续挑选更多可复制的整门课程。
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/store/courses')}
+              className="store-cta-primary inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold"
+            >
+              打开课程商城
+              <ArrowRight className="size-4" />
+            </button>
           </div>
-        )}
+        </section>
       </main>
     </div>
   );

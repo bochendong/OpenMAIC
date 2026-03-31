@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -14,6 +15,7 @@ import { useCanvasStore } from '@/lib/store/canvas';
 import type { SlideContent } from '@/lib/types/stage';
 import type {
   PPTElement,
+  PPTChartElement,
   PPTImageElement,
   PPTLineElement,
   PPTShapeElement,
@@ -24,6 +26,7 @@ import type {
   PPTLatexElement,
 } from '@/lib/types/slides';
 import { cn } from '@/lib/utils';
+import { Loader2, Sparkles } from 'lucide-react';
 
 function sectionTitle(title: string, description?: string) {
   return (
@@ -85,18 +88,41 @@ function colorInput(value: string | undefined, onChange: (next: string) => void)
   );
 }
 
-export function SlideElementInspector({ className }: { readonly className?: string }) {
+interface SlideElementInspectorProps {
+  readonly className?: string;
+  readonly repairInstructions: string;
+  readonly onRepairInstructionsChange: (value: string) => void;
+  readonly onRepairCurrentSlide: () => void;
+  readonly repairPending: boolean;
+  readonly repairInputFocusNonce?: number;
+}
+
+export function SlideElementInspector({
+  className,
+  repairInstructions,
+  onRepairInstructionsChange,
+  onRepairCurrentSlide,
+  repairPending,
+  repairInputFocusNonce = 0,
+}: SlideElementInspectorProps) {
   const elements = useSceneSelector<SlideContent, PPTElement[]>((content) => content.canvas.elements);
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
   const setActiveElementIdList = useCanvasStore.use.setActiveElementIdList();
   const { updateElement } = useCanvasOperations();
   const { addHistorySnapshot } = useHistorySnapshot();
+  const repairInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const selectedElements = useMemo(
     () => elements.filter((element) => activeElementIdList.includes(element.id)),
     [elements, activeElementIdList],
   );
   const selectedElement = selectedElements.length === 1 ? selectedElements[0] : null;
+
+  useEffect(() => {
+    if (!repairInputFocusNonce) return;
+    repairInputRef.current?.focus();
+    repairInputRef.current?.select();
+  }, [repairInputFocusNonce]);
 
   const updateCurrentElement = useCallback(
     (props: Partial<PPTElement>, addSnapshot = false) => {
@@ -368,6 +394,24 @@ export function SlideElementInspector({ className }: { readonly className?: stri
     </div>
   );
 
+  const renderChartEditor = (element: PPTChartElement) => (
+    <div className="space-y-3">
+      {sectionTitle('图表设置', '可以直接调整图表容器背景，让图表卡片更容易和页面区块区分。')}
+      <div className="space-y-1.5">
+        {fieldLabel('背景填充')}
+        {colorInput(element.fill, (next) => updateCurrentElement({ fill: next }))}
+      </div>
+      <div className="space-y-1.5">
+        {fieldLabel('文字颜色')}
+        {colorInput(element.textColor, (next) => updateCurrentElement({ textColor: next }))}
+      </div>
+      <div className="space-y-1.5">
+        {fieldLabel('网格线颜色')}
+        {colorInput(element.lineColor, (next) => updateCurrentElement({ lineColor: next }))}
+      </div>
+    </div>
+  );
+
   const renderImageEditor = (element: PPTImageElement) => (
     <div className="space-y-3">
       {sectionTitle('图片设置')}
@@ -550,6 +594,8 @@ export function SlideElementInspector({ className }: { readonly className?: stri
         return renderLatexEditor(element);
       case 'table':
         return renderTableEditor(element);
+      case 'chart':
+        return renderChartEditor(element);
       case 'image':
         return renderImageEditor(element);
       case 'line':
@@ -588,6 +634,40 @@ export function SlideElementInspector({ className }: { readonly className?: stri
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-6 px-4 py-4">
+          <section className="space-y-3">
+            {sectionTitle('AI 修复', '先描述你希望修什么，再让 AI 针对这一页执行修复。')}
+            <div className="rounded-2xl border border-sky-200/80 bg-sky-50/80 p-3 dark:border-sky-500/20 dark:bg-sky-950/20">
+              <div className="space-y-1.5">
+                {fieldLabel('修复要求')}
+                <Textarea
+                  ref={repairInputRef}
+                  value={repairInstructions}
+                  onChange={(e) => onRepairInstructionsChange(e.target.value)}
+                  placeholder="例如：只修公式和上下标，不要改正文；把群论符号统一成 LaTeX。"
+                  className="min-h-[112px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
+                />
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                  不填也可以，AI 会按默认规则修复数学符号和公式格式。
+                </p>
+                <Button
+                  type="button"
+                  onClick={onRepairCurrentSlide}
+                  disabled={repairPending}
+                  className="shrink-0 rounded-full px-4"
+                >
+                  {repairPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="size-4" />
+                  )}
+                  {repairPending ? '正在修复' : '开始修复'}
+                </Button>
+              </div>
+            </div>
+          </section>
+
           <section className="space-y-3">
             {sectionTitle('页面组件', '也可以直接在这里点选元素，快速定位到标题、公式、表格等内容。')}
             <div className="space-y-2">

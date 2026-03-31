@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { AppCoreNavList } from '@/components/app-core-nav-list';
 import { ChatContactsRail } from '@/components/chat-contacts-rail';
 import { resolveCourseOrchestratorAvatar } from '@/lib/constants/course-chat';
+import { isDashboardRoute } from '@/lib/utils/dashboard-routes';
 
 const scrollClass = cn(
   'min-h-0 flex-1 overflow-y-auto py-2',
@@ -32,6 +33,7 @@ export interface AppLeftRailProps {
 /** 进入这些路由时清空「当前课程」。侧栏「商城」：未选课程 → `/store/courses`（课程商城）；已选课程 → `/store`（笔记本商城） */
 const COURSE_CONTEXT_CLEAR_PREFIXES = [
   '/my-courses',
+  '/store/courses',
   '/profile',
   '/settings',
   '/live2d',
@@ -61,13 +63,13 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
 
   const inCourseContext = Boolean(courseId);
-  const notebookSidebar =
-    inCourseContext || pathname === '/store' || pathname?.startsWith('/store/');
+  /** 与 `isDashboardRoute` 对齐：Dashboard 壳层用浅色玻璃与固定五项导航；课程/课堂/笔记本商城等为 Notebook 工作区 */
+  const notebookSidebar = !isDashboardRoute(pathname);
   const resolvedCourseAvatar = resolveCourseOrchestratorAvatar(courseId, courseAvatarUrl);
   const railAvatarSrc = inCourseContext ? resolvedCourseAvatar : avatar;
   const railTitle = inCourseContext ? courseName : displayName;
   const railHref = inCourseContext ? `/course/${courseId}` : '/';
-  const railTooltip = inCourseContext ? '课程主页' : '首页';
+  const railTooltip = inCourseContext ? 'Dashboard' : '首页';
   const railSurfaceClass = cn(
     'flex h-full flex-col overflow-hidden rounded-[20px] transition-[width,box-shadow,background,border-color] duration-300 ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
     notebookSidebar
@@ -77,7 +79,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
         ]
       : 'apple-glass-heavy',
   );
-  const contextBadge = notebookSidebar ? 'Notebook 工作区' : '课程主页';
+  const contextBadge = notebookSidebar ? 'Notebook 工作区' : 'Dashboard';
 
   const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat/');
 

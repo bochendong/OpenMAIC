@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { Star } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BookOpen,
+  CheckCircle2,
+  LayoutGrid,
+  Star,
+  WandSparkles,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,6 +64,40 @@ type StoreCourseDetailResponse = {
   }>;
 };
 
+function purposeLabel(purpose: string) {
+  if (purpose === 'research') return '科研内容';
+  if (purpose === 'university') return '大学课程';
+  return '日常学习';
+}
+
+function buildHighlights(course: StoreCourseDetailResponse['course']) {
+  const notebookCount = course.notebooks.length;
+  const totalScenes = course.notebooks.reduce((sum, notebook) => sum + notebook._count.scenes, 0);
+
+  return [
+    {
+      title: '完整内容包',
+      description: `包含 ${notebookCount} 本笔记本与 ${totalScenes} 页内容，适合直接复制后开始学习。`,
+    },
+    {
+      title: '适合人群',
+      description:
+        course.purpose === 'research'
+          ? '更适合案例分析、方法拆解与项目推进。'
+          : course.purpose === 'university'
+            ? '更贴近高校课程节奏，适合系统学习与课堂复习。'
+            : '适合日常学习、知识整理与长期积累。',
+    },
+    {
+      title: '学习反馈',
+      description:
+        course.reviewCount > 0
+          ? `当前评分 ${course.averageRating.toFixed(1)}，已有 ${course.reviewCount} 条学习反馈。`
+          : '当前还没有评论，适合成为第一批使用并留下反馈的学习者。',
+    },
+  ];
+}
+
 export default function StoreCourseDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -68,6 +110,7 @@ export default function StoreCourseDetailPage() {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [ownedNotebookMap, setOwnedNotebookMap] = useState<Record<string, string>>({});
+  const [buyingNotebookId, setBuyingNotebookId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -114,6 +157,13 @@ export default function StoreCourseDetailPage() {
     return `¥${(cents / 100).toFixed(2)}`;
   }, [data]);
 
+  const totalScenes = useMemo(
+    () => data?.course.notebooks.reduce((sum, notebook) => sum + notebook._count.scenes, 0) ?? 0,
+    [data],
+  );
+
+  const highlights = useMemo(() => (data ? buildHighlights(data.course) : []), [data]);
+
   const handleBuy = async () => {
     if (!id) return;
     setBuying(true);
@@ -155,6 +205,7 @@ export default function StoreCourseDetailPage() {
   };
 
   const handleBuyNotebook = async (notebookId: string) => {
+    setBuyingNotebookId(notebookId);
     try {
       const response = await backendJson<{ notebook: { id: string; name: string } }>(
         '/api/notebooks/clone',
@@ -168,12 +219,14 @@ export default function StoreCourseDetailPage() {
       router.push(`/classroom/${response.notebook.id}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '购买笔记本失败');
+    } finally {
+      setBuyingNotebookId(null);
     }
   };
 
   if (loading || !data) {
     return (
-      <div className="flex min-h-full items-center justify-center text-muted-foreground">
+      <div className="store-shell flex min-h-full items-center justify-center text-muted-foreground">
         加载课程详情…
       </div>
     );
@@ -182,172 +235,314 @@ export default function StoreCourseDetailPage() {
   const { course, reviews } = data;
 
   return (
-    <div className="relative min-h-full w-full overflow-hidden apple-mesh-bg">
-      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-12 pt-8 md:px-8">
-        <Button variant="ghost" size="sm" className="-ml-2 mb-4 rounded-lg" asChild>
-          <Link href="/store/courses">← 返回课程商城</Link>
+    <div className="store-shell store-grid min-h-full w-full overflow-hidden">
+      <main className="relative z-10 mx-auto w-full max-w-[92rem] px-4 pb-20 pt-8 md:px-8 lg:px-10">
+        <Button variant="ghost" size="sm" className="-ml-2 mb-4 rounded-full px-4" asChild>
+          <Link href="/store/courses">
+            <ArrowLeft className="size-4" />
+            返回课程商城
+          </Link>
         </Button>
 
-        <section className="apple-glass mb-6 rounded-[28px] p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 gap-4">
-              <img
-                src={resolveCourseAvatarDisplayUrl(course.id, course.avatarUrl)}
-                alt=""
-                className="size-20 rounded-2xl border border-slate-200/80 object-cover dark:border-white/15"
-              />
-              <div className="min-w-0">
-                <h1 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                  {course.name}
-                </h1>
-                <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                  {course.description || '这门课程暂时没有补充描述。'}
+        <section className="store-hero-panel overflow-hidden rounded-[40px] px-6 py-8 md:px-10 md:py-10">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.72fr)] lg:items-start">
+            <div className="max-w-3xl">
+              <div className="flex flex-wrap gap-2">
+                <span className="store-chip text-xs">{purposeLabel(course.purpose)}</span>
+                {course.university?.trim() ? (
+                  <span className="store-chip text-xs">{course.university.trim()}</span>
+                ) : null}
+                {course.courseCode?.trim() ? (
+                  <span className="store-chip text-xs">{course.courseCode.trim()}</span>
+                ) : null}
+              </div>
+              <h1 className="mt-5 text-4xl font-semibold tracking-[-0.05em] text-slate-950 md:text-6xl dark:text-white">
+                {course.name}
+              </h1>
+              <p className="mt-5 max-w-2xl text-base leading-8 text-slate-600 md:text-lg dark:text-slate-300">
+                {course.description || '这门课程暂时没有补充描述。'}
+              </p>
+
+              <div className="mt-6 flex flex-wrap gap-3">
+                <span className="store-chip text-sm">{`创作者 · ${course.ownerName}`}</span>
+                <span className="store-chip text-sm">
+                  <Star className="size-4 fill-current" />
+                  {`${course.averageRating.toFixed(1)} · ${course.reviewCount} 条评论`}
+                </span>
+                <span className="store-chip text-sm">
+                  <LayoutGrid className="size-4" />
+                  {`${course.notebooks.length} 本笔记本 · ${totalScenes} 页`}
+                </span>
+              </div>
+            </div>
+
+            <aside className="store-sticky-buy">
+              <div className="store-section-panel rounded-[32px] p-6">
+                <div className="flex items-center gap-4">
+                  <img
+                    src={resolveCourseAvatarDisplayUrl(course.id, course.avatarUrl)}
+                    alt=""
+                    className="size-18 h-[72px] w-[72px] rounded-[22px] border border-white/75 object-cover shadow-[0_16px_36px_rgba(15,23,42,0.1)] dark:border-white/12"
+                  />
+                  <div>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">课程价格</p>
+                    <p className="mt-1 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                      {priceLabel}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-3">
+                  <button
+                    type="button"
+                    className="store-cta-primary w-full rounded-full px-5 py-3 text-sm font-semibold"
+                    disabled={buying || course.purchased}
+                    onClick={() => void handleBuy()}
+                  >
+                    {course.purchased ? '已购买' : buying ? '购买中…' : '购买整门课程'}
+                  </button>
+                  {course.purchased && course.clonedCourseId ? (
+                    <button
+                      type="button"
+                      className="store-cta-secondary w-full rounded-full px-5 py-3 text-sm font-semibold"
+                      onClick={() => router.push(`/course/${course.clonedCourseId}`)}
+                    >
+                      打开我的副本
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="mt-6 space-y-3 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                  <p>购买后会把整门课程和全部笔记本复制到你的个人空间。</p>
+                  <p>如果只想先试一部分内容，也可以在下方按单本 notebook 购买。</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section className="mt-14">
+          <div className="mb-6">
+            <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+              Why It&apos;s Worth It
+            </p>
+            <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+              课程亮点
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+            {highlights.map((highlight) => (
+              <div key={highlight.title} className="store-section-panel rounded-[30px] p-6">
+                <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+                  <WandSparkles className="size-4" />
+                  亮点
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <span className="rounded-full border border-slate-200/80 bg-white/70 px-2.5 py-1 dark:border-white/15 dark:bg-white/5">
-                    创作者 · {course.ownerName}
-                  </span>
-                  <span className="rounded-full border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-950/30 dark:text-emerald-200">
-                    {priceLabel}
-                  </span>
-                  <span className="rounded-full border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 text-amber-700 dark:border-amber-500/25 dark:bg-amber-950/30 dark:text-amber-200">
-                    ★ {course.averageRating.toFixed(1)} · {course.reviewCount} 条评论
-                  </span>
+                <h3 className="mt-3 text-2xl font-semibold tracking-[-0.035em] text-slate-950 dark:text-white">
+                  {highlight.title}
+                </h3>
+                <p className="mt-3 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                  {highlight.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-14 grid gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+          <div className="store-section-panel rounded-[34px] p-6 md:p-8">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+                  Course Contents
+                </p>
+                <h2 className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                  课程内容总览
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="store-chip text-xs">{`${course.notebooks.length} 本笔记本`}</span>
+                <span className="store-chip text-xs">{`${totalScenes} 页内容`}</span>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {course.notebooks.map((notebook, index) => {
+                const ownedNotebookId = ownedNotebookMap[notebook.id] ?? null;
+                const notebookAlreadyOwned = Boolean(notebook.purchased || ownedNotebookId);
+                return (
+                  <div
+                    key={notebook.id}
+                    className="rounded-[28px] border border-white/75 bg-white/70 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)] dark:border-white/10 dark:bg-white/5"
+                  >
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                      <div className="flex gap-4">
+                        <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-white dark:bg-white dark:text-slate-950">
+                          <BookOpen className="size-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium tracking-[0.16em] text-slate-400 uppercase dark:text-slate-500">
+                            {`Notebook ${String(index + 1).padStart(2, '0')}`}
+                          </p>
+                          <h3 className="mt-1 text-xl font-semibold tracking-[-0.025em] text-slate-950 dark:text-white">
+                            {notebook.name}
+                          </h3>
+                          <p className="mt-2 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                            {notebook.description || '该笔记本暂无描述。'}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <span className="store-chip text-xs">{`${notebook._count.scenes} 页`}</span>
+                            <span className="store-chip text-xs">{`单本价格 ¥${(notebook.notebookPriceCents / 100).toFixed(2)}`}</span>
+                            {notebook.tags.slice(0, 3).map((tag) => (
+                              <span key={tag} className="store-chip text-xs">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {notebook.listedInNotebookStore && !course.purchased ? (
+                        notebookAlreadyOwned ? (
+                          <Button size="sm" variant="outline" className="rounded-full" disabled>
+                            已拥有
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="rounded-full"
+                            disabled={buyingNotebookId === notebook.id}
+                            onClick={() => void handleBuyNotebook(notebook.id)}
+                          >
+                            {buyingNotebookId === notebook.id ? '购买中…' : '购买单本'}
+                          </Button>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            <div className="store-section-panel rounded-[34px] p-6">
+              <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+                Snapshot
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-slate-950 dark:text-white">
+                这门课程适合什么场景？
+              </h2>
+              <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                <div className="flex gap-3">
+                  <CheckCircle2 className="mt-1 size-4 shrink-0 text-sky-500" />
+                  <p>如果你想直接复制一整套结构化内容，这是最省时的购买方式。</p>
+                </div>
+                <div className="flex gap-3">
+                  <CheckCircle2 className="mt-1 size-4 shrink-0 text-sky-500" />
+                  <p>购买后可以按自己的课堂节奏继续修改、扩展与重新组织笔记本。</p>
+                </div>
+                <div className="flex gap-3">
+                  <CheckCircle2 className="mt-1 size-4 shrink-0 text-sky-500" />
+                  <p>若只需要局部内容，可以先浏览下方单本购买入口，逐步拼出自己的课程包。</p>
                 </div>
               </div>
             </div>
-            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-              <Button
-                className="rounded-xl"
-                disabled={buying || course.purchased}
-                onClick={() => void handleBuy()}
-              >
-                {course.purchased ? '已购买' : buying ? '购买中…' : '购买课程'}
-              </Button>
-              {course.purchased && course.clonedCourseId ? (
-                <Button variant="outline" className="rounded-xl" asChild>
-                  <Link href={`/course/${course.clonedCourseId}`}>打开我的副本</Link>
-                </Button>
-              ) : null}
+
+            <div className="store-section-panel rounded-[34px] p-6">
+              <p className="text-sm font-medium tracking-[0.16em] text-slate-500 uppercase dark:text-slate-400">
+                Reviews
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-slate-950 dark:text-white">
+                学习者评价
+              </h2>
+
+              {course.purchased ? (
+                <div className="mt-5 space-y-4">
+                  <div className="flex gap-2">
+                    {Array.from({ length: 5 }).map((_, index) => (
+                      <button key={index} type="button" onClick={() => setRating(index + 1)}>
+                        <Star
+                          className={
+                            index < rating
+                              ? 'size-5 fill-amber-400 text-amber-400'
+                              : 'size-5 text-slate-300'
+                          }
+                        />
+                      </button>
+                    ))}
+                  </div>
+                  <Textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    rows={4}
+                    className="rounded-[24px] border-white/70 bg-white/78 dark:border-white/10 dark:bg-white/5"
+                    placeholder="写下你的学习体验、课堂质量、例题是否完整等。"
+                  />
+                  <button
+                    type="button"
+                    className="store-cta-primary rounded-full px-5 py-3 text-sm font-semibold"
+                    disabled={submitting}
+                    onClick={() => void handleReview()}
+                  >
+                    {submitting ? '提交中…' : '提交评论'}
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                  购买课程后可以打分和评论。
+                </p>
+              )}
+
+              <div className="mt-6 space-y-4">
+                {reviews.length === 0 ? (
+                  <p className="text-sm leading-7 text-slate-600 dark:text-slate-300">
+                    还没有评论，欢迎成为第一位评价者。
+                  </p>
+                ) : (
+                  reviews.map((review) => (
+                    <div
+                      key={review.id}
+                      className="rounded-[26px] border border-white/70 bg-white/72 p-4 dark:border-white/10 dark:bg-white/5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-medium text-slate-950 dark:text-white">
+                          {review.reviewerName}
+                        </p>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          {new Date(review.updatedAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-sm text-amber-500">{'★'.repeat(review.rating)}</p>
+                      {review.comment ? (
+                        <p className="mt-2 text-sm leading-7 text-slate-600 dark:text-slate-300">
+                          {review.comment}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-          <div className="rounded-[24px] border border-border/70 bg-card/55 p-6 backdrop-blur-sm">
-            <h2 className="text-lg font-semibold">包含的笔记本</h2>
-            <div className="mt-4 space-y-3">
-              {course.notebooks.map((notebook) =>
-                (() => {
-                  const ownedNotebookId = ownedNotebookMap[notebook.id] ?? null;
-                  const notebookAlreadyOwned = Boolean(notebook.purchased || ownedNotebookId);
-
-                  return (
-                    <div
-                      key={notebook.id}
-                      className="rounded-2xl border border-slate-200/80 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium text-slate-900 dark:text-white">
-                            {notebook.name}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                            {notebook.description || '该笔记本暂无描述。'}
-                          </p>
-                        </div>
-                        <span className="rounded-full border border-slate-200/80 px-2.5 py-1 text-xs dark:border-white/10">
-                          {notebook._count.scenes} 页
-                        </span>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between gap-3">
-                        <div className="text-xs text-muted-foreground">
-                          单本价格 ¥{(notebook.notebookPriceCents / 100).toFixed(2)}
-                        </div>
-                        {notebook.listedInNotebookStore && !course.purchased ? (
-                          notebookAlreadyOwned ? (
-                            <Button size="sm" variant="outline" className="rounded-xl" disabled>
-                              已拥有
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="rounded-xl"
-                              onClick={() => void handleBuyNotebook(notebook.id)}
-                            >
-                              购买单本
-                            </Button>
-                          )
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })(),
-              )}
+        <section className="mt-14">
+          <div className="store-section-panel flex flex-col gap-6 rounded-[36px] px-6 py-7 md:flex-row md:items-center md:justify-between md:px-8">
+            <div>
+              <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Next step</p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">
+                想继续挑选别的课程？返回商城继续逛专题货架。
+              </h2>
             </div>
-          </div>
-
-          <div className="rounded-[24px] border border-border/70 bg-card/55 p-6 backdrop-blur-sm">
-            <h2 className="text-lg font-semibold">评分与评论</h2>
-            {course.purchased ? (
-              <div className="mt-4 space-y-3">
-                <div className="flex gap-2">
-                  {Array.from({ length: 5 }).map((_, index) => (
-                    <button key={index} type="button" onClick={() => setRating(index + 1)}>
-                      <Star
-                        className={
-                          index < rating
-                            ? 'size-5 fill-amber-400 text-amber-400'
-                            : 'size-5 text-slate-300'
-                        }
-                      />
-                    </button>
-                  ))}
-                </div>
-                <Textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  rows={4}
-                  placeholder="写下你的学习体验、课堂质量、例题是否完整等。"
-                />
-                <Button
-                  className="rounded-xl"
-                  disabled={submitting}
-                  onClick={() => void handleReview()}
-                >
-                  {submitting ? '提交中…' : '提交评论'}
-                </Button>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">购买课程后可以打分和评论。</p>
-            )}
-
-            <div className="mt-6 space-y-4">
-              {reviews.length === 0 ? (
-                <p className="text-sm text-muted-foreground">还没有评论，欢迎成为第一位评价者。</p>
-              ) : (
-                reviews.map((review) => (
-                  <div
-                    key={review.id}
-                    className="rounded-2xl border border-slate-200/80 bg-white/70 p-4 dark:border-white/10 dark:bg-white/5"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="font-medium">{review.reviewerName}</p>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(review.updatedAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-amber-500">{'★'.repeat(review.rating)}</p>
-                    {review.comment ? (
-                      <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                        {review.comment}
-                      </p>
-                    ) : null}
-                  </div>
-                ))
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => router.push('/store/courses')}
+              className="store-cta-primary inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold"
+            >
+              返回课程商城
+              <ArrowRight className="size-4" />
+            </button>
           </div>
         </section>
       </main>

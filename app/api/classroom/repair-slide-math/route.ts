@@ -26,6 +26,7 @@ type RepairRequestBody = {
   sceneTitle?: string;
   language?: 'zh-CN' | 'en-US';
   content?: SlideContent;
+  repairInstructions?: string;
 };
 
 type RepairResponsePayload = {
@@ -344,6 +345,7 @@ function buildUserPrompt(args: {
   language: 'zh-CN' | 'en-US';
   semanticDocument: NotebookContentDocument | null;
   content: SlideContent;
+  repairInstructions?: string;
 }): string {
   const elementsSummary = summarizeElements(args.content.canvas.elements);
   const sourceDocument =
@@ -357,6 +359,9 @@ function buildUserPrompt(args: {
   return [
     `Language: ${args.language}`,
     `Current page title: ${args.sceneTitle}`,
+    args.repairInstructions?.trim()
+      ? `Additional repair instructions from the teacher: ${args.repairInstructions.trim()}`
+      : 'Additional repair instructions from the teacher: none',
     '',
     'Current page source document (edit this conservatively and preserve content):',
     JSON.stringify(sourceDocument, null, 2),
@@ -400,6 +405,7 @@ export async function POST(req: NextRequest) {
         language,
         semanticDocument,
         content,
+        repairInstructions: body.repairInstructions,
       });
 
       log.info(`Repairing slide math formatting [model=${modelString}]`);

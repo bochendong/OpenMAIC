@@ -15,6 +15,7 @@ import {
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { isDashboardRoute } from '@/lib/utils/dashboard-routes';
 
 function navItemClass(collapsed: boolean, active: boolean, variant: 'home' | 'notebook') {
   return cn(
@@ -45,6 +46,30 @@ type CoreNavSection = {
   items: CoreNavItem[];
 };
 
+/** 聊天右侧栏扁平列表：课程主页 → Dashboard → 商城，其余项按此表随后 */
+const CHAT_RIGHT_RAIL_KEY_ORDER: Record<string, number> = {
+  'agent-teams': 0,
+  courses: 1,
+  store: 2,
+  chat: 3,
+  notifications: 4,
+  live2d: 5,
+  profile: 6,
+  settings: 7,
+};
+
+function sortChatRightRailItems(items: CoreNavItem[]): CoreNavItem[] {
+  return [...items]
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const oa = CHAT_RIGHT_RAIL_KEY_ORDER[a.item.key] ?? 100;
+      const ob = CHAT_RIGHT_RAIL_KEY_ORDER[b.item.key] ?? 100;
+      if (oa !== ob) return oa - ob;
+      return a.index - b.index;
+    })
+    .map(({ item }) => item);
+}
+
 export interface AppCoreNavListProps {
   collapsed: boolean;
   variant?: 'home' | 'notebook';
@@ -52,16 +77,22 @@ export interface AppCoreNavListProps {
   tooltipSide?: 'left' | 'right';
   /** 点击某项时（在导航之前调用），例如聊天页左侧栏点击「聊天」时展开侧栏 */
   onItemClick?: (key: string) => void;
+  /** 为 false 时不展示分组标题与分组卡片，仅一条连续列表（如聊天右侧栏） */
+  grouped?: boolean;
+  /** 与 grouped=false 联用：聊天右侧栏将入口排为 课程主页 → Dashboard → 商城 → … */
+  chatRightRailOrder?: boolean;
 }
 
 /**
- * 课程主页 / 商城 / Agent teams / 聊天 / 通知 等核心入口，与左侧栏逻辑一致。
+ * Dashboard（/my-courses）/ 商城 / 课程主页（课程内）/ 聊天 / 通知 等核心入口，与左侧栏逻辑一致。
  */
 export function AppCoreNavList({
   collapsed,
   variant = 'home',
   tooltipSide = 'right',
   onItemClick,
+  grouped = true,
+  chatRightRailOrder = false,
 }: AppCoreNavListProps) {
   const pathname = usePathname();
   const courseId = useCurrentCourseStore((s) => s.id);
@@ -83,59 +114,54 @@ export function AppCoreNavList({
   const live2dActive = pathname === '/live2d' || pathname?.startsWith('/live2d/');
   const profileActive = pathname === '/profile' || pathname?.startsWith('/profile/');
   const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
-  const isCourseHomeSidebar = pathname === '/my-courses';
 
-  const coreNavSections: CoreNavSection[] = [
+  const courseStoreActive =
+    pathname === '/store/courses' || pathname?.startsWith('/store/courses/');
+
+  /** Dashboard 壳层：固定五项，课程商城始终链到 `/store/courses`，并始终显示「个人中心」 */
+  const dashboardNavSections: CoreNavSection[] = [
     {
       key: 'workspace',
-      label: inCourseContext ? '当前工作区' : '开始使用',
+      label: '开始使用',
       items: [
         {
           key: 'courses',
           href: '/my-courses',
-          label: '课程主页',
+          label: 'Dashboard',
+          tooltip: 'Dashboard',
           icon: BookOpen,
           active: pathname === '/my-courses',
         },
         {
           key: 'store',
-          href: storeHref,
-          label: storeLabel,
-          tooltip: inCourseContext ? '笔记本商城' : '课程商城',
+          href: '/store/courses',
+          label: '课程商城',
+          tooltip: '课程商城',
           icon: ShoppingBag,
-          active: storeActive,
+          active: courseStoreActive,
         },
-        /** 进入某门课程后隐藏：讲师形象在课堂内调整即可，避免侧栏过长 */
-        ...(!inCourseContext
-          ? ([
-              {
-                key: 'live2d',
-                href: '/live2d',
-                label: '虚拟讲师',
-                tooltip: '选择虚拟讲师形象',
-                icon: Sparkles,
-                active: live2dActive,
-              },
-            ] satisfies CoreNavItem[])
-          : []),
+        {
+          key: 'live2d',
+          href: '/live2d',
+          label: '虚拟讲师',
+          tooltip: '选择虚拟讲师形象',
+          icon: Sparkles,
+          active: live2dActive,
+        },
       ],
     },
     {
       key: 'personal',
       label: '个人与系统',
       items: [
-        ...(isCourseHomeSidebar
-          ? ([
-              {
-                key: 'profile',
-                href: '/profile',
-                label: '个人中心',
-                tooltip: '个人中心',
-                icon: UserRound,
-                active: profileActive,
-              },
-            ] satisfies CoreNavItem[])
-          : []),
+        {
+          key: 'profile',
+          href: '/profile',
+          label: '个人中心',
+          tooltip: '个人中心',
+          icon: UserRound,
+          active: profileActive,
+        },
         {
           key: 'settings',
           href: '/settings',
@@ -146,40 +172,115 @@ export function AppCoreNavList({
         },
       ],
     },
-    {
-      key: 'course-tools',
-      label: '课程内协作',
-      items: inCourseContext
-        ? [
+  ];
+
+  const coreNavSections: CoreNavSection[] = isDashboardRoute(pathname)
+    ? dashboardNavSections
+    : [
+        {
+          key: 'workspace',
+          label: inCourseContext ? '当前工作区' : '开始使用',
+          items: [
             {
-              key: 'agent-teams',
-              href: agentTeamsHref,
-              label: 'Agent teams',
-              icon: UsersRound,
-              active: agentTeamsActive,
+              key: 'courses',
+              href: '/my-courses',
+              label: 'Dashboard',
+              tooltip: 'Dashboard',
+              icon: BookOpen,
+              active: pathname === '/my-courses',
             },
-            ...(isChatPage
-              ? []
-              : ([
+            {
+              key: 'store',
+              href: storeHref,
+              label: storeLabel,
+              tooltip: inCourseContext ? '笔记本商城' : '课程商城',
+              icon: ShoppingBag,
+              active: storeActive,
+            },
+            /** 进入某门课程后隐藏：讲师形象在课堂内调整即可，避免侧栏过长 */
+            ...(!inCourseContext
+              ? ([
                   {
-                    key: 'chat',
-                    href: '/chat',
-                    label: '聊天',
-                    icon: MessageCircle,
-                    active: false,
+                    key: 'live2d',
+                    href: '/live2d',
+                    label: '虚拟讲师',
+                    tooltip: '选择虚拟讲师形象',
+                    icon: Sparkles,
+                    active: live2dActive,
                   },
-                ] satisfies CoreNavItem[])),
-            {
-              key: 'notifications',
-              href: '/notifications',
-              label: '通知',
-              icon: Bell,
-              active: pathname === '/notifications' || pathname?.startsWith('/notifications/'),
-            },
-          ]
-        : [],
-    },
-  ].filter((section) => section.items.length > 0);
+                ] satisfies CoreNavItem[])
+              : []),
+          ],
+        },
+        {
+          key: 'course-tools',
+          label: '课程内协作',
+          items: inCourseContext
+            ? [
+                {
+                  key: 'agent-teams',
+                  href: agentTeamsHref,
+                  label: '课程主页',
+                  tooltip: '课程主页',
+                  icon: UsersRound,
+                  active: agentTeamsActive,
+                },
+                ...(isChatPage
+                  ? []
+                  : ([
+                      {
+                        key: 'chat',
+                        href: '/chat',
+                        label: '聊天',
+                        icon: MessageCircle,
+                        active: false,
+                      },
+                    ] satisfies CoreNavItem[])),
+                {
+                  key: 'notifications',
+                  href: '/notifications',
+                  label: '通知',
+                  icon: Bell,
+                  active: pathname === '/notifications' || pathname?.startsWith('/notifications/'),
+                },
+              ]
+            : [],
+        },
+      ].filter((section) => section.items.length > 0);
+
+  const renderItem = (item: CoreNavItem) => {
+    const Icon = item.icon;
+    return (
+      <li key={item.key}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              href={item.href}
+              className={navItemClass(collapsed, item.active, variant)}
+              aria-current={item.active ? 'page' : undefined}
+              onClick={() => onItemClick?.(item.key)}
+            >
+              <Icon className="size-[18px] shrink-0 opacity-80" strokeWidth={1.75} />
+              {!collapsed && <span className="truncate">{item.label}</span>}
+            </Link>
+          </TooltipTrigger>
+          {collapsed && (
+            <TooltipContent side={tooltipSide}>{item.tooltip ?? item.label}</TooltipContent>
+          )}
+        </Tooltip>
+      </li>
+    );
+  };
+
+  if (!grouped) {
+    const rawFlat = coreNavSections.flatMap((s) => s.items);
+    const flatItems = chatRightRailOrder ? sortChatRightRailItems(rawFlat) : rawFlat;
+    return (
+      <div className="flex flex-col p-0">
+        <ul className="flex flex-col gap-0.5 p-0">{flatItems.map(renderItem)}</ul>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3 p-0">
@@ -198,33 +299,7 @@ export function AppCoreNavList({
               {section.label}
             </div>
           ) : null}
-          <ul className="flex flex-col gap-0.5 p-0">
-            {section.items.map((item) => {
-              const Icon = item.icon;
-              return (
-                <li key={item.key}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Link
-                        href={item.href}
-                        className={navItemClass(collapsed, item.active, variant)}
-                        aria-current={item.active ? 'page' : undefined}
-                        onClick={() => onItemClick?.(item.key)}
-                      >
-                        <Icon className="size-[18px] shrink-0 opacity-80" strokeWidth={1.75} />
-                        {!collapsed && <span className="truncate">{item.label}</span>}
-                      </Link>
-                    </TooltipTrigger>
-                    {collapsed && (
-                      <TooltipContent side={tooltipSide}>
-                        {item.tooltip ?? item.label}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                </li>
-              );
-            })}
-          </ul>
+          <ul className="flex flex-col gap-0.5 p-0">{section.items.map(renderItem)}</ul>
         </div>
       ))}
     </div>

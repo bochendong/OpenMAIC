@@ -701,7 +701,12 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
                 </li>
               </ul>
               <div className="border-t border-slate-900/[0.08] pt-2 dark:border-white/[0.08]">
-                <AppCoreNavList collapsed tooltipSide="left" />
+                <AppCoreNavList
+                  collapsed
+                  tooltipSide="left"
+                  grouped={false}
+                  chatRightRailOrder
+                />
               </div>
             </div>
           </nav>
@@ -787,7 +792,12 @@ export function ChatRightRail({ collapsed, onCollapsedChange }: ChatRightRailPro
             </Tabs>
             {railTab !== 'generate-options' ? (
               <div className="shrink-0 border-t border-slate-900/[0.08] px-2 py-2 dark:border-white/[0.08]">
-                <AppCoreNavList collapsed={false} tooltipSide="left" />
+                <AppCoreNavList
+                  collapsed={false}
+                  tooltipSide="left"
+                  grouped={false}
+                  chatRightRailOrder
+                />
               </div>
             ) : null}
           </>

@@ -40,7 +40,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
-import { AlertTriangle, Loader2, Sparkles, SquarePen } from 'lucide-react';
+import { AlertTriangle, Sparkles, SquarePen } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -180,6 +180,9 @@ export function Stage({
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
+  const [repairInstructions, setRepairInstructions] = useState('');
+  const [pendingRepairSidebarFocus, setPendingRepairSidebarFocus] = useState(false);
+  const [repairSidebarFocusNonce, setRepairSidebarFocusNonce] = useState(0);
   const [mathRepairPending, setMathRepairPending] = useState(false);
   const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
 
@@ -963,6 +966,7 @@ export function Stage({
           sceneTitle: currentScene.title,
           language: (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN',
           content: currentScene.content,
+          repairInstructions: repairInstructions.trim() || undefined,
         }),
       });
 
@@ -991,13 +995,19 @@ export function Stage({
         repairSnapshot,
         updatedAt: Date.now(),
       });
-      toast.success('当前页的数学符号已修复');
+      toast.success('当前页已按你的要求完成 AI 修复');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'AI 修复失败');
     } finally {
       setMathRepairPending(false);
     }
-  }, [currentScene, mathRepairPending, stageLanguage, updateScene]);
+  }, [currentScene, mathRepairPending, repairInstructions, stageLanguage, updateScene]);
+
+  useEffect(() => {
+    if (!pendingRepairSidebarFocus || !slideEditorOpen || slideEditTab !== 'canvas') return;
+    setRepairSidebarFocusNonce((current) => current + 1);
+    setPendingRepairSidebarFocus(false);
+  }, [pendingRepairSidebarFocus, slideEditorOpen, slideEditTab]);
 
   const handleRestorePreRepairSlide = useCallback(() => {
     if (
@@ -1229,6 +1239,18 @@ export function Stage({
     currentScene?.type === 'slide' &&
     currentScene.content.type === 'slide' &&
     Boolean(currentScene.repairSnapshot);
+  const openRepairSidebar = useCallback(() => {
+    if (!canRepairCurrentSlide) return;
+
+    if (slideEditorOpen) {
+      setSlideEditTab('canvas');
+      setRepairSidebarFocusNonce((current) => current + 1);
+      return;
+    }
+
+    setPendingRepairSidebarFocus(true);
+    handleOpenSlideEditor();
+  }, [canRepairCurrentSlide, handleOpenSlideEditor, slideEditorOpen]);
 
   const titleActions =
     canEditCurrentSlide || slideEditorOpen || canRepairCurrentSlide || canRestoreCurrentSlide ? (
@@ -1251,20 +1273,15 @@ export function Stage({
         {canRepairCurrentSlide ? (
           <button
             type="button"
-            onClick={() => void handleRepairCurrentSlideMath()}
-            disabled={mathRepairPending}
+            onClick={openRepairSidebar}
             className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-70',
+              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
               'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-200 dark:hover:bg-sky-950/55',
             )}
-            title="用 AI 修复当前页的数学符号与公式格式"
+            title="打开右侧栏，输入你希望 AI 修复的内容"
           >
-            {mathRepairPending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
-              <Sparkles className="size-3.5" />
-            )}
-            {mathRepairPending ? '正在修复' : 'AI 一键修复'}
+            <Sparkles className="size-3.5" />
+            AI 修复
           </button>
         ) : null}
 
@@ -1376,6 +1393,11 @@ export function Stage({
             <ClassroomSlideCanvasEditor
               currentScene={currentScene}
               currentSceneIndex={currentSceneIndex}
+              repairInstructions={repairInstructions}
+              onRepairInstructionsChange={setRepairInstructions}
+              onRepairCurrentSlide={() => void handleRepairCurrentSlideMath()}
+              repairPending={mathRepairPending}
+              repairInputFocusNonce={repairSidebarFocusNonce}
             />
           ) : (
             <CanvasArea

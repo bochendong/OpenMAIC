@@ -9,11 +9,21 @@ import { SlideElementInspector } from '@/components/stage/slide-element-inspecto
 interface ClassroomSlideCanvasEditorProps {
   readonly currentScene: Scene;
   readonly currentSceneIndex: number;
+  readonly repairInstructions: string;
+  readonly onRepairInstructionsChange: (value: string) => void;
+  readonly onRepairCurrentSlide: () => void;
+  readonly repairPending: boolean;
+  readonly repairInputFocusNonce: number;
 }
 
 export function ClassroomSlideCanvasEditor({
   currentSceneIndex,
   currentScene: _currentScene,
+  repairInstructions,
+  onRepairInstructionsChange,
+  onRepairCurrentSlide,
+  repairPending,
+  repairInputFocusNonce,
 }: ClassroomSlideCanvasEditorProps) {
   return (
     <div
@@ -34,7 +44,13 @@ export function ClassroomSlideCanvasEditor({
             </div>
           </div>
 
-          <SlideElementInspector />
+          <SlideElementInspector
+            repairInstructions={repairInstructions}
+            onRepairInstructionsChange={onRepairInstructionsChange}
+            onRepairCurrentSlide={onRepairCurrentSlide}
+            repairPending={repairPending}
+            repairInputFocusNonce={repairInputFocusNonce}
+          />
         </div>
       </SceneProvider>
     </div>

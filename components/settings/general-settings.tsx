@@ -25,7 +25,6 @@ import {
   getStoredApplyNotebookWrites,
   setStoredApplyNotebookWrites,
 } from '@/lib/utils/notebook-write-preference';
-import { UserProfileCard } from '@/components/user-profile';
 import { useAuthStore } from '@/lib/store/auth';
 import { useAuthSignOut } from '@/lib/hooks/use-auth-sign-out';
 
@@ -81,30 +80,23 @@ export function GeneralSettings() {
 
   return (
     <div className="flex flex-col gap-8">
-      <div className="space-y-2">
-        <h3 className="text-sm font-semibold tracking-tight text-foreground">
-          {t('profile.title')}
-        </h3>
-        <p className="text-xs text-muted-foreground">{t('profile.avatarHint')}</p>
-        <UserProfileCard />
-        {isLoggedIn ? (
-          <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t('auth.signOut')}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{t('auth.signOutDesc')}</p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 w-full sm:w-auto"
-              onClick={() => void signOutAndRedirect()}
-            >
-              <LogOut className="size-4 shrink-0" strokeWidth={1.75} />
-              {t('auth.signOut')}
-            </Button>
+      {isLoggedIn ? (
+        <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">{t('auth.signOut')}</p>
+            <p className="text-xs text-muted-foreground leading-relaxed">{t('auth.signOutDesc')}</p>
           </div>
-        ) : null}
-      </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="gap-2 w-full sm:w-auto"
+            onClick={() => void signOutAndRedirect()}
+          >
+            <LogOut className="size-4 shrink-0" strokeWidth={1.75} />
+            {t('auth.signOut')}
+          </Button>
+        </div>
+      ) : null}
 
       <div className="rounded-xl border border-border/80 bg-card/50 p-5 space-y-6">
         <div className="space-y-3">
