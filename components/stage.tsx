@@ -54,6 +54,7 @@ const SHOW_CLASSROOM_ROUNDTABLE = false;
 const RAW_DATA_BASE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive'];
 type SpeechCadence = 'idle' | 'active' | 'pause' | 'fallback';
 type SlideEditTab = 'canvas' | 'narration';
+type SlideEditorSidebarTab = 'ai' | 'manual';
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
   const key = `stage.sceneType.${type}`;
@@ -179,6 +180,8 @@ export function Stage({
   /** 课堂内当前页编辑模式：页面布局 / 讲解稿 */
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
+  const [slideEditorSidebarTab, setSlideEditorSidebarTab] =
+    useState<SlideEditorSidebarTab>('manual');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
   const [repairInstructions, setRepairInstructions] = useState('');
   const [pendingRepairSidebarFocus, setPendingRepairSidebarFocus] = useState(false);
@@ -928,6 +931,7 @@ export function Stage({
   const handleCloseSlideEditor = useCallback(() => {
     setSlideEditorOpen(false);
     setSlideEditTab('canvas');
+    setSlideEditorSidebarTab('manual');
     setWhiteboardOpen(false);
   }, [setWhiteboardOpen]);
 
@@ -1005,9 +1009,10 @@ export function Stage({
 
   useEffect(() => {
     if (!pendingRepairSidebarFocus || !slideEditorOpen || slideEditTab !== 'canvas') return;
+    setSlideEditorSidebarTab('ai');
     setRepairSidebarFocusNonce((current) => current + 1);
     setPendingRepairSidebarFocus(false);
-  }, [pendingRepairSidebarFocus, slideEditorOpen, slideEditTab]);
+  }, [pendingRepairSidebarFocus, slideEditTab, slideEditorOpen]);
 
   const handleRestorePreRepairSlide = useCallback(() => {
     if (
@@ -1244,6 +1249,7 @@ export function Stage({
 
     if (slideEditorOpen) {
       setSlideEditTab('canvas');
+      setSlideEditorSidebarTab('ai');
       setRepairSidebarFocusNonce((current) => current + 1);
       return;
     }
@@ -1393,11 +1399,14 @@ export function Stage({
             <ClassroomSlideCanvasEditor
               currentScene={currentScene}
               currentSceneIndex={currentSceneIndex}
+              activeSidebarTab={slideEditorSidebarTab}
+              onActiveSidebarTabChange={setSlideEditorSidebarTab}
               repairInstructions={repairInstructions}
               onRepairInstructionsChange={setRepairInstructions}
               onRepairCurrentSlide={() => void handleRepairCurrentSlideMath()}
               repairPending={mathRepairPending}
               repairInputFocusNonce={repairSidebarFocusNonce}
+              onCloseInspector={handleCloseSlideEditor}
             />
           ) : (
             <CanvasArea

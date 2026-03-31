@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { ProsemirrorEditor } from '@/components/slide-renderer/components/element/ProsemirrorEditor';
 import { useSceneSelector } from '@/lib/contexts/scene-context';
@@ -26,7 +27,7 @@ import type {
   PPTLatexElement,
 } from '@/lib/types/slides';
 import { cn } from '@/lib/utils';
-import { Loader2, Sparkles } from 'lucide-react';
+import { Loader2, Sparkles, X } from 'lucide-react';
 
 function sectionTitle(title: string, description?: string) {
   return (
@@ -74,40 +75,87 @@ function getElementDisplayName(element: PPTElement, index: number): string {
   return `${getElementTypeLabel(element.type)} ${index + 1}`;
 }
 
+const COMMON_COLOR_SWATCHES = [
+  '#0f172a',
+  '#334155',
+  '#64748b',
+  '#ffffff',
+  '#eff6ff',
+  '#dbeafe',
+  '#bfdbfe',
+  '#93c5fd',
+  '#d1fae5',
+  '#86efac',
+  '#fef3c7',
+  '#fdba74',
+  '#fecaca',
+  '#f9a8d4',
+  '#ddd6fe',
+  '#c4b5fd',
+] as const;
+
 function colorInput(value: string | undefined, onChange: (next: string) => void) {
   return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={value && /^#([0-9a-f]{3}){1,2}$/i.test(value) ? value : '#000000'}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 w-12 cursor-pointer rounded-md border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/[0.04]"
-      />
-      <Input value={value || ''} onChange={(e) => onChange(e.target.value)} />
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value && /^#([0-9a-f]{3}){1,2}$/i.test(value) ? value : '#000000'}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-9 w-12 cursor-pointer rounded-md border border-slate-200 bg-white p-1 dark:border-white/10 dark:bg-white/[0.04]"
+        />
+        <Input value={value || ''} onChange={(e) => onChange(e.target.value)} />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {COMMON_COLOR_SWATCHES.map((color) => {
+          const isActive = value?.toLowerCase() === color.toLowerCase();
+          return (
+            <button
+              key={color}
+              type="button"
+              onClick={() => onChange(color)}
+              className={cn(
+                'h-6 w-6 rounded-full border transition-all',
+                isActive
+                  ? 'scale-110 border-slate-900 shadow-[0_0_0_2px_rgba(15,23,42,0.12)] dark:border-white'
+                  : 'border-slate-200 hover:scale-105 dark:border-white/10',
+              )}
+              style={{ backgroundColor: color }}
+              title={color}
+              aria-label={`使用颜色 ${color}`}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 interface SlideElementInspectorProps {
   readonly className?: string;
+  readonly activeTab: 'ai' | 'manual';
+  readonly onActiveTabChange: (value: 'ai' | 'manual') => void;
   readonly repairInstructions: string;
   readonly onRepairInstructionsChange: (value: string) => void;
   readonly onRepairCurrentSlide: () => void;
   readonly repairPending: boolean;
   readonly repairInputFocusNonce?: number;
+  readonly onClose?: () => void;
 }
 
 export function SlideElementInspector({
   className,
+  activeTab,
+  onActiveTabChange,
   repairInstructions,
   onRepairInstructionsChange,
   onRepairCurrentSlide,
   repairPending,
   repairInputFocusNonce = 0,
+  onClose,
 }: SlideElementInspectorProps) {
   const elements = useSceneSelector<SlideContent, PPTElement[]>((content) => content.canvas.elements);
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
-  const setActiveElementIdList = useCanvasStore.use.setActiveElementIdList();
   const { updateElement } = useCanvasOperations();
   const { addHistorySnapshot } = useHistorySnapshot();
   const repairInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -621,122 +669,113 @@ export function SlideElementInspector({
       )}
     >
       <div className="border-b border-slate-900/[0.06] px-4 py-4 dark:border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">页面编辑区</h2>
-          <Badge variant="secondary" className="text-[10px]">
-            {elements.length} 个组件
-          </Badge>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">页面编辑区</h2>
+              <Badge variant="secondary" className="text-[10px]">
+                {elements.length} 个组件
+              </Badge>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+              点击左侧 slide 上的组件，右侧会切到对应属性。当前以单元素内容编辑为主。
+            </p>
+          </div>
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-0.5 shrink-0 rounded-[10px] p-1.5 text-slate-500 transition-colors hover:bg-slate-900/[0.06] hover:text-slate-900 dark:text-slate-400 dark:hover:bg-white/[0.08] dark:hover:text-slate-100"
+              aria-label="关闭编辑"
+            >
+              <X className="size-4" strokeWidth={2} />
+            </button>
+          ) : null}
         </div>
-        <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-          点击左侧 slide 上的组件，右侧会切到对应属性。当前以单元素内容编辑为主。
-        </p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="space-y-6 px-4 py-4">
-          <section className="space-y-3">
-            {sectionTitle('AI 修复', '先描述你希望修什么，再让 AI 针对这一页执行修复。')}
-            <div className="rounded-2xl border border-sky-200/80 bg-sky-50/80 p-3 dark:border-sky-500/20 dark:bg-sky-950/20">
-              <div className="space-y-1.5">
-                {fieldLabel('修复要求')}
-                <Textarea
-                  ref={repairInputRef}
-                  value={repairInstructions}
-                  onChange={(e) => onRepairInstructionsChange(e.target.value)}
-                  placeholder="例如：只修公式和上下标，不要改正文；把群论符号统一成 LaTeX。"
-                  className="min-h-[112px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
-                />
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                  不填也可以，AI 会按默认规则修复数学符号和公式格式。
-                </p>
-                <Button
-                  type="button"
-                  onClick={onRepairCurrentSlide}
-                  disabled={repairPending}
-                  className="shrink-0 rounded-full px-4"
-                >
-                  {repairPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="size-4" />
-                  )}
-                  {repairPending ? '正在修复' : '开始修复'}
-                </Button>
-              </div>
-            </div>
-          </section>
+          <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as 'ai' | 'manual')}>
+            <TabsList className="grid w-full grid-cols-2 rounded-xl bg-slate-100/90 dark:bg-white/[0.06]">
+              <TabsTrigger value="ai">AI 修复</TabsTrigger>
+              <TabsTrigger value="manual">手动修复</TabsTrigger>
+            </TabsList>
 
-          <section className="space-y-3">
-            {sectionTitle('页面组件', '也可以直接在这里点选元素，快速定位到标题、公式、表格等内容。')}
-            <div className="space-y-2">
-              {elements.map((element, index) => {
-                const isActive = activeElementIdList.includes(element.id);
-                return (
-                  <button
-                    key={element.id}
-                    type="button"
-                    onClick={() => setActiveElementIdList([element.id])}
-                    className={cn(
-                      'flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition-colors',
-                      isActive
-                        ? 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-100'
-                        : 'border-slate-200 bg-white/80 text-slate-700 hover:border-slate-300 hover:bg-white dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-200 dark:hover:border-white/20 dark:hover:bg-white/[0.05]',
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">
-                        {getElementDisplayName(element, index)}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
-                        {getElementTypeLabel(element.type)}
-                      </div>
-                    </div>
-                    {isActive ? <Badge className="ml-3 text-[10px]">已选中</Badge> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            {selectedElement ? (
-              <>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      {getElementDisplayName(
-                        selectedElement,
-                        elements.findIndex((item) => item.id === selectedElement.id),
-                      )}
-                    </h3>
-                    <Badge variant="outline" className="text-[10px]">
-                      {getElementTypeLabel(selectedElement.type)}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    当前选中了 1 个组件。内容修改会直接同步到左侧页面。
+            <TabsContent value="ai" className="mt-4 space-y-3">
+              {sectionTitle('AI 修复', '先描述你希望修什么，再让 AI 针对这一页执行修复。')}
+              <div className="rounded-2xl border border-sky-200/80 bg-sky-50/80 p-3 dark:border-sky-500/20 dark:bg-sky-950/20">
+                <div className="space-y-1.5">
+                  {fieldLabel('修复要求')}
+                  <Textarea
+                    ref={repairInputRef}
+                    value={repairInstructions}
+                    onChange={(e) => onRepairInstructionsChange(e.target.value)}
+                    placeholder="例如：只修公式和上下标，不要改正文；把群论符号统一成 LaTeX。"
+                    className="min-h-[112px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
+                  />
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                    不填也可以，AI 会按默认规则修复数学符号和公式格式。
                   </p>
+                  <Button
+                    type="button"
+                    onClick={onRepairCurrentSlide}
+                    disabled={repairPending}
+                    className="shrink-0 rounded-full px-4"
+                  >
+                    {repairPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-4" />
+                    )}
+                    {repairPending ? '正在修复' : '开始修复'}
+                  </Button>
                 </div>
-
-                <div className="space-y-3">
-                  {sectionTitle('基础布局')}
-                  {renderCommonGeometry(selectedElement)}
-                </div>
-
-                {renderElementEditor(selectedElement)}
-              </>
-            ) : selectedElements.length > 1 ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                当前选中了 {selectedElements.length} 个组件。右侧暂时先支持单个组件的内容与属性编辑，请在左侧画布里单选一个元素。
               </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
-                还没有选中组件。可以直接点左侧 slide 上的标题、正文、公式、表格等元素，右侧就会出现对应的编辑项。
-              </div>
-            )}
-          </section>
+            </TabsContent>
+
+            <TabsContent value="manual" className="mt-4 space-y-6">
+              <section className="space-y-4">
+                {selectedElement ? (
+                  <>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {getElementDisplayName(
+                            selectedElement,
+                            elements.findIndex((item) => item.id === selectedElement.id),
+                          )}
+                        </h3>
+                        <Badge variant="outline" className="text-[10px]">
+                          {getElementTypeLabel(selectedElement.type)}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        当前选中了 1 个组件。内容修改会直接同步到左侧页面。
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      {sectionTitle('基础布局')}
+                      {renderCommonGeometry(selectedElement)}
+                    </div>
+
+                    {renderElementEditor(selectedElement)}
+                  </>
+                ) : selectedElements.length > 1 ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                    当前选中了 {selectedElements.length} 个组件。右侧暂时先支持单个组件的内容与属性编辑，请在左侧画布里单选一个元素。
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
+                    还没有选中组件。可以直接点左侧 slide 上的标题、正文、公式、表格等元素，右侧就会出现对应的编辑项。
+                  </div>
+                )}
+              </section>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </aside>

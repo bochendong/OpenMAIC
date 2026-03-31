@@ -24,6 +24,7 @@ import { useExportPPTX } from '@/lib/export/use-export-pptx';
 import { useSettingsStore } from '@/lib/store/settings';
 import { getActiveVoiceDisplay } from '@/lib/audio/voice-display';
 import { getSceneSpeechTtsBanner } from '@/lib/audio/speech-audio-readiness';
+import { renderPlainTitleWithOptionalLatex } from '@/lib/render-html-with-latex';
 
 interface HeaderProps {
   readonly currentSceneTitle: string;
@@ -141,6 +142,11 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
         ? `${t('stage.ttsSpeechPendingBannerTooltip')}（${speechTtsBanner.ready}/${speechTtsBanner.total}）`
         : `${t('stage.ttsSpeechPendingBannerTooltip')} (${speechTtsBanner.ready}/${speechTtsBanner.total})`
       : '';
+
+  const headerTitleHtml = useMemo(
+    () => renderPlainTitleWithOptionalLatex(currentSceneTitle || t('common.loading')),
+    [currentSceneTitle, t],
+  );
 
   const metaChipsRow = (
     <TooltipProvider delayDuration={250}>
@@ -268,11 +274,13 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
           </button>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h1
-              className="truncate text-xl font-bold tracking-tight text-[#1d1d1f] dark:text-white"
+              className={cn(
+                'truncate text-xl font-bold tracking-tight text-[#1d1d1f] dark:text-white',
+                '[&_.katex]:text-[inherit] [&_.katex]:font-bold',
+              )}
               suppressHydrationWarning
-            >
-              {currentSceneTitle || t('common.loading')}
-            </h1>
+              dangerouslySetInnerHTML={{ __html: headerTitleHtml }}
+            />
             <div className="min-w-0">{metaChipsRow}</div>
           </div>
           {titleActions ? <div className="shrink-0">{titleActions}</div> : null}

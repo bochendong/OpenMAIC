@@ -17,6 +17,15 @@ const CANVAS_HEIGHT = 562.5;
 const CONTENT_LEFT = 64;
 const CONTENT_WIDTH = 872;
 const CONTENT_BOTTOM = 522;
+const CARD_INSET_X = 18;
+const CARD_INSET_Y = 12;
+
+const CONTENT_CARD_PALETTES = [
+  { fill: '#eef4ff', border: '#c7d7fe', accent: '#4f46e5' },
+  { fill: '#ecfeff', border: '#bae6fd', accent: '#0891b2' },
+  { fill: '#f8f5ff', border: '#d8b4fe', accent: '#7c3aed' },
+  { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' },
+] as const;
 
 function escapeHtml(text: string): string {
   return text
@@ -91,6 +100,30 @@ function createRectShape(args: {
         }
       : undefined,
   };
+}
+
+function createContentCardShell(args: {
+  top: number;
+  height: number;
+  tone: (typeof CONTENT_CARD_PALETTES)[number];
+}): PPTElement[] {
+  return [
+    createRectShape({
+      left: CONTENT_LEFT,
+      top: args.top,
+      width: CONTENT_WIDTH,
+      height: args.height,
+      fill: args.tone.fill,
+      outlineColor: args.tone.border,
+    }),
+    createRectShape({
+      left: CONTENT_LEFT,
+      top: args.top,
+      width: 8,
+      height: args.height,
+      fill: args.tone.accent,
+    }),
+  ];
 }
 
 function createLatexElement(args: {
@@ -274,10 +307,17 @@ export function renderNotebookContentDocumentToSlide(args: {
   const elements: PPTElement[] = [];
 
   elements.push(
-    createTextElement({
+    createRectShape({
       left: CONTENT_LEFT,
+      top: 52,
+      width: 10,
+      height: 38,
+      fill: '#4f46e5',
+    }),
+    createTextElement({
+      left: CONTENT_LEFT + 22,
       top: 48,
-      width: CONTENT_WIDTH,
+      width: CONTENT_WIDTH - 22,
       height: 52,
       html: `<p style="font-size:30px;"><strong>${escapeHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
       color: '#0f172a',
@@ -286,6 +326,7 @@ export function renderNotebookContentDocumentToSlide(args: {
   );
 
   let cursorTop = 116;
+  let visualBlockIndex = 0;
   for (const block of blocks) {
     if (cursorTop >= CONTENT_BOTTOM) break;
 
@@ -307,13 +348,16 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
 
     if (block.type === 'paragraph') {
-      const height = estimateParagraphHeight(block.text, 36, 22);
+      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const contentHeight = estimateParagraphHeight(block.text, 34, 22);
+      const cardHeight = contentHeight + CARD_INSET_Y * 2;
+      elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
         createTextElement({
-          left: CONTENT_LEFT,
-          top: cursorTop,
-          width: CONTENT_WIDTH,
-          height,
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: contentHeight,
           html: block.text
             .split('\n')
             .map((line) => `<p style="font-size:16px;color:#334155;">${escapeHtml(line)}</p>`)
@@ -322,21 +366,25 @@ export function renderNotebookContentDocumentToSlide(args: {
           textType: 'content',
         }),
       );
-      cursorTop += height + 10;
+      cursorTop += cardHeight + 10;
+      visualBlockIndex += 1;
       continue;
     }
 
     if (block.type === 'bullet_list') {
-      const height = Math.min(
+      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const contentHeight = Math.min(
         180,
         Math.max(56, block.items.reduce((sum, item) => sum + estimateParagraphHeight(item, 34, 20), 0)),
       );
+      const cardHeight = contentHeight + CARD_INSET_Y * 2;
+      elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
         createTextElement({
-          left: CONTENT_LEFT,
-          top: cursorTop,
-          width: CONTENT_WIDTH,
-          height,
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: contentHeight,
           html: block.items
             .map((item) => `<p style="font-size:16px;color:#334155;">• ${escapeHtml(item)}</p>`)
             .join(''),
@@ -344,37 +392,41 @@ export function renderNotebookContentDocumentToSlide(args: {
           textType: 'content',
         }),
       );
-      cursorTop += height + 10;
+      cursorTop += cardHeight + 10;
+      visualBlockIndex += 1;
       continue;
     }
 
     if (block.type === 'equation') {
-      const height = block.display ? 64 : 42;
+      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const contentHeight = block.display ? 64 : 42;
+      const cardHeight = contentHeight + CARD_INSET_Y * 2 + (block.caption ? 22 : 0);
+      elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
         createLatexElement({
           latex: block.latex,
-          left: CONTENT_LEFT,
-          top: cursorTop,
-          width: CONTENT_WIDTH,
-          height,
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: contentHeight,
           align: 'left',
         }),
       );
-      cursorTop += height + (block.caption ? 6 : 10);
       if (block.caption) {
         elements.push(
           createTextElement({
-            left: CONTENT_LEFT,
-            top: cursorTop - 2,
-            width: CONTENT_WIDTH,
+            left: CONTENT_LEFT + CARD_INSET_X + 8,
+            top: cursorTop + CARD_INSET_Y + contentHeight + 2,
+            width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
             height: 22,
             html: `<p style="font-size:13px;color:#64748b;">${escapeHtml(block.caption)}</p>`,
             color: '#64748b',
             textType: 'notes',
           }),
         );
-        cursorTop += 24;
       }
+      cursorTop += cardHeight + 10;
+      visualBlockIndex += 1;
       continue;
     }
 
@@ -424,6 +476,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       });
       elements.push(...tableEls);
       cursorTop += Math.min(220, Math.max(72, (block.rows.length + (block.headers?.length ? 1 : 0)) * 34 + 12)) + (block.caption ? 38 : 12);
+      visualBlockIndex += 1;
       continue;
     }
 
@@ -463,19 +516,23 @@ export function renderNotebookContentDocumentToSlide(args: {
         }),
       );
       cursorTop += height + 12;
+      visualBlockIndex += 1;
       continue;
     }
 
     if (block.type === 'chem_formula' || block.type === 'chem_equation') {
+      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
       const raw = block.type === 'chem_formula' ? block.formula : block.equation;
       const caption = block.caption;
-      const height = 34 + (caption ? 24 : 0);
+      const contentHeight = 34 + (caption ? 24 : 0);
+      const cardHeight = contentHeight + CARD_INSET_Y * 2;
+      elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
         createTextElement({
-          left: CONTENT_LEFT,
-          top: cursorTop,
-          width: CONTENT_WIDTH,
-          height,
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: contentHeight,
           html: [
             `<p style="font-size:20px;color:#0f172a;">${chemistryTextToHtml(raw)}</p>`,
             caption ? `<p style="font-size:13px;color:#64748b;">${escapeHtml(caption)}</p>` : '',
@@ -486,7 +543,8 @@ export function renderNotebookContentDocumentToSlide(args: {
           textType: 'content',
         }),
       );
-      cursorTop += height + 10;
+      cursorTop += cardHeight + 10;
+      visualBlockIndex += 1;
       continue;
     }
   }
@@ -496,15 +554,23 @@ export function renderNotebookContentDocumentToSlide(args: {
     viewportSize: CANVAS_WIDTH,
     viewportRatio: CANVAS_HEIGHT / CANVAS_WIDTH,
     theme: {
-      backgroundColor: '#ffffff',
+      backgroundColor: '#f8fbff',
       themeColors: ['#4f46e5', '#0f172a', '#334155', '#64748b'],
       fontColor: '#0f172a',
       fontName: 'Microsoft YaHei',
     },
     elements,
     background: {
-      type: 'solid',
-      color: '#ffffff',
+      type: 'gradient',
+      gradient: {
+        type: 'linear',
+        rotate: 135,
+        colors: [
+          { pos: 0, color: '#f8fbff' },
+          { pos: 55, color: '#fdfdff' },
+          { pos: 100, color: '#eef4ff' },
+        ],
+      },
     },
     type: 'content',
   };

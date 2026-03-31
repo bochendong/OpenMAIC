@@ -10,6 +10,7 @@ import {
   Globe,
   AlertCircle,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -52,6 +53,7 @@ export function SceneSidebar({
   const { t } = useI18n();
   const { scenes, currentSceneId, setCurrentSceneId, generatingOutlines, generationStatus } =
     useStageStore();
+  const deleteScene = useStageStore((s) => s.deleteScene);
   const failedOutlines = useStageStore.use.failedOutlines();
   const viewportSize = useCanvasStore.use.viewportSize();
   const viewportRatio = useCanvasStore.use.viewportRatio();
@@ -329,6 +331,7 @@ export function SceneSidebar({
                 const Icon = getSceneTypeIcon(scene.type);
                 const isSlide = scene.type === 'slide';
                 const slideContent = isSlide ? (scene.content as SlideContent) : null;
+                const canDeletePage = scenes.length > 1;
 
                 return (
                   <div
@@ -371,6 +374,32 @@ export function SceneSidebar({
                       >
                         {index + 1}
                       </span>
+                      <button
+                        type="button"
+                        title={canDeletePage ? t('stage.deletePage') : t('stage.deletePageMinOne')}
+                        aria-label={t('stage.deletePage')}
+                        disabled={!canDeletePage}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!canDeletePage) return;
+                          const msg = t('stage.deletePageConfirm').replace(
+                            '{title}',
+                            scene.title.trim() || `${index + 1}`,
+                          );
+                          if (typeof window !== 'undefined' && !window.confirm(msg)) return;
+                          deleteScene(scene.id);
+                        }}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        className={cn(
+                          'absolute right-1.5 top-1.5 z-[2] flex size-6 items-center justify-center rounded-md shadow-sm transition-colors',
+                          'bg-white/95 text-slate-600 ring-1 ring-slate-900/[0.12] hover:bg-red-50 hover:text-red-600 hover:ring-red-200/80',
+                          'dark:bg-black/55 dark:text-slate-200 dark:ring-white/[0.15] dark:hover:bg-red-950/50 dark:hover:text-red-400 dark:hover:ring-red-900/40',
+                          !canDeletePage &&
+                            'cursor-not-allowed opacity-40 hover:bg-white/95 hover:text-slate-600 hover:ring-slate-900/[0.12] dark:hover:bg-black/55 dark:hover:text-slate-200',
+                        )}
+                      >
+                        <Trash2 className="size-3.5" strokeWidth={2} />
+                      </button>
                       <div className="absolute inset-0 flex items-center justify-center">
                         {isSlide && slideContent ? (
                           <ThumbnailSlide

@@ -427,8 +427,9 @@ function CodeBlock({ title, code }: { title: string; code?: string }) {
   );
 }
 
-function mapHintToShikiLang(hint: string): string {
-  const h = hint.trim().toLowerCase();
+function mapHintToShikiLang(hint?: string | null): string {
+  const h = (hint ?? '').trim().toLowerCase();
+  if (!h) return 'plaintext';
   if (h === 'cpp' || h === 'c++' || h === 'cc') return 'cpp';
   if (h === 'c') return 'c';
   if (h === 'py' || h === 'python') return 'python';
@@ -508,7 +509,7 @@ function fenceStandaloneCodeParagraphs(markdown: string, languageHint?: string):
       const lines = trimmed.split(/\r?\n/);
       const lang =
         languageHint?.trim() !== ''
-          ? mapHintToShikiLang(languageHint!)
+          ? mapHintToShikiLang(languageHint)
           : guessShikiLanguageFromLines(lines);
       const body = expandSmushedStatements(trimmed, languageHint);
       return `\`\`\`${lang}\n${body}\n\`\`\``;
@@ -528,7 +529,7 @@ function fenceTrailingCodeAfterProse(block: string, languageHint?: string): stri
   codePart = expandSmushedStatements(codePart, languageHint);
   const lang =
     languageHint?.trim() !== ''
-      ? mapHintToShikiLang(languageHint!)
+      ? mapHintToShikiLang(languageHint)
       : guessShikiLanguageFromLines(codePart.split(/\r?\n/));
   return `${prose}\n\n\`\`\`${lang}\n${codePart}\n\`\`\``;
 }

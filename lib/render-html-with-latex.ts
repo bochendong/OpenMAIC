@@ -129,6 +129,16 @@ function renderTextWithLatex(text: string): string | null {
   return html;
 }
 
+/**
+ * 顶栏/标题等纯文本中若含 \(...\)、\[...\]、$...$，渲染为 KaTeX HTML；否则整段转义为安全纯文本 HTML。
+ */
+export function renderPlainTitleWithOptionalLatex(title: string): string {
+  if (!title) return '';
+  const html = renderTextWithLatex(title);
+  if (html !== null) return html;
+  return escapeHtml(title);
+}
+
 export function renderHtmlWithLatex(html: string): string {
   if (!html || !looksLikeMathText(html) || typeof document === 'undefined') return html;
 
