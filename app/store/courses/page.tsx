@@ -11,6 +11,7 @@ import {
   listCommunityStoreCourses,
   listCourses,
 } from '@/lib/utils/course-storage';
+import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
@@ -338,7 +339,7 @@ export default function CourseStorePage() {
                     courseCode: featuredCourse.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={`¥${((featuredCourse.coursePriceCents ?? 0) / 100).toFixed(2)}`}
+                  priceLabel={formatCreditsLabel(creditsFromPriceCents(featuredCourse.coursePriceCents))}
                   ratingLabel={`★ ${(featuredCourse.averageRating ?? 0).toFixed(1)} · ${featuredCourse.reviewCount ?? 0} 条`}
                   secondaryActionLabel={
                     addingId === `c:${featuredCourse.id}`
@@ -374,7 +375,9 @@ export default function CourseStorePage() {
                     <div className="mt-5 flex flex-wrap gap-2">
                       <span className="store-chip text-xs">{purposeLabel(item.purpose)}</span>
                       <span className="store-chip text-xs">{item.notebookCount} 个笔记本</span>
-                      <span className="store-chip text-xs">{`¥${((item.coursePriceCents ?? 0) / 100).toFixed(2)}`}</span>
+                      <span className="store-chip text-xs">
+                        {formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
+                      </span>
                     </div>
                     <button
                       type="button"
@@ -450,7 +453,7 @@ export default function CourseStorePage() {
                     courseCode: item.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={`¥${((item.coursePriceCents ?? 0) / 100).toFixed(2)}`}
+                  priceLabel={formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
                   ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                   actionLabel="查看详情"
                   onAction={() => router.push(`/store/courses/${item.id}`)}
@@ -514,7 +517,7 @@ export default function CourseStorePage() {
                     courseCode: item.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={`¥${((item.coursePriceCents ?? 0) / 100).toFixed(2)}`}
+                  priceLabel={formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
                   ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                   actionLabel="查看详情"
                   onAction={() => router.push(`/store/courses/${item.id}`)}

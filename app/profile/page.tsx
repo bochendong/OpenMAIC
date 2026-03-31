@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ProfileHero, TokenUsageCard, UserProfileCard } from '@/components/user-profile';
+import { CreditsCard, ProfileHero, TokenUsageCard, UserProfileCard } from '@/components/user-profile';
 import { Button } from '@/components/ui/button';
 
 export default function ProfilePage() {
@@ -19,6 +19,7 @@ export default function ProfilePage() {
 
         <section className="flex min-w-0 flex-col gap-6">
           <UserProfileCard showAvatar={false} />
+          <CreditsCard />
           <TokenUsageCard />
         </section>
       </main>

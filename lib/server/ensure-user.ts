@@ -1,5 +1,6 @@
 import { createLogger } from '@/lib/logger';
 import { getOptionalPrisma } from '@/lib/server/prisma-safe';
+import { ensureUserCreditsInitialized } from '@/lib/server/credits';
 
 const log = createLogger('EnsureUser');
 
@@ -42,6 +43,7 @@ export async function ensureUserForApi(payload: string | EnsureUserPayload): Pro
         ...(normalized.name ? { name: normalized.name } : {}),
       },
     });
+    await ensureUserCreditsInitialized(prisma, id);
   } catch (error) {
     // 在无数据库或数据库暂不可用的本地优先模式下，不应让整个请求链路直接失败。
     log.warn('Failed to ensure user in database:', error);

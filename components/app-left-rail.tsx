@@ -3,13 +3,14 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, LogOut, Search, Settings } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Coins, LogOut, Search, Settings } from 'lucide-react';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { useAuthStore } from '@/lib/store/auth';
 import { useAuthSignOut } from '@/lib/hooks/use-auth-sign-out';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
+import { backendJson } from '@/lib/utils/backend-api';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
@@ -33,6 +34,7 @@ export interface AppLeftRailProps {
 /** 进入这些路由时清空「当前课程」。侧栏「商城」：未选课程 → `/store/courses`（课程商城）；已选课程 → `/store`（笔记本商城） */
 const COURSE_CONTEXT_CLEAR_PREFIXES = [
   '/my-courses',
+  '/top-up',
   '/store/courses',
   '/profile',
   '/settings',
@@ -84,6 +86,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat/');
 
   const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
 
   useEffect(() => {
     if (!pathname) return;
@@ -92,6 +95,28 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
     );
     if (shouldClear) clearCurrentCourse();
   }, [pathname, clearCurrentCourse]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isLoggedIn) return () => {
+      cancelled = true;
+    };
+
+    void backendJson<{
+      success: true;
+      balance: number;
+    }>('/api/profile/credits')
+      .then((response) => {
+        if (!cancelled) setCreditsBalance(response.balance);
+      })
+      .catch(() => {
+        if (!cancelled) setCreditsBalance(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn]);
 
   const expandIfCollapsed = () => {
     if (collapsed) onCollapsedChange(false);
@@ -208,31 +233,55 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   >
                     {contextBadge}
                   </div>
+                  {creditsBalance != null ? (
+                    <Link
+                      href="/top-up"
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50/80 px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15"
+                    >
+                      <Coins className="size-3.5" />
+                      <span>{creditsBalance} credits</span>
+                    </Link>
+                  ) : null}
                 </>
               )}
 
               {collapsed && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Link
-                      href={railHref}
-                      className={cn(
-                        'block w-fit outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500',
-                        inCourseContext ? 'rounded-xl' : 'rounded-full',
-                      )}
-                    >
-                      <img
-                        src={railAvatarSrc}
-                        alt=""
+                <div className="flex flex-col items-center gap-2">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href={railHref}
                         className={cn(
-                          'size-10 object-cover ring-1 ring-black/5 dark:ring-white/10',
+                          'block w-fit outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500',
                           inCourseContext ? 'rounded-xl' : 'rounded-full',
                         )}
-                      />
-                    </Link>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{railTooltip}</TooltipContent>
-                </Tooltip>
+                      >
+                        <img
+                          src={railAvatarSrc}
+                          alt=""
+                          className={cn(
+                            'size-10 object-cover ring-1 ring-black/5 dark:ring-white/10',
+                            inCourseContext ? 'rounded-xl' : 'rounded-full',
+                          )}
+                        />
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{railTooltip}</TooltipContent>
+                  </Tooltip>
+                  {creditsBalance != null ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Link
+                          href="/top-up"
+                          className="inline-flex size-8 items-center justify-center rounded-full border border-amber-200/70 bg-amber-50/80 text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15"
+                        >
+                          <Coins className="size-3.5" />
+                        </Link>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">{creditsBalance} credits · 去充值</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                </div>
               )}
             </div>
           )}

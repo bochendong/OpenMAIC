@@ -3,8 +3,10 @@ import { z } from 'zod';
 import { prisma } from '@/lib/server/prisma';
 import { requireUserId } from '@/lib/server/api-auth';
 import { safeRoute } from '@/lib/server/json-error-response';
+import { applyCreditDelta, ensureUserCreditsInitialized } from '@/lib/server/credits';
 import { pickRandomCourseAvatarUrl } from '@/lib/constants/course-avatars';
 import { toPrismaJson, toPrismaNullableJson } from '@/lib/server/prisma-json';
+import { creditsFromPriceCents } from '@/lib/utils/credits';
 
 const bodySchema = z.object({
   sourceCourseId: z.string().trim().min(1),
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
     }
 
     const avatarUrl = source.avatarUrl?.trim() || pickRandomCourseAvatarUrl();
+    const courseCostCredits = creditsFromPriceCents(source.coursePriceCents ?? 0);
 
     const existingPurchase = await prisma.coursePurchase.findFirst({
       where: { buyerId: userId, sourceCourseId: source.id },
@@ -57,6 +60,28 @@ export async function POST(request: Request) {
     }
 
     const course = await prisma.$transaction(async (tx) => {
+      await ensureUserCreditsInitialized(tx, userId);
+      await ensureUserCreditsInitialized(tx, source.ownerId);
+
+      if (courseCostCredits > 0) {
+        await applyCreditDelta(tx, {
+          userId,
+          delta: -courseCostCredits,
+          kind: 'COURSE_PURCHASE',
+          description: `Purchased course "${source.name}"`,
+          referenceType: 'course',
+          referenceId: source.id,
+        });
+        await applyCreditDelta(tx, {
+          userId: source.ownerId,
+          delta: courseCostCredits,
+          kind: 'CREATOR_COURSE_SALE',
+          description: `Course sale: "${source.name}"`,
+          referenceType: 'course',
+          referenceId: source.id,
+        });
+      }
+
       const clonedCourse = await tx.course.create({
         data: {
           ownerId: userId,

@@ -9,7 +9,7 @@ type ProfileHeroProps = {
 
 export function ProfileHero({
   title = '个人中心',
-  description = '在这里统一管理头像、昵称、个人简介，并查看你自己的模型调用与 token 用量趋势。',
+  description = '在这里统一管理头像、昵称、个人简介，并查看你自己的 credits 余额、模型调用与 token 用量趋势。',
 }: ProfileHeroProps) {
   return (
     <section className="apple-glass rounded-[28px] p-6 md:p-8">

@@ -7,7 +7,11 @@ export async function requireUserId() {
   const session = await requireServerSession();
   const userId = session?.user?.id?.trim();
   if (userId) {
-    await ensureUserForApi(userId);
+    await ensureUserForApi({
+      userId,
+      email: session?.user?.email,
+      name: session?.user?.name,
+    });
     return { userId } as const;
   }
 
@@ -15,7 +19,11 @@ export async function requireUserId() {
   const h = await headers();
   const fallbackUserId = h.get('x-user-id')?.trim();
   if (fallbackUserId) {
-    await ensureUserForApi(fallbackUserId);
+    await ensureUserForApi({
+      userId: fallbackUserId,
+      email: h.get('x-user-email'),
+      name: h.get('x-user-name'),
+    });
     return { userId: fallbackUserId } as const;
   }
 

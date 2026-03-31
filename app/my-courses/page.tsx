@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
@@ -286,7 +286,9 @@ export default function MyCoursesPage() {
                         courseCode: course.courseCode?.trim() || undefined,
                       }}
                       countUnit="个笔记本"
-                      priceLabel={`¥${((course.coursePriceCents ?? 0) / 100).toFixed(2)}`}
+                      priceLabel={formatCreditsLabel(
+                        creditsFromPriceCents(course.coursePriceCents),
+                      )}
                       actionLabel="进入课程"
                       onAction={() => router.push(`/course/${course.id}`)}
                       secondaryActionLabel={

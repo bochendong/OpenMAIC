@@ -418,7 +418,7 @@ export async function POST(req: NextRequest) {
               const result = await runWithRequestContext(
                 req,
                 '/api/generate/scene-outlines-stream',
-                () => Promise.resolve(streamLLM(streamParams, 'scene-outlines-stream')),
+                () => streamLLM(streamParams, 'scene-outlines-stream'),
               );
 
               let fullText = '';

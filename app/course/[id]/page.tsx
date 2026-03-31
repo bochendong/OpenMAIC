@@ -35,6 +35,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
@@ -344,7 +345,9 @@ export default function CourseDetailPage() {
                     slide={thumbnails[nb.id]}
                     subtitle={formatDate(nb.updatedAt)}
                     secondaryLabel=""
-                    priceLabel={`¥${((nb.notebookPriceCents ?? 0) / 100).toFixed(2)}`}
+                    priceLabel={formatCreditsLabel(
+                      creditsFromPriceCents(nb.notebookPriceCents),
+                    )}
                     actionLabel="打开笔记本"
                     onAction={() => router.push(`/classroom/${nb.id}`)}
                     onEdit={() => setEditingNotebookAvatar(nb)}

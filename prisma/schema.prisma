@@ -42,6 +42,15 @@ enum UserRole {
   ADMIN
 }
 
+enum CreditTransactionKind {
+  WELCOME_BONUS
+  COURSE_PURCHASE
+  NOTEBOOK_PURCHASE
+  CREATOR_COURSE_SALE
+  CREATOR_NOTEBOOK_SALE
+  TOKEN_USAGE
+}
+
 model User {
   id            String    @id @default(cuid())
   name          String?
@@ -49,6 +58,7 @@ model User {
   emailVerified DateTime?
   image         String?
   role          UserRole  @default(USER)
+  creditsBalance Int      @default(100)
 
   accounts Account[]
   sessions Session[]
@@ -60,6 +70,7 @@ model User {
   agentTasks        AgentTask[]
   agentEnvelopes    AgentEnvelope[]
   llmUsageLogs      LLMUsageLog[]
+  creditTransactions CreditTransaction[]
   coursePurchases   CoursePurchase[]
   notebookPurchases NotebookPurchase[]
   courseReviews     CourseReview[]
@@ -358,6 +369,24 @@ model CourseReview {
   @@unique([courseId, reviewerId])
   @@index([courseId, createdAt(sort: Desc)])
   @@index([reviewerId, createdAt(sort: Desc)])
+}
+
+model CreditTransaction {
+  id            String                @id @default(cuid())
+  userId        String
+  kind          CreditTransactionKind
+  delta         Int
+  balanceAfter  Int
+  description   String?
+  referenceType String?
+  referenceId   String?
+  metadata      Json?
+  createdAt     DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
 }
 
 model NotebookReview {

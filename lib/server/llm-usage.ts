@@ -1,4 +1,5 @@
 import { createLogger } from '@/lib/logger';
+import { chargeCreditsForTokenUsage } from '@/lib/server/credits';
 import { getPrismaOrNull } from '@/lib/server/prisma-safe';
 
 const log = createLogger('LLMUsage');
@@ -27,6 +28,11 @@ export async function recordLLMUsage(payload: LLMUsagePayload): Promise<void> {
   if (!prisma) return;
 
   try {
+    const totalTokens =
+      payload.totalTokens != null
+        ? toInt(payload.totalTokens)
+        : toInt(payload.inputTokens) + toInt(payload.outputTokens);
+
     await prisma.lLMUsageLog.create({
       data: {
         userId: payload.userId || null,
@@ -39,11 +45,16 @@ export async function recordLLMUsage(payload: LLMUsagePayload): Promise<void> {
         modelString: payload.modelString,
         inputTokens: toInt(payload.inputTokens),
         outputTokens: toInt(payload.outputTokens),
-        totalTokens:
-          payload.totalTokens != null
-            ? toInt(payload.totalTokens)
-            : toInt(payload.inputTokens) + toInt(payload.outputTokens),
+        totalTokens,
       },
+    });
+
+    await chargeCreditsForTokenUsage({
+      userId: payload.userId,
+      totalTokens,
+      route: payload.route,
+      source: payload.source,
+      modelString: payload.modelString,
     });
   } catch (error) {
     log.warn('Failed to record LLM usage:', error);

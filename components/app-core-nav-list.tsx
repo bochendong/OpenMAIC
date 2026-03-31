@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   Bell,
   BookOpen,
+  Coins,
   MessageCircle,
   Settings,
   ShoppingBag,
@@ -50,12 +51,13 @@ type CoreNavSection = {
 const CHAT_RIGHT_RAIL_KEY_ORDER: Record<string, number> = {
   'agent-teams': 0,
   courses: 1,
-  store: 2,
-  chat: 3,
-  notifications: 4,
-  live2d: 5,
-  profile: 6,
-  settings: 7,
+  'top-up': 2,
+  store: 3,
+  chat: 4,
+  notifications: 5,
+  live2d: 6,
+  profile: 7,
+  settings: 8,
 };
 
 function sortChatRightRailItems(items: CoreNavItem[]): CoreNavItem[] {
@@ -112,13 +114,14 @@ export function AppCoreNavList({
   const storeLabel = inCourseContext ? '笔记本商城' : '课程商城';
 
   const live2dActive = pathname === '/live2d' || pathname?.startsWith('/live2d/');
+  const topUpActive = pathname === '/top-up' || pathname?.startsWith('/top-up/');
   const profileActive = pathname === '/profile' || pathname?.startsWith('/profile/');
   const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
 
   const courseStoreActive =
     pathname === '/store/courses' || pathname?.startsWith('/store/courses/');
 
-  /** Dashboard 壳层：固定五项，课程商城始终链到 `/store/courses`，并始终显示「个人中心」 */
+  /** Dashboard 壳层：固定入口，课程商城始终链到 `/store/courses`，并始终显示「个人中心」 */
   const dashboardNavSections: CoreNavSection[] = [
     {
       key: 'workspace',
@@ -131,6 +134,14 @@ export function AppCoreNavList({
           tooltip: 'Dashboard',
           icon: BookOpen,
           active: pathname === '/my-courses',
+        },
+        {
+          key: 'top-up',
+          href: '/top-up',
+          label: '充值',
+          tooltip: '充值中心',
+          icon: Coins,
+          active: topUpActive,
         },
         {
           key: 'store',
@@ -188,6 +199,14 @@ export function AppCoreNavList({
               tooltip: 'Dashboard',
               icon: BookOpen,
               active: pathname === '/my-courses',
+            },
+            {
+              key: 'top-up',
+              href: '/top-up',
+              label: '充值',
+              tooltip: '充值中心',
+              icon: Coins,
+              active: topUpActive,
             },
             {
               key: 'store',

@@ -1,12 +1,13 @@
 /**
  * 左侧栏「Dashboard」壳层：与课程/课堂内工作区分界，
- * 在此区域内固定展示 Dashboard / 课程商城 / 虚拟讲师 / 个人中心 / 设置。
+ * 在此区域内固定展示 Dashboard / 充值 / 课程商城 / 虚拟讲师 / 个人中心 / 设置。
  */
 export function isDashboardRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
   const p = pathname;
   if (p === '/') return true;
   if (p === '/my-courses') return true;
+  if (p === '/top-up' || p.startsWith('/top-up/')) return true;
   if (p === '/profile' || p.startsWith('/profile/')) return true;
   if (p === '/settings' || p.startsWith('/settings/')) return true;
   if (p === '/live2d' || p.startsWith('/live2d/')) return true;
