@@ -247,8 +247,11 @@ export function Stage({
     useStageStore();
   const stage = useStageStore((s) => s.stage);
   const stageLanguage = useStageStore((s) => s.stage?.language);
-  const touchScenes = useStageStore((s) => s.touchScenes);
   const updateScene = useStageStore((s) => s.updateScene);
+  const storageSaveState = useStageStore((s) => s.storageSaveState);
+  const storageSaveScope = useStageStore((s) => s.storageSaveScope);
+  const storageSavedAt = useStageStore((s) => s.storageSavedAt);
+  const storageSaveError = useStageStore((s) => s.storageSaveError);
   const setOutlines = useStageStore((s) => s.setOutlines);
   const failedOutlines = useStageStore.use.failedOutlines();
   const outlines = useStageStore((s) => s.outlines);
@@ -705,6 +708,28 @@ export function Stage({
     };
   }, []);
 
+  useEffect(() => {
+    const flushStageDraft = () => {
+      void useStageStore.getState().saveToStorage();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushStageDraft();
+      }
+    };
+
+    window.addEventListener('pagehide', flushStageDraft);
+    window.addEventListener('beforeunload', flushStageDraft);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', flushStageDraft);
+      window.removeEventListener('beforeunload', flushStageDraft);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
   // Sync mute state from settings store to audioPlayer
   const ttsMuted = useSettingsStore((s) => s.ttsMuted);
   useEffect(() => {
@@ -768,13 +793,15 @@ export function Stage({
         speed: ttsSpeed,
       });
       if (!cancelled && touched) {
-        touchScenes();
+        updateScene(currentScene.id, {
+          actions: [...(currentScene.actions ?? [])],
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [currentScene, ttsEnabled, ttsProviderId, ttsVoice, ttsSpeed, touchScenes]);
+  }, [currentScene, ttsEnabled, ttsProviderId, ttsVoice, ttsSpeed, updateScene]);
 
   /**
    * Handle discussion SSE — POST /api/chat and push events to engine
@@ -1006,7 +1033,9 @@ export function Stage({
             );
             return;
           }
-          touchScenes();
+          updateScene(sceneForTts.id, {
+            actions: [...(sceneForTts.actions ?? [])],
+          });
         }
       }
       setPlaybackCompleted(false);
@@ -1553,11 +1582,30 @@ export function Stage({
 
   const editorStatusSlot = slideEditorOpen ? (
     <div className="apple-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200">
-      <span className="inline-flex size-2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+      <span
+        className={cn(
+          'inline-flex size-2 rounded-full',
+          storageSaveState === 'saving'
+            ? 'bg-amber-500 dark:bg-amber-400'
+            : storageSaveState === 'error'
+              ? 'bg-rose-500 dark:bg-rose-400'
+              : 'bg-emerald-500 dark:bg-emerald-400',
+        )}
+      />
       <span>
-        {slideEditTab === 'canvas'
-          ? '编辑模式：页面改动会自动保存'
-          : '编辑模式：讲解修改需要手动保存'}
+        {storageSaveState === 'saving'
+          ? slideEditTab === 'canvas'
+            ? '页面改动正在保存…'
+            : '讲解改动正在保存…'
+          : storageSaveState === 'error'
+            ? `保存失败${storageSaveError ? `：${storageSaveError}` : ''}`
+            : storageSaveState === 'saved'
+              ? storageSaveScope === 'draft'
+                ? `已保存草稿${storageSavedAt ? '，刷新不会丢' : ''}`
+                : '已保存'
+              : slideEditTab === 'canvas'
+                ? '编辑模式：页面改动会自动保存'
+                : '编辑模式：讲解修改需要手动保存'}
       </span>
     </div>
   ) : undefined;

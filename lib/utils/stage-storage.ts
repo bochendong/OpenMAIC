@@ -6,12 +6,24 @@ import { loadContactMessages } from '@/lib/utils/contact-chat-storage';
 import type { Slide } from '../types/slides';
 
 const log = createLogger('StageStorage');
+const STAGE_DRAFT_KEY_PREFIX = 'openmaic-stage-draft:';
 
 export interface StageStoreData {
   stage: Stage;
   scenes: Scene[];
   currentSceneId: string | null;
   chats: ChatSession[];
+}
+
+export interface SaveStageDataResult {
+  remoteSynced: boolean;
+}
+
+interface StageDraftSnapshot {
+  savedAt: number;
+  stage: Stage;
+  scenes: Scene[];
+  currentSceneId: string | null;
 }
 
 export interface StageListItem {
@@ -127,46 +139,109 @@ function mapScene(stageId: string, row: SceneApiRow): Scene {
   };
 }
 
-export async function saveStageData(stageId: string, data: StageStoreData): Promise<void> {
+function readStageDraftSnapshot(stageId: string): StageDraftSnapshot | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StageDraftSnapshot>;
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      typeof parsed.savedAt !== 'number' ||
+      !parsed.stage ||
+      !Array.isArray(parsed.scenes)
+    ) {
+      return null;
+    }
+    return {
+      savedAt: parsed.savedAt,
+      stage: parsed.stage as Stage,
+      scenes: parsed.scenes as Scene[],
+      currentSceneId:
+        typeof parsed.currentSceneId === 'string' || parsed.currentSceneId === null
+          ? parsed.currentSceneId
+          : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeStageDraftSnapshot(
+  stageId: string,
+  data: Pick<StageStoreData, 'stage' | 'scenes' | 'currentSceneId'>,
+) {
+  if (typeof window === 'undefined') return;
+  try {
+    const snapshot: StageDraftSnapshot = {
+      savedAt: Date.now(),
+      stage: data.stage,
+      scenes: data.scenes,
+      currentSceneId: data.currentSceneId,
+    };
+    sessionStorage.setItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`, JSON.stringify(snapshot));
+  } catch (error) {
+    log.warn('Failed to write stage draft snapshot:', error);
+  }
+}
+
+export async function saveStageData(
+  stageId: string,
+  data: StageStoreData,
+): Promise<SaveStageDataResult> {
   const sortedScenes = [...data.scenes].sort((a, b) => a.order - b.order);
 
-  await ensureNotebookRow(stageId, data);
-
-  await backendJson<{ notebook: NotebookApiRow }>(`/api/notebooks/${encodeURIComponent(stageId)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      courseId: data.stage.courseId ?? null,
-      name: data.stage.name,
-      description: data.stage.description,
-      tags: data.stage.tags ?? [],
-      avatarUrl: data.stage.avatarUrl,
-      language: data.stage.language,
-      style: data.stage.style,
-    }),
+  writeStageDraftSnapshot(stageId, {
+    stage: data.stage,
+    scenes: sortedScenes,
+    currentSceneId: data.currentSceneId,
   });
 
-  await backendJson<{ scenes: SceneApiRow[] }>(
-    `/api/notebooks/${encodeURIComponent(stageId)}/scenes`,
-    {
-      method: 'PUT',
+  try {
+    await ensureNotebookRow(stageId, data);
+
+    await backendJson<{ notebook: NotebookApiRow }>(`/api/notebooks/${encodeURIComponent(stageId)}`, {
+      method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        scenes: sortedScenes.map((s, i) => ({
-          id: s.id,
-          title: s.title,
-          type: s.type,
-          order: Number.isFinite(s.order) ? s.order : i,
-          content: s.content,
-          actions: s.actions,
-          whiteboards: s.whiteboards,
-        })),
+        courseId: data.stage.courseId ?? null,
+        name: data.stage.name,
+        description: data.stage.description,
+        tags: data.stage.tags ?? [],
+        avatarUrl: data.stage.avatarUrl,
+        language: data.stage.language,
+        style: data.stage.style,
       }),
-    },
-  );
+    });
+
+    await backendJson<{ scenes: SceneApiRow[] }>(
+      `/api/notebooks/${encodeURIComponent(stageId)}/scenes`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenes: sortedScenes.map((s, i) => ({
+            id: s.id,
+            title: s.title,
+            type: s.type,
+            order: Number.isFinite(s.order) ? s.order : i,
+            content: s.content,
+            actions: s.actions,
+            whiteboards: s.whiteboards,
+          })),
+        }),
+      },
+    );
+    return { remoteSynced: true };
+  } catch (error) {
+    log.warn('Remote stage sync failed; local draft snapshot is kept:', error);
+    return { remoteSynced: false };
+  }
 }
 
 export async function loadStageData(stageId: string): Promise<StageStoreData | null> {
+  const draftSnapshot = readStageDraftSnapshot(stageId);
   try {
     const { notebook } = await backendJson<{
       notebook: NotebookApiRow & { scenes: SceneApiRow[] };
@@ -195,14 +270,33 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
       style: notebook.style || undefined,
     };
 
-    return {
+    const remoteData: StageStoreData = {
       stage,
       scenes,
       currentSceneId: scenes[0]?.id || null,
       chats,
     };
+
+    if (draftSnapshot && draftSnapshot.savedAt >= remoteData.stage.updatedAt) {
+      return {
+        stage: draftSnapshot.stage,
+        scenes: draftSnapshot.scenes,
+        currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+        chats,
+      };
+    }
+
+    return remoteData;
   } catch {
-    return null;
+    if (!draftSnapshot) {
+      return null;
+    }
+    return {
+      stage: draftSnapshot.stage,
+      scenes: draftSnapshot.scenes,
+      currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+      chats: [],
+    };
   }
 }
 

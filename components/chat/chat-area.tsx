@@ -184,6 +184,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
     }, []);
 
     const handleComposerFocus = useCallback(() => {
+      setActiveTab('chat');
       void onInputActivate?.();
     }, [onInputActivate]);
 
@@ -263,7 +264,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
           transition: isDragging ? 'none' : 'width 0.3s ease',
         }}
         className={cn(
-          'apple-glass flex shrink-0 flex-col overflow-visible rounded-l-[18px] border-y border-r border-slate-900/[0.08] border-l-0 shadow-[-4px_0_24px_rgba(0,0,0,0.04)] dark:border-white/[0.08] dark:shadow-[-4px_0_28px_rgba(0,0,0,0.2)] z-20 relative backdrop-blur-xl',
+          'apple-glass relative z-20 isolate flex shrink-0 flex-col overflow-visible rounded-l-[18px] border-y border-r border-slate-900/[0.08] border-l-0 shadow-[-4px_0_24px_rgba(0,0,0,0.04)] dark:border-white/[0.08] dark:shadow-[-4px_0_28px_rgba(0,0,0,0.2)] backdrop-blur-xl',
           className,
         )}
       >
@@ -350,13 +351,17 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
             </TabsContent>
           </Tabs>
 
-          <div className="shrink-0 border-t border-slate-900/[0.06] bg-white/55 px-3 py-3 dark:border-white/[0.08] dark:bg-black/15">
-            <div className="rounded-[18px] border border-slate-900/[0.08] bg-white/85 p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] dark:border-white/[0.1] dark:bg-black/25 dark:shadow-[0_8px_30px_rgba(0,0,0,0.22)]">
+          <div
+            className="relative z-[70] shrink-0 border-t border-slate-900/[0.06] bg-white/55 px-3 py-3 pointer-events-auto dark:border-white/[0.08] dark:bg-black/15"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="pointer-events-auto rounded-[18px] border border-slate-900/[0.08] bg-white/85 p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] dark:border-white/[0.1] dark:bg-black/25 dark:shadow-[0_8px_30px_rgba(0,0,0,0.22)]">
               <div className="flex items-end gap-2">
                 <Textarea
                   value={composerValue}
                   onFocus={handleComposerFocus}
                   onChange={(e) => setComposerValue(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                       e.preventDefault();
@@ -371,6 +376,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
                 <button
                   type="button"
                   onClick={handleComposerSend}
+                  onMouseDown={(e) => e.stopPropagation()}
                   disabled={!composerValue.trim()}
                   className={cn(
                     'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-200',

@@ -7,7 +7,6 @@ import type { UIMessage } from 'ai';
 import {
   ArrowUp,
   BookOpen,
-  FileText,
   Loader2,
   Paperclip,
   Presentation,
@@ -100,6 +99,7 @@ import {
   runNotebookGenerationTask,
   type NotebookGenerationProgress,
 } from '@/lib/create/run-notebook-generation-task';
+import { PdfPageSelectionDialog } from '@/components/create/pdf-page-selection-dialog';
 import { useOrchestratorNotebookGenStore } from '@/lib/store/orchestrator-notebook-generation';
 import {
   OrchestratorNotebookProgressPanel,
@@ -110,6 +110,10 @@ import {
   buildNotebookContentDocumentFromText,
   type NotebookContentDocument,
 } from '@/lib/notebook-content';
+import {
+  PDF_PAGE_SELECTION_MAX_BYTES,
+  type PdfSourceSelection,
+} from '@/lib/pdf/page-selection';
 
 type NotebookChatMessage =
   | {
@@ -1304,6 +1308,11 @@ export function ChatPageClient() {
   const [orchestratorTaskCancelling, setOrchestratorTaskCancelling] = useState(false);
   const [orchestratorComposerMode, setOrchestratorComposerMode] =
     useState<OrchestratorComposerMode>('send-message');
+  const [orchestratorPdfSelectionDialogOpen, setOrchestratorPdfSelectionDialogOpen] =
+    useState(false);
+  const [orchestratorPdfSelectionFile, setOrchestratorPdfSelectionFile] = useState<File | null>(
+    null,
+  );
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -2424,7 +2433,7 @@ export function ChatPageClient() {
     }
   };
 
-  const handleSendAgent = async () => {
+  const handleSendAgent = async (forcedSourcePageSelection?: PdfSourceSelection) => {
     const text = draft.trim();
     if (!agentId || !selectedAgent || sending) return;
     if (selectedAgent.id === COURSE_ORCHESTRATOR_ID) {
@@ -2445,6 +2454,27 @@ export function ChatPageClient() {
         ? (orchAttachments.find((a) => a.file && isNotebookPipelineSourceFile(a.file))?.file ??
           null)
         : null;
+    const effectiveSourcePageSelection =
+      sourceFileForPipeline &&
+      ((sourceFileForPipeline.type || '').toLowerCase() === 'application/pdf' ||
+        sourceFileForPipeline.name.toLowerCase().endsWith('.pdf'))
+        ? forcedSourcePageSelection
+        : undefined;
+
+    if (
+      selectedAgent.id === COURSE_ORCHESTRATOR_ID &&
+      orchestratorViewMode === 'private' &&
+      orchestratorComposerMode === 'generate-notebook' &&
+      sourceFileForPipeline &&
+      (((sourceFileForPipeline.type || '').toLowerCase() === 'application/pdf' ||
+        sourceFileForPipeline.name.toLowerCase().endsWith('.pdf'))) &&
+      sourceFileForPipeline.size > PDF_PAGE_SELECTION_MAX_BYTES &&
+      !effectiveSourcePageSelection
+    ) {
+      setOrchestratorPdfSelectionFile(sourceFileForPipeline);
+      setOrchestratorPdfSelectionDialogOpen(true);
+      return;
+    }
     const mergedPrompt =
       selectedAgent.id === COURSE_ORCHESTRATOR_ID
         ? mergeOrchestratorPrompt(text, orchAttachments, Boolean(sourceFileForPipeline))
@@ -2590,6 +2620,7 @@ export function ChatPageClient() {
             userNickname: nickname.trim() || undefined,
             signal: controller.signal,
             sourceFile: sourceFileForPipeline,
+            sourcePageSelection: effectiveSourcePageSelection,
             imageGenerationEnabledOverride: orchGen.useAiImages,
             outlinePreferences: {
               length: orchGen.outlineLength,
@@ -3230,6 +3261,23 @@ export function ChatPageClient() {
           </div>
         ) : null}
       </div>
+
+      <PdfPageSelectionDialog
+        open={orchestratorPdfSelectionDialogOpen}
+        file={orchestratorPdfSelectionFile}
+        language="zh-CN"
+        onOpenChange={(open) => {
+          setOrchestratorPdfSelectionDialogOpen(open);
+          if (!open) setOrchestratorPdfSelectionFile(null);
+        }}
+        onConfirm={(selection) => {
+          setOrchestratorPdfSelectionDialogOpen(false);
+          const selectedFile = orchestratorPdfSelectionFile;
+          setOrchestratorPdfSelectionFile(null);
+          if (!selectedFile) return;
+          void handleSendAgent(selection);
+        }}
+      />
 
       <footer className="shrink-0 border-t border-slate-900/[0.06] px-4 pb-4 pt-3 dark:border-white/[0.06]">
         {mode === 'agent' && isCourseOrchestrator && orchestratorViewMode === 'private' ? (

@@ -20,6 +20,7 @@ import type {
   OrchestratorWorkedExampleLevel,
 } from '@/lib/store/orchestrator-notebook-generation';
 import { parsePdfForGeneration } from '@/lib/pdf/parse-for-generation';
+import type { PdfSourceSelection } from '@/lib/pdf/page-selection';
 
 type NotebookMetadata = {
   name: string;
@@ -79,6 +80,7 @@ export type NotebookGenerationTaskInput = {
   /** 上传的源文档，支持 PDF / Markdown；`pdfFile` 保留兼容旧调用方 */
   sourceFile?: File | null;
   pdfFile?: File | null;
+  sourcePageSelection?: PdfSourceSelection;
   /** 覆盖设置里的「AI 配图」开关；不传则沿用全局设置 */
   imageGenerationEnabledOverride?: boolean;
   /** 传入后由大纲 API 注入额外策略（总控侧栏「生成选项」） */
@@ -177,6 +179,8 @@ async function parseMarkdownLikeGenerationInput(args: {
 async function parsePdfLikeGenerationPreview(args: {
   pdfFile: File;
   signal?: AbortSignal;
+  language?: 'zh-CN' | 'en-US';
+  sourcePageSelection?: PdfSourceSelection;
 }): Promise<{
   pdfText: string;
   pdfImages: PdfImage[];
@@ -189,7 +193,7 @@ async function parsePdfLikeGenerationPreview(args: {
   return parsePdfForGeneration({
     pdfFile,
     signal: args.signal,
-    language: 'zh-CN',
+    language: args.language || 'zh-CN',
     providerId: settings.pdfProviderId,
     providerConfig: settings.pdfProvidersConfig?.[settings.pdfProviderId]
       ? {
@@ -197,6 +201,7 @@ async function parsePdfLikeGenerationPreview(args: {
           baseUrl: settings.pdfProvidersConfig[settings.pdfProviderId]?.baseUrl,
         }
       : undefined,
+    selection: args.sourcePageSelection,
   });
 }
 
@@ -1048,6 +1053,8 @@ export async function runNotebookGenerationTask(
         const parsed = await parsePdfLikeGenerationPreview({
           pdfFile: sourceFile,
           signal: input.signal,
+          language,
+          sourcePageSelection: input.sourcePageSelection,
         });
         pdfText = parsed.pdfText;
         pdfImages = parsed.pdfImages;

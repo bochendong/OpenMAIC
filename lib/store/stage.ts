@@ -53,6 +53,10 @@ interface StageState {
 
   // UI state
   toolbarState: ToolbarState;
+  storageSaveState: 'idle' | 'saving' | 'saved' | 'error';
+  storageSaveScope: 'remote' | 'draft';
+  storageSavedAt: number | null;
+  storageSaveError: string | null;
 
   // Transient generation state (not persisted)
   generatingOutlines: SceneOutline[];
@@ -106,6 +110,10 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   chats: [],
   mode: 'playback',
   toolbarState: 'ai',
+  storageSaveState: 'idle',
+  storageSaveScope: 'remote',
+  storageSavedAt: null,
+  storageSaveError: null,
   generatingOutlines: [],
   outlines: [],
   generationEpoch: 0,
@@ -121,12 +129,14 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       currentSceneId: null,
       chats: [],
       generationEpoch: s.generationEpoch + 1,
+      storageSaveState: 'saving',
+      storageSaveError: null,
     }));
     debouncedSave();
   },
 
   setScenes: (scenes) => {
-    set({ scenes });
+    set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     // Auto-select first scene if no current scene
     if (!get().currentSceneId && scenes.length > 0) {
       set({ currentSceneId: scenes[0].id });
@@ -151,6 +161,8 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     set({
       scenes,
       generatingOutlines,
+      storageSaveState: 'saving',
+      storageSaveError: null,
       ...(shouldSwitch ? { currentSceneId: scene.id } : {}),
     });
     debouncedSave();
@@ -160,12 +172,16 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     const scenes = get().scenes.map((scene) =>
       scene.id === sceneId ? applySceneUpdatesWithSpeechTtsInvalidation(scene, updates) : scene,
     );
-    set({ scenes });
+    set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     debouncedSave();
   },
 
   touchScenes: () => {
-    set((s) => ({ scenes: [...s.scenes] }));
+    set((s) => ({
+      scenes: [...s.scenes],
+      storageSaveState: 'saving',
+      storageSaveError: null,
+    }));
     debouncedSave();
   },
 
@@ -179,10 +195,12 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       const newIndex = index < scenes.length ? index : scenes.length - 1;
       set({
         scenes,
+        storageSaveState: 'saving',
+        storageSaveError: null,
         currentSceneId: scenes[newIndex]?.id || null,
       });
     } else {
-      set({ scenes });
+      set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     }
     debouncedSave();
   },
@@ -193,7 +211,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   },
 
   setChats: (chats) => {
-    set({ chats });
+    set({ chats, storageSaveState: 'saving', storageSaveError: null });
     debouncedSave();
   },
 
@@ -257,14 +275,25 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
 
     try {
       const { saveStageData } = await import('@/lib/utils/stage-storage');
-      await saveStageData(stage.id, {
+      set({ storageSaveState: 'saving', storageSaveError: null });
+      const result = await saveStageData(stage.id, {
         stage,
         scenes,
         currentSceneId,
         chats,
       });
+      set({
+        storageSaveState: 'saved',
+        storageSaveScope: result.remoteSynced ? 'remote' : 'draft',
+        storageSavedAt: Date.now(),
+        storageSaveError: null,
+      });
     } catch (error) {
       log.error('Failed to save to storage:', error);
+      set({
+        storageSaveState: 'error',
+        storageSaveError: error instanceof Error ? error.message : 'Failed to save',
+      });
     }
   },
 
@@ -294,6 +323,10 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
           currentSceneId: data.currentSceneId,
           chats: data.chats,
           outlines,
+          storageSaveState: 'idle',
+          storageSaveScope: 'remote',
+          storageSavedAt: null,
+          storageSaveError: null,
           // Compute generatingOutlines from persisted outlines minus completed scenes
           generatingOutlines: outlines.filter((o) => !data.scenes.some((s) => s.order === o.order)),
         });
@@ -314,6 +347,10 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       currentSceneId: null,
       chats: [],
       outlines: [],
+      storageSaveState: 'idle',
+      storageSaveScope: 'remote',
+      storageSavedAt: null,
+      storageSaveError: null,
       generationEpoch: s.generationEpoch + 1,
       generationStatus: 'idle' as const,
       currentGeneratingOrder: -1,
