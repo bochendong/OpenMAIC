@@ -29,6 +29,10 @@ import { createLogger } from '@/lib/logger';
 import { useAuthStore } from '@/lib/store/auth';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
 import { parsePdfForGeneration } from '@/lib/pdf/parse-for-generation';
+import {
+  buildBudgetedGenerationMedia,
+  SAFE_GENERATION_REQUEST_BYTES,
+} from '@/lib/generation/request-payload-budget';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
 import { StepVisualizer } from './components/visualizers';
 
@@ -49,6 +53,32 @@ type CourseGenerationContext = {
   courseCode?: string;
   language?: 'zh-CN' | 'en-US';
 };
+
+async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (data?.error?.trim()) return data.error.trim();
+  }
+
+  const text = await response.text().catch(() => '');
+  return text.trim() || fallback;
+}
+
+function buildPayloadTooLargeMessage(
+  language: 'zh-CN' | 'en-US',
+  stage: 'outline' | 'scene',
+): string {
+  if (language === 'en-US') {
+    return stage === 'outline'
+      ? 'Outline generation payload is still too large for the current deployment platform. Keep fewer pages or switch image-heavy pages to screenshots.'
+      : 'Slide generation payload is still too large for the current deployment platform. Keep fewer image-heavy pages or switch them to screenshots.';
+  }
+
+  return stage === 'outline'
+    ? '当前大纲生成请求体仍然过大，请继续减少保留页面，或把重图片页改成整页截图。'
+    : '当前页面生成请求体仍然过大，请继续减少重图片页面，或把它们改成整页截图。';
+}
 
 function GenerationPreviewContent() {
   const router = useRouter();
@@ -572,28 +602,68 @@ function GenerationPreviewContent() {
         log.debug('=== Generating outlines (SSE) ===');
         setStreamingOutlines([]);
 
+        const outlineBasePayload = {
+          requirements: currentSession.requirements,
+          pdfText: currentSession.pdfText,
+          researchContext: currentSession.researchContext,
+          agents,
+          coursePurpose,
+          courseContext,
+        };
+        const outlineMedia = buildBudgetedGenerationMedia({
+          basePayload: outlineBasePayload,
+          pdfImages: currentSession.pdfImages,
+          imageMapping,
+          maxRequestBytes: SAFE_GENERATION_REQUEST_BYTES,
+        });
+        if (outlineMedia.omittedVisionImageIds.length > 0 || outlineMedia.omittedPdfImageIds.length > 0) {
+          log.warn('[GenerationPreview] Trimmed outline request media to stay under request limit', {
+            requestBytes: outlineMedia.requestBytes,
+            omittedVisionImageIds: outlineMedia.omittedVisionImageIds,
+            omittedPdfImageIds: outlineMedia.omittedPdfImageIds,
+          });
+        }
+        const primaryOutlinePayload = {
+          ...outlineBasePayload,
+          ...(outlineMedia.pdfImages ? { pdfImages: outlineMedia.pdfImages } : {}),
+          ...(outlineMedia.imageMapping ? { imageMapping: outlineMedia.imageMapping } : {}),
+        };
+        const fallbackOutlinePayload = {
+          ...outlineBasePayload,
+          ...(outlineMedia.pdfImages ? { pdfImages: outlineMedia.pdfImages } : {}),
+        };
+
         outlines = await new Promise<SceneOutline[]>((resolve, reject) => {
           const collected: SceneOutline[] = [];
+          const fetchOutlineResponse = async () => {
+            let response = await fetch('/api/generate/scene-outlines-stream', {
+              method: 'POST',
+              headers: getApiHeaders(),
+              body: JSON.stringify(primaryOutlinePayload),
+              signal,
+            });
+            if (response.status === 413 && outlineMedia.imageMapping) {
+              log.warn('[GenerationPreview] Outline request still too large, retrying without vision images');
+              response = await fetch('/api/generate/scene-outlines-stream', {
+                method: 'POST',
+                headers: getApiHeaders(),
+                body: JSON.stringify(fallbackOutlinePayload),
+                signal,
+              });
+            }
+            return response;
+          };
 
-          fetch('/api/generate/scene-outlines-stream', {
-            method: 'POST',
-            headers: getApiHeaders(),
-            body: JSON.stringify({
-              requirements: currentSession.requirements,
-              pdfText: currentSession.pdfText,
-              pdfImages: currentSession.pdfImages,
-              imageMapping,
-              researchContext: currentSession.researchContext,
-              agents,
-              coursePurpose,
-              courseContext,
-            }),
-            signal,
-          })
+          fetchOutlineResponse()
             .then((res) => {
               if (!res.ok) {
-                return res.json().then((d) => {
-                  reject(new Error(d.error || t('generation.outlineGenerateFailed')));
+                return readApiErrorMessage(
+                  res,
+                  res.status === 413
+                    ? buildPayloadTooLargeMessage(currentSession.requirements.language, 'outline')
+                    : t('generation.outlineGenerateFailed'),
+                ).then((message) => {
+                  reject(new Error(message || t('generation.outlineGenerateFailed')));
                 });
               }
 
@@ -699,27 +769,59 @@ function GenerationPreviewContent() {
       store.setGeneratingOutlines(outlines);
 
       const firstOutline = outlines[0];
-
-      // Step 2: Generate content (currentStepIndex is already 2)
-      const contentResp = await fetch('/api/generate/scene-content', {
-        method: 'POST',
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          outline: firstOutline,
-          allOutlines: outlines,
-          pdfImages: currentSession.pdfImages,
-          imageMapping,
-          stageInfo,
-          stageId: stage.id,
-          agents,
-          courseContext,
-        }),
-        signal,
+      const firstOutlineImageIds = firstOutline.suggestedImageIds || [];
+      const firstOutlinePdfImages =
+        firstOutlineImageIds.length > 0
+          ? (currentSession.pdfImages || []).filter((image) => firstOutlineImageIds.includes(image.id))
+          : undefined;
+      const contentBasePayload = {
+        outline: firstOutline,
+        allOutlines: outlines,
+        stageInfo,
+        stageId: stage.id,
+        agents,
+        courseContext,
+      };
+      const contentMedia = buildBudgetedGenerationMedia({
+        basePayload: contentBasePayload,
+        pdfImages: firstOutlinePdfImages,
+        imageMapping,
+        preferredImageIds: firstOutlineImageIds,
+        maxRequestBytes: SAFE_GENERATION_REQUEST_BYTES,
       });
 
+      // Step 2: Generate content (currentStepIndex is already 2)
+      const sendSceneContentRequest = (payload: Record<string, unknown>) =>
+        fetch('/api/generate/scene-content', {
+          method: 'POST',
+          headers: getApiHeaders(),
+          body: JSON.stringify(payload),
+          signal,
+        });
+      let contentResp = await sendSceneContentRequest({
+        ...contentBasePayload,
+        ...(contentMedia.pdfImages ? { pdfImages: contentMedia.pdfImages } : {}),
+        ...(contentMedia.imageMapping ? { imageMapping: contentMedia.imageMapping } : {}),
+      });
+      if (contentResp.status === 413 && contentMedia.imageMapping) {
+        log.warn('[GenerationPreview] Scene request still too large, retrying without vision images', {
+          outlineId: firstOutline.id,
+          outlineTitle: firstOutline.title,
+        });
+        contentResp = await sendSceneContentRequest({
+          ...contentBasePayload,
+          ...(contentMedia.pdfImages ? { pdfImages: contentMedia.pdfImages } : {}),
+        });
+      }
+
       if (!contentResp.ok) {
-        const errorData = await contentResp.json().catch(() => ({ error: 'Request failed' }));
-        throw new Error(errorData.error || t('generation.sceneGenerateFailed'));
+        const message = await readApiErrorMessage(
+          contentResp,
+          contentResp.status === 413
+            ? buildPayloadTooLargeMessage(currentSession.requirements.language, 'scene')
+            : t('generation.sceneGenerateFailed'),
+        );
+        throw new Error(message || t('generation.sceneGenerateFailed'));
       }
 
       const contentData = await contentResp.json();

@@ -26,11 +26,15 @@ export async function POST(req: Request) {
 
     const apiKey = resolveWebSearchApiKey(clientApiKey);
     if (!apiKey) {
-      return apiError(
-        'MISSING_API_KEY',
-        400,
-        'Tavily API key is not configured. Set it in Settings → Web Search or set TAVILY_API_KEY env var.',
-      );
+      return apiSuccess({
+        answer: '',
+        sources: [],
+        context: '',
+        query: query.trim(),
+        responseTime: 0,
+        skipped: true,
+        reason: 'missing_api_key',
+      });
     }
 
     const result = await searchWithTavily({ query: query.trim(), apiKey });

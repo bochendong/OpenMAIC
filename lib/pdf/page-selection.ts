@@ -67,11 +67,9 @@ function throwIfAborted(signal?: AbortSignal) {
   }
 }
 
-/** PNG data URL 解码后的近似字节数（与上传 payload 一致） */
+/** PNG data URL 本身的 UTF-8 字节数，更接近实际 JSON / request body 体积 */
 export function pdfDataUrlByteLength(src: string): number {
-  const base64 = src.split(',')[1] || '';
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
-  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+  return new TextEncoder().encode(src).length;
 }
 
 export function rawPdfExtractedImageToDataUrl(image: {
