@@ -39,6 +39,21 @@ export function isAdminLoginConfigured(): boolean {
   return getAdminLoginConfig().enabled;
 }
 
+export function getAdminLoginDebugInfo() {
+  const config = getAdminLoginConfig();
+  return {
+    configured: config.enabled,
+    hasAdminLoginEmail: Boolean(process.env.ADMIN_LOGIN_EMAIL?.trim()),
+    hasAdminLoginPassword: Boolean(process.env.ADMIN_LOGIN_PASSWORD?.trim()),
+    hasAdminLoginSecret: Boolean(process.env.ADMIN_LOGIN_SECRET?.trim()),
+    hasAdminEmails: Boolean(process.env.ADMIN_EMAILS?.trim()),
+    hasDatabaseUrl: Boolean(process.env.DATABASE_URL?.trim()),
+    nodeEnv: process.env.NODE_ENV || 'unknown',
+    vercelEnv: process.env.VERCEL_ENV || null,
+    railwayEnv: process.env.RAILWAY_ENVIRONMENT_NAME || null,
+  };
+}
+
 function safeEqualStrings(a: string, b: string): boolean {
   const aBuffer = Buffer.from(a);
   const bBuffer = Buffer.from(b);
