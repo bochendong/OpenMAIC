@@ -1072,6 +1072,8 @@ function isNotebookPipelineSourceFile(file: File): boolean {
   return (
     mime === 'application/pdf' ||
     lower.endsWith('.pdf') ||
+    mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    lower.endsWith('.pptx') ||
     mime === 'text/markdown' ||
     mime === 'text/x-markdown' ||
     lower.endsWith('.md')
@@ -1314,6 +1316,16 @@ export function ChatPageClient() {
     null,
   );
   const abortRef = useRef<AbortController | null>(null);
+
+  const switchOrchestratorComposer = useCallback(
+    (mode: OrchestratorComposerMode) => {
+      setOrchestratorComposerMode(mode);
+      const next = new URLSearchParams(searchParams.toString());
+      next.set('composer', mode);
+      router.replace(`/chat?${next.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
 
   useEffect(() => {
     const comp = searchParams.get('composer');
@@ -2118,6 +2130,14 @@ export function ChatPageClient() {
       });
     }
     setPendingAttachments((prev) => [...prev, ...built].slice(-6));
+    if (
+      isCourseOrchestrator &&
+      orchestratorViewMode === 'private' &&
+      orchestratorComposerMode === 'send-message' &&
+      built.some((attachment) => attachment.file && isNotebookPipelineSourceFile(attachment.file))
+    ) {
+      switchOrchestratorComposer('generate-notebook');
+    }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -2454,6 +2474,17 @@ export function ChatPageClient() {
         ? (orchAttachments.find((a) => a.file && isNotebookPipelineSourceFile(a.file))?.file ??
           null)
         : null;
+
+    if (
+      selectedAgent.id === COURSE_ORCHESTRATOR_ID &&
+      orchestratorViewMode === 'private' &&
+      orchestratorComposerMode === 'send-message' &&
+      sourceFileForPipeline
+    ) {
+      switchOrchestratorComposer('generate-notebook');
+      return;
+    }
+
     const effectiveSourcePageSelection =
       sourceFileForPipeline &&
       ((sourceFileForPipeline.type || '').toLowerCase() === 'application/pdf' ||
@@ -3285,10 +3316,7 @@ export function ChatPageClient() {
             value={orchestratorComposerMode}
             onValueChange={(v) => {
               const mode = v as OrchestratorComposerMode;
-              setOrchestratorComposerMode(mode);
-              const next = new URLSearchParams(searchParams.toString());
-              next.set('composer', mode);
-              router.replace(`/chat?${next.toString()}`, { scroll: false });
+              switchOrchestratorComposer(mode);
             }}
             className="mb-2 w-full"
           >

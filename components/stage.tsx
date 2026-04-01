@@ -826,6 +826,9 @@ export function Stage({
   );
 
   const handleSidebarInputActivate = useCallback(async () => {
+    setChatAreaCollapsed(false);
+    chatAreaRef.current?.switchToTab('chat');
+
     if (chatIsStreaming) {
       await doSoftPause();
     }
@@ -834,12 +837,14 @@ export function Stage({
     if (engineRef.current && (mode === 'playing' || mode === 'live')) {
       engineRef.current.pause();
     }
-  }, [chatIsStreaming, doSoftPause]);
+  }, [chatIsStreaming, doSoftPause, setChatAreaCollapsed]);
 
   const handleSidebarQuestionSend = useCallback(
     (msg: string) => {
       const trimmed = msg.trim();
       if (!trimmed) return;
+
+      setChatAreaCollapsed(false);
 
       if (isTopicPending) {
         setIsTopicPending(false);
@@ -863,7 +868,7 @@ export function Stage({
       setThinkingState({ stage: 'director' });
       setIsDiscussionPaused(false);
     },
-    [chatSessionType, engineMode, isTopicPending],
+    [chatSessionType, engineMode, isTopicPending, setChatAreaCollapsed],
   );
 
   // First speech text for idle display (extracted here for playbackView)
@@ -1794,6 +1799,8 @@ export function Stage({
               onSidebarCollapseChange={setSidebarCollapsed}
               onSceneSelect={gatedSceneSwitch}
               onRetryOutline={onRetryOutline}
+              onSidebarAskActivate={handleSidebarInputActivate}
+              onSidebarAskSubmit={handleSidebarQuestionSend}
               chatCollapsed={chatAreaCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
               onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}

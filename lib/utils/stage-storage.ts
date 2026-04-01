@@ -7,6 +7,7 @@ import type { Slide } from '../types/slides';
 
 const log = createLogger('StageStorage');
 const STAGE_DRAFT_KEY_PREFIX = 'openmaic-stage-draft:';
+const STAGE_DRAFT_PERSISTENT_KEY_PREFIX = 'openmaic-stage-draft-persistent:';
 
 export interface StageStoreData {
   stage: Stage;
@@ -24,6 +25,7 @@ interface StageDraftSnapshot {
   stage: Stage;
   scenes: Scene[];
   currentSceneId: string | null;
+  remoteSynced: boolean;
 }
 
 export interface StageListItem {
@@ -139,11 +141,9 @@ function mapScene(stageId: string, row: SceneApiRow): Scene {
   };
 }
 
-function readStageDraftSnapshot(stageId: string): StageDraftSnapshot | null {
-  if (typeof window === 'undefined') return null;
+function readDraftSnapshotValue(raw: string | null): StageDraftSnapshot | null {
+  if (!raw) return null;
   try {
-    const raw = sessionStorage.getItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StageDraftSnapshot>;
     if (
       !parsed ||
@@ -162,7 +162,28 @@ function readStageDraftSnapshot(stageId: string): StageDraftSnapshot | null {
         typeof parsed.currentSceneId === 'string' || parsed.currentSceneId === null
           ? parsed.currentSceneId
           : null,
+      remoteSynced: parsed.remoteSynced !== false,
     };
+  } catch {
+    return null;
+  }
+}
+
+function readStageDraftSnapshot(stageId: string): StageDraftSnapshot | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const sessionSnapshot = readDraftSnapshotValue(
+      sessionStorage.getItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`),
+    );
+    const persistentSnapshot = readDraftSnapshotValue(
+      localStorage.getItem(`${STAGE_DRAFT_PERSISTENT_KEY_PREFIX}${stageId}`),
+    );
+
+    if (!sessionSnapshot) return persistentSnapshot;
+    if (!persistentSnapshot) return sessionSnapshot;
+    return sessionSnapshot.savedAt >= persistentSnapshot.savedAt
+      ? sessionSnapshot
+      : persistentSnapshot;
   } catch {
     return null;
   }
@@ -171,6 +192,7 @@ function readStageDraftSnapshot(stageId: string): StageDraftSnapshot | null {
 function writeStageDraftSnapshot(
   stageId: string,
   data: Pick<StageStoreData, 'stage' | 'scenes' | 'currentSceneId'>,
+  remoteSynced: boolean,
 ) {
   if (typeof window === 'undefined') return;
   try {
@@ -179,8 +201,11 @@ function writeStageDraftSnapshot(
       stage: data.stage,
       scenes: data.scenes,
       currentSceneId: data.currentSceneId,
+      remoteSynced,
     };
-    sessionStorage.setItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`, JSON.stringify(snapshot));
+    const serialized = JSON.stringify(snapshot);
+    sessionStorage.setItem(`${STAGE_DRAFT_KEY_PREFIX}${stageId}`, serialized);
+    localStorage.setItem(`${STAGE_DRAFT_PERSISTENT_KEY_PREFIX}${stageId}`, serialized);
   } catch (error) {
     log.warn('Failed to write stage draft snapshot:', error);
   }
@@ -196,7 +221,7 @@ export async function saveStageData(
     stage: data.stage,
     scenes: sortedScenes,
     currentSceneId: data.currentSceneId,
-  });
+  }, false);
 
   try {
     await ensureNotebookRow(stageId, data);
@@ -232,6 +257,15 @@ export async function saveStageData(
           })),
         }),
       },
+    );
+    writeStageDraftSnapshot(
+      stageId,
+      {
+        stage: data.stage,
+        scenes: sortedScenes,
+        currentSceneId: data.currentSceneId,
+      },
+      true,
     );
     return { remoteSynced: true };
   } catch (error) {
@@ -277,7 +311,22 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
       chats,
     };
 
-    if (draftSnapshot && draftSnapshot.savedAt >= remoteData.stage.updatedAt) {
+    if (draftSnapshot?.remoteSynced === false) {
+      return {
+        stage: draftSnapshot.stage,
+        scenes: draftSnapshot.scenes,
+        currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+        chats,
+      };
+    }
+
+    const remoteSceneUpdatedAt = scenes.reduce(
+      (latest, scene) => Math.max(latest, scene.updatedAt || 0),
+      0,
+    );
+    const remoteFreshness = Math.max(remoteData.stage.updatedAt, remoteSceneUpdatedAt);
+
+    if (draftSnapshot && draftSnapshot.savedAt >= remoteFreshness) {
       return {
         stage: draftSnapshot.stage,
         scenes: draftSnapshot.scenes,

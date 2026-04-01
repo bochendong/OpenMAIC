@@ -24,6 +24,8 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly onSidebarCollapseChange: (collapsed: boolean) => void;
   readonly onSceneSelect?: (sceneId: string) => void;
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
+  readonly onSidebarAskActivate?: () => Promise<void> | void;
+  readonly onSidebarAskSubmit?: (message: string) => Promise<void> | void;
   /** 播放模式下在左侧栏显示「虚拟讲师」标签与形象时传入 */
   readonly sceneSidebarLive2d?: TalkingAvatarOverlayState;
   readonly playPauseDisabled?: boolean;
@@ -42,6 +44,8 @@ export function CanvasArea({
   onSidebarCollapseChange,
   onSceneSelect,
   onRetryOutline,
+  onSidebarAskActivate,
+  onSidebarAskSubmit,
   chatCollapsed,
   onToggleSidebar,
   onToggleChat,
@@ -109,6 +113,8 @@ export function CanvasArea({
           onCollapseChange={onSidebarCollapseChange}
           onSceneSelect={onSceneSelect}
           onRetryOutline={onRetryOutline}
+          onAskActivate={onSidebarAskActivate}
+          onAskSubmit={onSidebarAskSubmit}
           live2dPresenter={sceneSidebarLive2d}
           playbackEngineState={engineState}
         />

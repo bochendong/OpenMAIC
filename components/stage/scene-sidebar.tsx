@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
 import {
   PanelLeftOpen,
   PieChart,
@@ -11,9 +11,11 @@ import {
   AlertCircle,
   RefreshCw,
   Trash2,
+  SendHorizonal,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import {
   TalkingAvatarOverlay,
   type TalkingAvatarOverlayState,
@@ -30,13 +32,15 @@ interface SceneSidebarProps {
   readonly onCollapseChange: (collapsed: boolean) => void;
   readonly onSceneSelect?: (sceneId: string) => void;
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
+  readonly onAskActivate?: () => Promise<void> | void;
+  readonly onAskSubmit?: (message: string) => Promise<void> | void;
   /** 开启虚拟讲师且处于播放语境时传入，用于「虚拟讲师」标签页 */
   readonly live2dPresenter?: TalkingAvatarOverlayState;
   /** 与画布工具条一致；开始播放时自动切到虚拟讲师页，从播放切到暂停/空闲时回到导航；其余时候可手动切换 */
   readonly playbackEngineState?: 'idle' | 'playing' | 'paused';
 }
 
-type SidebarMainTab = 'nav' | 'live2d';
+type SidebarMainTab = 'nav' | 'ask' | 'live2d';
 
 const DEFAULT_WIDTH = 220;
 const MIN_WIDTH = 170;
@@ -47,6 +51,8 @@ export function SceneSidebar({
   onCollapseChange,
   onSceneSelect,
   onRetryOutline,
+  onAskActivate,
+  onAskSubmit,
   live2dPresenter,
   playbackEngineState = 'idle',
 }: SceneSidebarProps) {
@@ -59,6 +65,8 @@ export function SceneSidebar({
   const viewportRatio = useCanvasStore.use.viewportRatio();
 
   const [retryingOutlineId, setRetryingOutlineId] = useState<string | null>(null);
+  const [askValue, setAskValue] = useState('');
+  const askTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const handleRetryOutline = async (outlineId: string) => {
     if (!onRetryOutline) return;
@@ -86,7 +94,7 @@ export function SceneSidebar({
 
   useEffect(() => {
     if (!live2dPresenter) {
-      setSidebarTab('nav');
+      setSidebarTab((current) => (current === 'live2d' ? 'nav' : current));
       prevPlaybackEngineRef.current = playbackEngineState;
       return;
     }
@@ -109,7 +117,8 @@ export function SceneSidebar({
     prevPlaybackEngineRef.current = cur;
   }, [live2dPresenter, playbackEngineState]);
 
-  const tabsValue: SidebarMainTab = live2dPresenter ? sidebarTab : 'nav';
+  const tabsValue: SidebarMainTab =
+    live2dPresenter || sidebarTab !== 'live2d' ? sidebarTab : 'nav';
 
   useEffect(() => {
     if (!live2dPresenter || collapsed || tabsValue !== 'live2d') {
@@ -120,6 +129,11 @@ export function SceneSidebar({
       );
     }
   }, [collapsed, live2dPresenter, tabsValue]);
+
+  useEffect(() => {
+    if (collapsed || tabsValue !== 'ask') return;
+    askTextareaRef.current?.focus();
+  }, [collapsed, tabsValue]);
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -217,6 +231,17 @@ export function SceneSidebar({
     }));
   }, []);
 
+  const handleAskFocus = useCallback(() => {
+    void onAskActivate?.();
+  }, [onAskActivate]);
+
+  const handleAskSend = useCallback(() => {
+    const message = askValue.trim();
+    if (!message) return;
+    setAskValue('');
+    void onAskSubmit?.(message);
+  }, [askValue, onAskSubmit]);
+
   return (
     <div
       style={{
@@ -279,7 +304,7 @@ export function SceneSidebar({
         <Tabs
           value={tabsValue}
           onValueChange={(v) => {
-            if (v === 'nav' || v === 'live2d') setSidebarTab(v);
+            if (v === 'nav' || v === 'ask' || v === 'live2d') setSidebarTab(v);
           }}
           className="flex min-h-0 min-w-0 flex-1 flex-col gap-0"
         >
@@ -305,10 +330,7 @@ export function SceneSidebar({
               </TabsTrigger>
               <TabsTrigger
                 value="ask"
-                disabled
                 className={cn('px-1', live2dPresenter ? 'text-[10px]' : 'text-xs')}
-                title={t('stage.sidebarTabAskDisabledHint')}
-                aria-label={`${t('stage.sidebarTabAsk')} — ${t('stage.sidebarTabAskDisabledHint')}`}
               >
                 {t('stage.sidebarTabAsk')}
               </TabsTrigger>
@@ -654,6 +676,57 @@ export function SceneSidebar({
             </div>
 
             <div className="mt-auto shrink-0" />
+          </TabsContent>
+
+          <TabsContent
+            value="ask"
+            className="mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden outline-none data-[state=inactive]:hidden"
+          >
+            <div className="flex flex-1 flex-col gap-3 overflow-y-auto overflow-x-hidden p-3 pt-1 scrollbar-hide">
+              <div className="rounded-[18px] border border-slate-900/[0.08] bg-white/80 p-3 shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:border-white/[0.08] dark:bg-white/[0.04] dark:shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+                <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                  {t('stage.sidebarTabAsk')}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                  {t('chat.askHint')}
+                </p>
+              </div>
+
+              <div className="rounded-[20px] border border-slate-900/[0.08] bg-white/88 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.07)] dark:border-white/[0.08] dark:bg-black/20 dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
+                <div className="flex items-end gap-2">
+                  <Textarea
+                    ref={askTextareaRef}
+                    value={askValue}
+                    onFocus={handleAskFocus}
+                    onChange={(e) => setAskValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                        e.preventDefault();
+                        handleAskSend();
+                      }
+                    }}
+                    placeholder={t('chat.askPlaceholder')}
+                    rows={4}
+                    className="min-h-[132px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                    style={{ fieldSizing: 'content' } as CSSProperties}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAskSend}
+                    disabled={!askValue.trim()}
+                    className={cn(
+                      'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-200',
+                      askValue.trim()
+                        ? 'bg-[#007AFF] text-white shadow-[0_10px_24px_rgba(0,122,255,0.28)] hover:bg-[#0a84ff]'
+                        : 'bg-slate-200/80 text-slate-400 dark:bg-white/[0.08] dark:text-white/30',
+                    )}
+                    aria-label={t('chat.send')}
+                  >
+                    <SendHorizonal className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
           </TabsContent>
 
           {live2dPresenter ? (

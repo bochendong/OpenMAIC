@@ -10,6 +10,8 @@ const log = createLogger('StageStore');
 
 /** Virtual scene ID used when the user navigates to a page still being generated */
 export const PENDING_SCENE_ID = '__pending__';
+const STAGE_DRAFT_KEY_PREFIX = 'openmaic-stage-draft:';
+const STAGE_DRAFT_PERSISTENT_KEY_PREFIX = 'openmaic-stage-draft-persistent:';
 
 // ==================== Debounce Helper ====================
 
@@ -33,6 +35,28 @@ function debounce<T extends (...args: Parameters<T>) => ReturnType<T>>(
       timeoutId = null;
     }, delay);
   };
+}
+
+function writeDraftSnapshotImmediately(args: {
+  stageId: string;
+  stage: Stage;
+  scenes: Scene[];
+  currentSceneId: string | null;
+}) {
+  if (typeof window === 'undefined') return;
+  try {
+    const snapshot = JSON.stringify({
+      savedAt: Date.now(),
+      stage: args.stage,
+      scenes: [...args.scenes].sort((a, b) => a.order - b.order),
+      currentSceneId: args.currentSceneId,
+      remoteSynced: false,
+    });
+    sessionStorage.setItem(`${STAGE_DRAFT_KEY_PREFIX}${args.stageId}`, snapshot);
+    localStorage.setItem(`${STAGE_DRAFT_PERSISTENT_KEY_PREFIX}${args.stageId}`, snapshot);
+  } catch (error) {
+    log.warn('Failed to eagerly write stage draft snapshot:', error);
+  }
 }
 
 type ToolbarState = 'design' | 'ai';
@@ -274,6 +298,12 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     }
 
     try {
+      writeDraftSnapshotImmediately({
+        stageId: stage.id,
+        stage,
+        scenes,
+        currentSceneId,
+      });
       const { saveStageData } = await import('@/lib/utils/stage-storage');
       set({ storageSaveState: 'saving', storageSaveError: null });
       const result = await saveStageData(stage.id, {
