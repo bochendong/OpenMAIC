@@ -36,6 +36,7 @@ import {
   formatCoursePersonalizationForPrompt,
   formatAgentsForPrompt,
   formatTeacherPersonaForPrompt,
+  formatSlideRewriteContext,
   formatWorkedExampleForPrompt,
   formatImageDescription,
   formatImagePlaceholder,
@@ -173,6 +174,7 @@ export async function generateSceneContent(
   generatedMediaMapping?: ImageMapping,
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
+  rewriteReason?: string,
 ): Promise<
   | GeneratedSlideContent
   | GeneratedQuizContent
@@ -209,6 +211,7 @@ export async function generateSceneContent(
         generatedMediaMapping,
         agents,
         courseContext,
+        rewriteReason,
       );
     case 'quiz':
       return generateQuizContent(outline, aiCall, courseContext);
@@ -1931,11 +1934,13 @@ async function generateSemanticSlideContent(
   aiCall: AICallFn,
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
+  rewriteReason?: string,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
   const teacherContext = formatTeacherPersonaForPrompt(agents);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
+  const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
   const prompts = buildPrompt(PROMPT_IDS.SLIDE_SEMANTIC_CONTENT, {
     title: outline.title,
@@ -1944,6 +1949,7 @@ async function generateSemanticSlideContent(
     teacherContext,
     coursePersonalization,
     workedExampleContext,
+    rewriteContext,
   });
 
   if (!prompts) return null;
@@ -1981,6 +1987,7 @@ async function generateSlideContent(
   generatedMediaMapping?: ImageMapping,
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
+  rewriteReason?: string,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
 
@@ -2002,6 +2009,7 @@ async function generateSlideContent(
       aiCall,
       agents,
       courseContext,
+      rewriteReason,
     );
     if (semanticContent) {
       log.info(`Using semantic slide content pipeline for: ${outline.title}`);
@@ -2085,6 +2093,7 @@ async function generateSlideContent(
   const teacherContext = formatTeacherPersonaForPrompt(agents);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
+  const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
   const prompts = buildPrompt(PROMPT_IDS.SLIDE_CONTENT, {
     title: outline.title,
@@ -2097,6 +2106,7 @@ async function generateSlideContent(
     teacherContext,
     coursePersonalization,
     workedExampleContext,
+    rewriteContext,
   });
 
   if (!prompts) {

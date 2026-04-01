@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
       stageId: string;
       agents?: AgentInfo[];
       courseContext?: CoursePersonalizationContext;
+      rewriteReason?: string;
     };
 
     // Validate required fields
@@ -155,6 +156,7 @@ export async function POST(req: NextRequest) {
       generatedMediaMapping,
       agents,
       body.courseContext,
+      body.rewriteReason,
     );
 
     if (!content) {

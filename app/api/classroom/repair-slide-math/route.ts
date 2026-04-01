@@ -43,6 +43,7 @@ type RepairIntent = {
   wantsStructureChange: boolean;
   wantsMinimalMathOnly: boolean;
   hintsNeedAnotherPage: boolean;
+  wantsExplicitDerivation: boolean;
 };
 
 type SlideRepairTextSummaryItem = {
@@ -404,7 +405,26 @@ function inferRepairIntent(repairInstructions?: string): RepairIntent {
       'split into 2 pages',
       'multi-page',
     ]),
+    wantsExplicitDerivation: includesAny([
+      '推导',
+      '证明',
+      '证明过程',
+      '关键步骤',
+      '步骤',
+      'derive',
+      'derivation',
+      'proof',
+      'reasoning',
+      'step by step',
+      'step-by-step',
+      'steps',
+    ]),
   };
+}
+
+function countMathStructureBlocks(doc: NotebookContentDocument): number {
+  return doc.blocks.filter((block) => block.type === 'equation' || block.type === 'derivation_steps')
+    .length;
 }
 
 function summarizeBlockForComparison(block: NotebookContentDocument['blocks'][number]): string[] {
@@ -497,6 +517,8 @@ function looksLikeInstructionWasIgnored(args: {
   const repairedSignal = estimateDocumentSignal(args.repairedDocument);
   const sourceReasoningBlocks = countReasoningBlocks(args.sourceDocument);
   const repairedReasoningBlocks = countReasoningBlocks(args.repairedDocument);
+  const sourceMathStructureBlocks = countMathStructureBlocks(args.sourceDocument);
+  const repairedMathStructureBlocks = countMathStructureBlocks(args.repairedDocument);
   const blockDelta = Math.abs(args.repairedDocument.blocks.length - args.sourceDocument.blocks.length);
 
   if (args.intent.wantsMinimalMathOnly) {
@@ -506,6 +528,14 @@ function looksLikeInstructionWasIgnored(args: {
   if (
     args.intent.wantsExpansion &&
     repairedSignal < Math.max(sourceSignal + 24, Math.floor(sourceSignal * 1.12)) &&
+    repairedReasoningBlocks <= sourceReasoningBlocks
+  ) {
+    return true;
+  }
+
+  if (
+    args.intent.wantsExplicitDerivation &&
+    repairedMathStructureBlocks <= sourceMathStructureBlocks &&
     repairedReasoningBlocks <= sourceReasoningBlocks
   ) {
     return true;
@@ -548,13 +578,18 @@ function buildFallbackAssistantReply(args: {
   language: 'zh-CN' | 'en-US';
   intent: RepairIntent;
   repairInstructions?: string;
+  document: NotebookContentDocument;
 }): string {
+  const mathStructureBlocks = countMathStructureBlocks(args.document);
   if (args.language === 'zh-CN') {
     if (args.intent.wantsMinimalMathOnly) {
       return '我已经按你的要求优先修了公式、符号和上下标，正文尽量保持不变。';
     }
+    if ((args.intent.wantsExpansion || args.intent.wantsStructureChange) && mathStructureBlocks > 0) {
+      return '我把这一页里关键的数学表达尽量拆成了更清楚的公式或推导块，你可以继续告诉我哪一步还要再展开。';
+    }
     if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
-      return '我已经按你的要求补强了这一页的推导和层次。你可以继续告诉我哪一步还需要展开。';
+      return '我已经先把这一页的层次整理得更清楚了，但如果你想补完整证明，下一步更适合继续追着某一步展开。';
     }
     if (args.repairInstructions?.trim()) {
       return '我已经按你刚才的要求修了这一页。你可以继续补充更细的修改意见。';
@@ -565,8 +600,11 @@ function buildFallbackAssistantReply(args: {
   if (args.intent.wantsMinimalMathOnly) {
     return 'I focused on formulas, notation, and subscripts while keeping the wording as intact as possible.';
   }
+  if ((args.intent.wantsExpansion || args.intent.wantsStructureChange) && mathStructureBlocks > 0) {
+    return 'I split more of the key math into clearer equation or derivation blocks. You can ask me to expand any specific step next.';
+  }
   if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
-    return 'I strengthened the reasoning flow on this slide. You can ask me to expand any specific step next.';
+    return 'I clarified the slide structure first. If you want a fuller proof, tell me which step to expand next.';
   }
   if (args.repairInstructions?.trim()) {
     return 'I repaired this slide based on your instruction. You can keep refining it with follow-up requests.';
@@ -641,7 +679,8 @@ function buildSystemPrompt(language: 'zh-CN' | 'en-US', intent: RepairIntent) {
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
 - wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
-- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
+- wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
   }
 
   return `You repair the mathematical notation, content structure, and teaching clarity of a single classroom slide.
@@ -686,7 +725,8 @@ Current teacher intent:
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
 - wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
-- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
+- wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
 }
 
 function buildUserPrompt(args: {
@@ -889,11 +929,11 @@ export async function POST(req: NextRequest) {
 
       const repairedSceneTitle = parsed.sceneTitle?.trim() || document.title?.trim() || sceneTitle;
       const assistantReply =
-        parsed.assistantReply?.trim() ||
         buildFallbackAssistantReply({
           language,
           intent: repairIntent,
           repairInstructions: body.repairInstructions,
+          document,
         });
       const renderedSlide = renderNotebookContentDocumentToSlide({
         document: {

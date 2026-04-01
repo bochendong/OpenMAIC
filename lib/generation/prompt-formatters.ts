@@ -108,6 +108,33 @@ export function formatCoursePersonalizationForPrompt(
   ].join('\n');
 }
 
+/** Format user-provided rewrite guidance for slide regeneration prompts */
+export function formatSlideRewriteContext(
+  rewriteReason?: string,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
+): string {
+  const reason = rewriteReason?.trim();
+  if (!reason) return '';
+
+  if (language === 'zh-CN') {
+    return [
+      '重写当前页的额外要求：',
+      `- 用户说明为什么这一页需要重写：${reason}`,
+      '- 这次不是微调旧页，而是基于同一页主题重新生成整页内容与版式。',
+      '- 必须保留当前页所属主题与教学目标，但要明显体现用户这条重写原因。',
+      '- 如果用户提到“讲清楚一点 / 补推导 / 改结构 / 保留主题但换讲法”，请把它当成硬约束。',
+    ].join('\n');
+  }
+
+  return [
+    'Additional rewrite guidance for this slide:',
+    `- The user explained why this slide should be rewritten: ${reason}`,
+    '- This is a full rewrite of the current slide, not a light repair of the old layout.',
+    '- Keep the same topic and teaching goal, but make the rewrite visibly reflect the user reason.',
+    '- Treat requests like clearer reasoning, stronger structure, or a different presentation approach as hard constraints.',
+  ].join('\n');
+}
+
 /** Format worked-example metadata for slide/content/action prompts */
 export function formatWorkedExampleForPrompt(
   cfg?: SceneOutline['workedExampleConfig'],

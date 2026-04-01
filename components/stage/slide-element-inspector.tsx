@@ -95,10 +95,10 @@ const COMMON_COLOR_SWATCHES = [
   '#c4b5fd',
 ] as const;
 
-const COMMON_REPAIR_PROMPTS = [
-  '把这一页讲清楚一点，补出关键推导。',
-  '只修公式和上下标，不要改正文。',
-  '保留原文意思，但把结构整理得更像证明页。',
+const COMMON_REWRITE_PROMPTS = [
+  '这一页太空了，重写成更完整的证明页。',
+  '保留主题，但换一种更清楚的讲法。',
+  '把这一页重写得更像老师真正会上课展示的版本。',
 ] as const;
 
 function colorInput(value: string | undefined, onChange: (next: string) => void) {
@@ -717,12 +717,15 @@ export function SlideElementInspector({
         <div className="space-y-6 px-4 py-4">
           <Tabs value={activeTab} onValueChange={(value) => onActiveTabChange(value as 'ai' | 'manual')}>
             <TabsList className="grid w-full grid-cols-2 rounded-xl bg-slate-100/90 dark:bg-white/[0.06]">
-              <TabsTrigger value="ai">AI 修复</TabsTrigger>
-              <TabsTrigger value="manual">手动修复</TabsTrigger>
+              <TabsTrigger value="ai">AI 重写</TabsTrigger>
+              <TabsTrigger value="manual">手动编辑</TabsTrigger>
             </TabsList>
 
             <TabsContent value="ai" className="mt-4 space-y-3">
-              {sectionTitle('AI 修复对话', '像聊天一样告诉 AI 这一页要怎么改；它会回你一条，再去修当前页。')}
+              {sectionTitle(
+                'AI 重写对话',
+                '像聊天一样告诉 AI 为什么这页需要重写；它会按主生成流程重写当前页，并把你的要求带进去。',
+              )}
               <div className="rounded-[24px] border border-sky-200/80 bg-[linear-gradient(180deg,rgba(240,249,255,0.95)_0%,rgba(255,255,255,0.92)_100%)] p-3 shadow-[0_18px_40px_rgba(56,189,248,0.12)] dark:border-sky-500/20 dark:bg-[linear-gradient(180deg,rgba(12,20,32,0.94)_0%,rgba(15,23,42,0.84)_100%)]">
                 <div
                   ref={repairConversationRef}
@@ -732,9 +735,9 @@ export function SlideElementInspector({
                     <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-sky-500/20 dark:bg-sky-950/20 dark:text-slate-300">
                       你可以直接说：
                       <div className="mt-2 space-y-1 text-[13px] text-slate-500 dark:text-slate-400">
-                        <div>“把这页证明讲清楚一点”</div>
-                        <div>“只修公式，不要改正文”</div>
-                        <div>“如果这一页放不下，就先把最关键的推导补出来”</div>
+                        <div>“这一页太空了，帮我重写得更完整一点”</div>
+                        <div>“保留主题，但讲法换得更像课堂证明页”</div>
+                        <div>“这一页不够像老师上课会展示的版本，重写一下结构”</div>
                       </div>
                     </div>
                   ) : null}
@@ -757,7 +760,7 @@ export function SlideElementInspector({
                           )}
                         >
                           <div className="mb-1 flex items-center gap-2 text-[11px] font-medium opacity-70">
-                            <span>{isAssistant ? 'AI 修复' : '你'}</span>
+                            <span>{isAssistant ? 'AI 重写' : '你'}</span>
                             {message.status === 'pending' ? (
                               <Loader2 className="size-3 animate-spin" />
                             ) : null}
@@ -770,7 +773,7 @@ export function SlideElementInspector({
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {COMMON_REPAIR_PROMPTS.map((prompt) => (
+                  {COMMON_REWRITE_PROMPTS.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
@@ -793,12 +796,12 @@ export function SlideElementInspector({
                         onSendRepairMessage();
                       }
                     }}
-                    placeholder="像聊天一样发一句，例如：把这页的第二步推导补完整。"
+                    placeholder="像聊天一样发一句，例如：这页太空了，按更完整的证明页重写。"
                     className="min-h-[108px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                      `Cmd/Ctrl + Enter` 发送。留空时，会按默认规则修当前页。
+                      `Cmd/Ctrl + Enter` 发送。留空时，会按默认主生成流程重写当前页。
                     </p>
                     <Button
                       type="button"
@@ -811,7 +814,7 @@ export function SlideElementInspector({
                       ) : (
                         <ArrowUp className="size-4" />
                       )}
-                      {repairPending ? 'AI 正在回复' : '发送并修复'}
+                      {repairPending ? 'AI 正在重写' : '发送并重写'}
                     </Button>
                   </div>
                 </div>

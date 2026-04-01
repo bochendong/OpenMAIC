@@ -35,6 +35,31 @@ function escapeHtml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
+function renderInlineLatexToHtml(text: string): string {
+  const pattern = /(\\\(([\s\S]+?)\\\)|\\\[((?:[\s\S])+?)\\\]|\$([\s\S]+?)\$)/g;
+  let result = '';
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const fullMatch = match[0];
+    const start = match.index ?? 0;
+    const end = start + fullMatch.length;
+    const expression = match[2] ?? match[3] ?? match[4] ?? '';
+
+    result += escapeHtml(text.slice(lastIndex, start));
+    result += katex.renderToString(expression.trim(), {
+      displayMode: false,
+      throwOnError: false,
+      output: 'html',
+      strict: 'ignore',
+    });
+    lastIndex = end;
+  }
+
+  result += escapeHtml(text.slice(lastIndex));
+  return result;
+}
+
 function estimateParagraphHeight(text: string, charsPerLine: number, lineHeightPx: number): number {
   const lines = Math.max(
     1,
@@ -319,7 +344,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       top: 48,
       width: CONTENT_WIDTH - 22,
       height: 52,
-      html: `<p style="font-size:30px;"><strong>${escapeHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
+      html: `<p style="font-size:30px;"><strong>${renderInlineLatexToHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
       color: '#0f172a',
       textType: 'title',
     }),
@@ -338,7 +363,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           top: cursorTop,
           width: CONTENT_WIDTH,
           height,
-          html: `<p style="font-size:${block.level <= 2 ? 22 : 18}px;color:#1e293b;"><strong>${escapeHtml(block.text)}</strong></p>`,
+          html: `<p style="font-size:${block.level <= 2 ? 22 : 18}px;color:#1e293b;"><strong>${renderInlineLatexToHtml(block.text)}</strong></p>`,
           color: '#1e293b',
           textType: 'itemTitle',
         }),
@@ -360,7 +385,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: contentHeight,
           html: block.text
             .split('\n')
-            .map((line) => `<p style="font-size:16px;color:#334155;">${escapeHtml(line)}</p>`)
+            .map((line) => `<p style="font-size:16px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`)
             .join(''),
           color: '#334155',
           textType: 'content',
@@ -386,7 +411,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
           height: contentHeight,
           html: block.items
-            .map((item) => `<p style="font-size:16px;color:#334155;">• ${escapeHtml(item)}</p>`)
+            .map((item) => `<p style="font-size:16px;color:#334155;">• ${renderInlineLatexToHtml(item)}</p>`)
             .join(''),
           color: '#334155',
           textType: 'content',
@@ -505,9 +530,9 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: height - 20,
           html: [
             block.title
-              ? `<p style="font-size:15px;color:${tonePalette.text};"><strong>${escapeHtml(block.title)}</strong></p>`
+              ? `<p style="font-size:15px;color:${tonePalette.text};"><strong>${renderInlineLatexToHtml(block.title)}</strong></p>`
               : '',
-            `<p style="font-size:15px;color:${tonePalette.text};">${escapeHtml(block.text)}</p>`,
+            `<p style="font-size:15px;color:${tonePalette.text};">${renderInlineLatexToHtml(block.text)}</p>`,
           ]
             .filter(Boolean)
             .join(''),

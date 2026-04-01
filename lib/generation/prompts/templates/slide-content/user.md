@@ -10,6 +10,7 @@
 {{workedExampleContext}}
 {{teacherContext}}
 {{coursePersonalization}}
+{{rewriteContext}}
 
 ## Available Resources
 

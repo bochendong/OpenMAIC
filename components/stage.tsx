@@ -19,7 +19,7 @@ import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import type { Action, DiscussionAction, MouthShape, SpeechAction } from '@/lib/types/action';
 import type { Scene, SceneType, SlideContent } from '@/lib/types/stage';
-import type { SceneOutline } from '@/lib/types/generation';
+import type { GeneratedSlideContent, SceneOutline } from '@/lib/types/generation';
 import {
   normalizeAzureVisemesToMouthCues,
   resolveCurrentMouthCueFrame,
@@ -30,7 +30,8 @@ import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/regi
 import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
 import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
-import type { SlideRepairChatMessage, SlideRepairConversationTurn } from '@/lib/types/slide-repair';
+import type { AgentInfo } from '@/lib/generation/generation-pipeline';
+import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -63,23 +64,125 @@ function createRepairMessageId(role: 'user' | 'assistant') {
 
 function getDefaultRepairRequest(language: 'zh-CN' | 'en-US' | undefined) {
   return language === 'en-US'
-    ? 'Repair this slide with the default math and teaching-structure rules.'
-    : '按默认规则修复当前页的数学表达和讲解结构。';
+    ? 'Rewrite this slide with the default slide-generation flow.'
+    : '按默认主生成流程重写当前页。';
 }
 
-function toRepairConversationTurns(messages: SlideRepairChatMessage[]): SlideRepairConversationTurn[] {
-  return messages
-    .filter(
-      (message) =>
-        message.status !== 'error' &&
-        message.status !== 'pending' &&
-        message.content.trim().length > 0,
-    )
-    .map((message) => ({
-      role: message.role,
-      content: message.content.trim(),
-    }))
-    .slice(-8);
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
+  const semanticBlocks = content.semanticDocument?.blocks ?? [];
+  const semanticPoints = semanticBlocks
+    .flatMap((block) => {
+      switch (block.type) {
+        case 'heading':
+          return [block.text];
+        case 'paragraph':
+          return [block.text];
+        case 'bullet_list':
+          return block.items;
+        case 'equation':
+          return [block.latex];
+        case 'derivation_steps':
+          return block.steps.map((step) => step.expression);
+        case 'callout':
+          return [block.title || '', block.text];
+        case 'example':
+          return [block.problem, ...block.givens, ...(block.goal ? [block.goal] : []), ...block.steps];
+        default:
+          return [];
+      }
+    })
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (semanticPoints.length > 0) return semanticPoints.slice(0, 5);
+
+  const canvasPoints = content.canvas.elements
+    .flatMap((element) => {
+      if (element.type === 'text') return [stripHtmlToText(element.content)];
+      if (element.type === 'latex') return [element.latex];
+      if (element.type === 'shape' && element.text?.content) {
+        return [stripHtmlToText(element.text.content)];
+      }
+      if (element.type === 'table') {
+        return element.data.flat().map((cell) => cell.text);
+      }
+      return [];
+    })
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return canvasPoints.slice(0, 5);
+}
+
+function buildFallbackRewriteOutline(
+  scene: Scene,
+  language: 'zh-CN' | 'en-US',
+): SceneOutline {
+  const keyPoints =
+    scene.type === 'slide' && scene.content.type === 'slide'
+      ? collectFallbackKeyPointsFromSlide(scene.content)
+      : [scene.title];
+
+  return {
+    id: `rewrite_${scene.id}`,
+    type: scene.type === 'slide' ? 'slide' : 'slide',
+    title: scene.title,
+    description:
+      language === 'en-US'
+        ? `Rewrite this slide while keeping the same topic and teaching goal as "${scene.title}".`
+        : `围绕“${scene.title}”这个主题，重写这一页，但保持原有教学目标。`,
+    keyPoints: keyPoints.length > 0 ? keyPoints : [scene.title],
+    order: scene.order,
+    language,
+  };
+}
+
+function normalizeOutlineTitle(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function resolveRewriteOutline(
+  scene: Scene,
+  outlines: SceneOutline[],
+  language: 'zh-CN' | 'en-US',
+): SceneOutline {
+  const byOrder = outlines.find((outline) => outline.order === scene.order);
+  if (byOrder) return byOrder;
+
+  const sceneTitle = normalizeOutlineTitle(scene.title);
+  const byTitle = outlines.find((outline) => normalizeOutlineTitle(outline.title) === sceneTitle);
+  if (byTitle) return byTitle;
+
+  return buildFallbackRewriteOutline(scene, language);
+}
+
+function buildRewriteAssistantReply(args: {
+  language: 'zh-CN' | 'en-US';
+  rewriteReason: string;
+  outlineTitle: string;
+}): string {
+  if (args.language === 'en-US') {
+    return args.rewriteReason.trim()
+      ? `I rewrote this slide through the main slide-generation flow and used your rewrite reason to steer the new structure and emphasis around "${args.outlineTitle}".`
+      : `I rewrote this slide through the main slide-generation flow and regenerated a fresh version around "${args.outlineTitle}".`;
+  }
+
+  return args.rewriteReason.trim()
+    ? `我已经按主生成流程重写了这一页，并把你给的重写原因真正带进了“${args.outlineTitle}”这一页的新结构和重点里。`
+    : `我已经按主生成流程重写了这一页，重新生成了一版围绕“${args.outlineTitle}”的新页面。`;
 }
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
@@ -142,9 +245,11 @@ export function Stage({
   const { t, locale } = useI18n();
   const { mode, getCurrentScene, scenes, currentSceneId, setCurrentSceneId, generatingOutlines } =
     useStageStore();
+  const stage = useStageStore((s) => s.stage);
   const stageLanguage = useStageStore((s) => s.stage?.language);
   const touchScenes = useStageStore((s) => s.touchScenes);
   const updateScene = useStageStore((s) => s.updateScene);
+  const setOutlines = useStageStore((s) => s.setOutlines);
   const failedOutlines = useStageStore.use.failedOutlines();
   const outlines = useStageStore((s) => s.outlines);
 
@@ -233,6 +338,18 @@ export function Stage({
 
   // Selected agents from settings store (Zustand)
   const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
+  const generationAgents = useMemo<AgentInfo[]>(() => {
+    const registry = useAgentRegistry.getState();
+    return selectedAgentIds
+      .map((id) => registry.getAgent(id))
+      .filter((agent): agent is AgentConfig => agent != null)
+      .map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        role: agent.role,
+        persona: agent.persona,
+      }));
+  }, [selectedAgentIds]);
 
   // Generate participants from selected agents
   const participants = useMemo(
@@ -1002,14 +1119,21 @@ export function Stage({
       mathRepairPending ||
       !currentScene ||
       currentScene.type !== 'slide' ||
-      currentScene.content.type !== 'slide'
+      currentScene.content.type !== 'slide' ||
+      !stage
     ) {
       return;
     }
 
     const sceneId = currentScene.id;
     const trimmedDraft = repairInstructions.trim();
-    const userMessageContent = trimmedDraft || getDefaultRepairRequest(stageLanguage as 'zh-CN' | 'en-US' | undefined);
+    const rewriteLanguage = (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN';
+    const userMessageContent = trimmedDraft || getDefaultRepairRequest(rewriteLanguage);
+    const matchedOutline = resolveRewriteOutline(currentScene, outlines, rewriteLanguage);
+    const outlineExists = outlines.some((outline) => outline.id === matchedOutline.id);
+    const outlineCollection = (outlineExists ? outlines : [...outlines, matchedOutline])
+      .slice()
+      .sort((a, b) => a.order - b.order);
     const userMessage: SlideRepairChatMessage = {
       id: createRepairMessageId('user'),
       role: 'user',
@@ -1021,20 +1145,12 @@ export function Stage({
       id: createRepairMessageId('assistant'),
       role: 'assistant',
       content:
-        (stageLanguage as 'zh-CN' | 'en-US' | undefined) === 'en-US'
-          ? "I'm repairing this slide now based on your request."
-          : '收到，我现在按这条要求修当前页。',
+        rewriteLanguage === 'en-US'
+          ? "I'm rewriting this slide now through the main generation flow."
+          : '收到，我现在按主生成流程重写当前页。',
       createdAt: Date.now() + 1,
       status: 'pending',
     };
-    const repairConversationHistory = [
-      ...toRepairConversationTurns(repairConversation),
-      {
-        role: 'user' as const,
-        content: userMessageContent,
-      },
-    ].slice(-8);
-
     setRepairConversationByScene((prev) => ({
       ...prev,
       [sceneId]: [...(prev[sceneId] ?? []), userMessage, pendingAssistantMessage],
@@ -1046,7 +1162,7 @@ export function Stage({
     setMathRepairPending(true);
     try {
       const modelConfig = getCurrentModelConfig();
-      const resp = await backendFetch('/api/classroom/repair-slide-math', {
+      const resp = await backendFetch('/api/generate/scene-content', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -1055,24 +1171,29 @@ export function Stage({
           'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
         },
         body: JSON.stringify({
-          sceneTitle: currentScene.title,
-          language: (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN',
-          content: currentScene.content,
-          repairInstructions: userMessageContent,
-          repairConversation: repairConversationHistory,
+          outline: matchedOutline,
+          allOutlines: outlineCollection.length > 0 ? outlineCollection : [matchedOutline],
+          stageInfo: {
+            name: stage.name,
+            description: stage.description,
+            language: rewriteLanguage,
+            style: stage.style,
+          },
+          stageId: stage.id || currentScene.stageId,
+          agents: generationAgents,
+          rewriteReason: userMessageContent,
         }),
       });
 
       const data = (await resp.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
-        sceneTitle?: string;
-        assistantReply?: string;
-        content?: SlideContent;
+        effectiveOutline?: SceneOutline;
+        content?: GeneratedSlideContent;
       };
 
-      if (!resp.ok || !data.success || !data.content) {
-        throw new Error(data.error?.trim() || 'AI 修复失败');
+      if (!resp.ok || !data.success || !data.content?.elements) {
+        throw new Error(data.error?.trim() || 'AI 重写失败');
       }
 
       const repairSnapshot =
@@ -1083,31 +1204,64 @@ export function Stage({
           savedAt: Date.now(),
         } satisfies NonNullable<Scene['repairSnapshot']>);
 
+      const nextOutline: SceneOutline = {
+        ...(data.effectiveOutline || matchedOutline),
+        id: matchedOutline.id,
+        order: currentScene.order,
+        type: 'slide',
+        language: rewriteLanguage,
+      };
+      const nextOutlines = (() => {
+        if (outlineCollection.length === 0) return [nextOutline];
+        let found = false;
+        const updated = outlineCollection.map((outline) => {
+          if (outline.id === matchedOutline.id || outline.order === currentScene.order) {
+            found = true;
+            return nextOutline;
+          }
+          return outline;
+        });
+        if (!found) updated.push(nextOutline);
+        return updated.slice().sort((a, b) => a.order - b.order);
+      })();
+
+      const rewrittenContent: SlideContent = {
+        type: 'slide',
+        canvas: {
+          ...currentScene.content.canvas,
+          elements: data.content.elements,
+          background: data.content.background ?? currentScene.content.canvas.background,
+          theme: data.content.theme ?? currentScene.content.canvas.theme,
+        },
+        semanticDocument: data.content.contentDocument,
+      };
+
       updateScene(currentScene.id, {
-        title: data.sceneTitle?.trim() || currentScene.title,
-        content: data.content,
+        title: nextOutline.title?.trim() || currentScene.title,
+        content: rewrittenContent,
         repairSnapshot,
         updatedAt: Date.now(),
       });
+      setOutlines(nextOutlines);
       setRepairConversationByScene((prev) => ({
         ...prev,
         [sceneId]: (prev[sceneId] ?? []).map((message) =>
           message.id === pendingAssistantMessage.id
             ? {
                 ...message,
-                content:
-                  data.assistantReply?.trim() ||
-                  ((stageLanguage as 'zh-CN' | 'en-US' | undefined) === 'en-US'
-                    ? 'I repaired this slide based on your latest request. You can keep refining it here.'
-                    : '我已经按你刚才的要求修了这一页。你可以继续告诉我下一步怎么改。'),
+                content: buildRewriteAssistantReply({
+                  language: rewriteLanguage,
+                  rewriteReason: userMessageContent,
+                  outlineTitle: nextOutline.title || currentScene.title,
+                }),
                 status: 'ready',
               }
             : message,
         ),
       }));
-      toast.success('当前页已按你的要求完成 AI 修复');
+      toast.success('当前页已按主生成流程完成重写');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'AI 修复失败';
+      const errorMessage = error instanceof Error ? error.message : 'AI 重写失败';
       setRepairConversationByScene((prev) => ({
         ...prev,
         [sceneId]: (prev[sceneId] ?? []).map((message) =>
@@ -1124,7 +1278,17 @@ export function Stage({
     } finally {
       setMathRepairPending(false);
     }
-  }, [currentScene, mathRepairPending, repairConversation, repairInstructions, stageLanguage, updateScene]);
+  }, [
+    currentScene,
+    generationAgents,
+    mathRepairPending,
+    outlines,
+    repairInstructions,
+    setOutlines,
+    stage,
+    stageLanguage,
+    updateScene,
+  ]);
 
   useEffect(() => {
     if (!pendingRepairSidebarFocus || !slideEditorOpen || slideEditTab !== 'canvas') return;
@@ -1149,7 +1313,7 @@ export function Stage({
       repairSnapshot: undefined,
       updatedAt: Date.now(),
     });
-    toast.success('已恢复到修复前的版本');
+    toast.success('已恢复到重写前的版本');
   }, [currentScene, updateScene]);
 
   // Map engine mode to the CanvasArea's expected engine state
@@ -1388,10 +1552,10 @@ export function Stage({
               'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
               'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-950/35 dark:text-amber-100 dark:hover:bg-amber-950/55',
             )}
-            title="恢复到 AI 修复前的版本"
+            title="恢复到 AI 重写前的版本"
           >
             <AlertTriangle className="size-3.5" />
-            恢复修复前
+            恢复重写前
           </button>
         ) : null}
 
@@ -1403,10 +1567,10 @@ export function Stage({
               'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
               'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-200 dark:hover:bg-sky-950/55',
             )}
-            title="打开右侧栏，输入你希望 AI 修复的内容"
+            title="打开右侧栏，输入你希望 AI 重写这一页的原因"
           >
             <Sparkles className="size-3.5" />
-            AI 修复
+            AI 重写
           </button>
         ) : null}
 

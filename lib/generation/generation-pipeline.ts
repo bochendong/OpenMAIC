@@ -20,6 +20,7 @@ export type {
 export {
   buildCourseContext,
   formatCoursePersonalizationForPrompt,
+  formatSlideRewriteContext,
   formatAgentsForPrompt,
   formatTeacherPersonaForPrompt,
   formatImageDescription,
