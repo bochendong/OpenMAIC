@@ -4,6 +4,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Coins, Gift, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,6 +45,23 @@ type GrantResponse = {
   granted: number;
 };
 
+type BackfillPreviewResponse = {
+  success: true;
+  targetCredits: number;
+  affectedUsers: number;
+  totalCreditsToGrant: number;
+  previewUsers: CreditUserRow[];
+};
+
+type BackfillCommitResponse = {
+  success: true;
+  targetCredits: number;
+  affectedUsers: number;
+  totalCreditsGranted: number;
+  previewAffectedUsers: number;
+  previewTotalCreditsToGrant: number;
+};
+
 function formatDateTime(date: string) {
   const parsed = new Date(date);
   if (Number.isNaN(parsed.getTime())) return date;
@@ -55,6 +82,10 @@ export function AdminCreditsSection() {
   const [selectedUserId, setSelectedUserId] = useState('');
   const [amount, setAmount] = useState('500');
   const [note, setNote] = useState('');
+  const [backfillLoading, setBackfillLoading] = useState(false);
+  const [backfillSubmitting, setBackfillSubmitting] = useState(false);
+  const [backfillPreview, setBackfillPreview] = useState<BackfillPreviewResponse | null>(null);
+  const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
 
   const selectedUser = useMemo(
     () => results.find((item) => item.id === selectedUserId) ?? null,
@@ -135,6 +166,44 @@ export function AdminCreditsSection() {
       toast.error(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handlePreviewBackfill = async () => {
+    setBackfillLoading(true);
+    try {
+      const response = await backendJson<BackfillPreviewResponse>('/api/admin/credits/backfill');
+      setBackfillPreview(response);
+      setBackfillDialogOpen(true);
+    } catch (loadError) {
+      toast.error(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setBackfillLoading(false);
+    }
+  };
+
+  const handleCommitBackfill = async () => {
+    setBackfillSubmitting(true);
+    try {
+      const response = await backendJson<BackfillCommitResponse>('/api/admin/credits/backfill', {
+        method: 'POST',
+      });
+      setResults((current) =>
+        current.map((item) =>
+          item.creditsBalance < response.targetCredits
+            ? { ...item, creditsBalance: response.targetCredits }
+            : item,
+        ),
+      );
+      setBackfillDialogOpen(false);
+      setBackfillPreview(null);
+      toast.success(
+        `已补发完成：${response.affectedUsers} 个用户，共发放 ${response.totalCreditsGranted} credits`,
+      );
+    } catch (commitError) {
+      toast.error(commitError instanceof Error ? commitError.message : String(commitError));
+    } finally {
+      setBackfillSubmitting(false);
     }
   };
 
@@ -274,6 +343,98 @@ export function AdminCreditsSection() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>老用户补发到 500</CardTitle>
+          <CardDescription>
+            一次性把所有余额低于 500 credits 的现有用户补到 500。操作前会先预览影响人数和总发放量。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="text-sm text-muted-foreground">
+            适合在你把欢迎积分从 100 提高到 500 后，统一补齐历史用户。
+          </div>
+          <Button type="button" variant="outline" onClick={() => void handlePreviewBackfill()} disabled={backfillLoading}>
+            {backfillLoading ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Coins className="mr-2 size-4" />}
+            预览补发
+          </Button>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={backfillDialogOpen} onOpenChange={setBackfillDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>确认批量补发积分</AlertDialogTitle>
+            <AlertDialogDescription>
+              这会把所有余额低于 {backfillPreview?.targetCredits ?? 500} credits 的老用户补到目标值，并写入积分流水。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          <div className="space-y-4 text-sm">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border bg-muted/20 p-3">
+                <div className="text-xs text-muted-foreground">影响用户数</div>
+                <div className="mt-1 text-2xl font-semibold text-foreground">
+                  {backfillPreview?.affectedUsers ?? 0}
+                </div>
+              </div>
+              <div className="rounded-xl border bg-muted/20 p-3">
+                <div className="text-xs text-muted-foreground">总发放积分</div>
+                <div className="mt-1 text-2xl font-semibold text-foreground">
+                  {backfillPreview?.totalCreditsToGrant ?? 0}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border">
+              <div className="border-b bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                预览前 {backfillPreview?.previewUsers.length ?? 0} 个用户
+              </div>
+              <div className="max-h-[220px] overflow-y-auto divide-y">
+                {(backfillPreview?.previewUsers ?? []).length > 0 ? (
+                  (backfillPreview?.previewUsers ?? []).map((user) => (
+                    <div key={user.id} className="px-3 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-foreground">
+                            {user.email || '无邮箱'}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {user.name?.trim() || '未设置昵称'}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right text-xs text-muted-foreground">
+                          <div>当前 {user.creditsBalance}</div>
+                          <div>补发 +{500 - user.creditsBalance}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-3 py-5 text-center text-muted-foreground">
+                    没有需要补发的用户
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={backfillSubmitting}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={backfillSubmitting || (backfillPreview?.affectedUsers ?? 0) <= 0}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleCommitBackfill();
+              }}
+            >
+              {backfillSubmitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+              确认补发
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
