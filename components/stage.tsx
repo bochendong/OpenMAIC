@@ -30,6 +30,7 @@ import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/regi
 import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
 import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
+import type { SlideRepairChatMessage, SlideRepairConversationTurn } from '@/lib/types/slide-repair';
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -55,6 +56,31 @@ const RAW_DATA_BASE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive'];
 type SpeechCadence = 'idle' | 'active' | 'pause' | 'fallback';
 type SlideEditTab = 'canvas' | 'narration';
 type SlideEditorSidebarTab = 'ai' | 'manual';
+
+function createRepairMessageId(role: 'user' | 'assistant') {
+  return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getDefaultRepairRequest(language: 'zh-CN' | 'en-US' | undefined) {
+  return language === 'en-US'
+    ? 'Repair this slide with the default math and teaching-structure rules.'
+    : '按默认规则修复当前页的数学表达和讲解结构。';
+}
+
+function toRepairConversationTurns(messages: SlideRepairChatMessage[]): SlideRepairConversationTurn[] {
+  return messages
+    .filter(
+      (message) =>
+        message.status !== 'error' &&
+        message.status !== 'pending' &&
+        message.content.trim().length > 0,
+    )
+    .map((message) => ({
+      role: message.role,
+      content: message.content.trim(),
+    }))
+    .slice(-8);
+}
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
   const key = `stage.sceneType.${type}`;
@@ -183,11 +209,23 @@ export function Stage({
   const [slideEditorSidebarTab, setSlideEditorSidebarTab] =
     useState<SlideEditorSidebarTab>('manual');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
-  const [repairInstructions, setRepairInstructions] = useState('');
+  const [repairDraftByScene, setRepairDraftByScene] = useState<Record<string, string>>({});
+  const [repairConversationByScene, setRepairConversationByScene] = useState<
+    Record<string, SlideRepairChatMessage[]>
+  >({});
   const [pendingRepairSidebarFocus, setPendingRepairSidebarFocus] = useState(false);
   const [repairSidebarFocusNonce, setRepairSidebarFocusNonce] = useState(0);
   const [mathRepairPending, setMathRepairPending] = useState(false);
   const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
+  const currentSlideSceneId = currentScene?.type === 'slide' ? currentScene.id : null;
+  const repairInstructions = useMemo(
+    () => (currentSlideSceneId ? (repairDraftByScene[currentSlideSceneId] ?? '') : ''),
+    [currentSlideSceneId, repairDraftByScene],
+  );
+  const repairConversation = useMemo(
+    () => (currentSlideSceneId ? (repairConversationByScene[currentSlideSceneId] ?? []) : []),
+    [currentSlideSceneId, repairConversationByScene],
+  );
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
@@ -935,6 +973,20 @@ export function Stage({
     setWhiteboardOpen(false);
   }, [setWhiteboardOpen]);
 
+  const setCurrentSlideRepairDraft = useCallback(
+    (value: string) => {
+      if (!currentSlideSceneId) return;
+      setRepairDraftByScene((prev) => {
+        if ((prev[currentSlideSceneId] ?? '') === value) return prev;
+        return {
+          ...prev,
+          [currentSlideSceneId]: value,
+        };
+      });
+    },
+    [currentSlideSceneId],
+  );
+
   const saveCurrentSceneActions = useCallback(
     (nextActions: Action[]) => {
       if (!currentScene || currentScene.type !== 'slide') return;
@@ -955,6 +1007,42 @@ export function Stage({
       return;
     }
 
+    const sceneId = currentScene.id;
+    const trimmedDraft = repairInstructions.trim();
+    const userMessageContent = trimmedDraft || getDefaultRepairRequest(stageLanguage as 'zh-CN' | 'en-US' | undefined);
+    const userMessage: SlideRepairChatMessage = {
+      id: createRepairMessageId('user'),
+      role: 'user',
+      content: userMessageContent,
+      createdAt: Date.now(),
+      status: 'ready',
+    };
+    const pendingAssistantMessage: SlideRepairChatMessage = {
+      id: createRepairMessageId('assistant'),
+      role: 'assistant',
+      content:
+        (stageLanguage as 'zh-CN' | 'en-US' | undefined) === 'en-US'
+          ? "I'm repairing this slide now based on your request."
+          : '收到，我现在按这条要求修当前页。',
+      createdAt: Date.now() + 1,
+      status: 'pending',
+    };
+    const repairConversationHistory = [
+      ...toRepairConversationTurns(repairConversation),
+      {
+        role: 'user' as const,
+        content: userMessageContent,
+      },
+    ].slice(-8);
+
+    setRepairConversationByScene((prev) => ({
+      ...prev,
+      [sceneId]: [...(prev[sceneId] ?? []), userMessage, pendingAssistantMessage],
+    }));
+    setRepairDraftByScene((prev) => ({
+      ...prev,
+      [sceneId]: '',
+    }));
     setMathRepairPending(true);
     try {
       const modelConfig = getCurrentModelConfig();
@@ -970,7 +1058,8 @@ export function Stage({
           sceneTitle: currentScene.title,
           language: (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN',
           content: currentScene.content,
-          repairInstructions: repairInstructions.trim() || undefined,
+          repairInstructions: userMessageContent,
+          repairConversation: repairConversationHistory,
         }),
       });
 
@@ -978,6 +1067,7 @@ export function Stage({
         success?: boolean;
         error?: string;
         sceneTitle?: string;
+        assistantReply?: string;
         content?: SlideContent;
       };
 
@@ -999,13 +1089,42 @@ export function Stage({
         repairSnapshot,
         updatedAt: Date.now(),
       });
+      setRepairConversationByScene((prev) => ({
+        ...prev,
+        [sceneId]: (prev[sceneId] ?? []).map((message) =>
+          message.id === pendingAssistantMessage.id
+            ? {
+                ...message,
+                content:
+                  data.assistantReply?.trim() ||
+                  ((stageLanguage as 'zh-CN' | 'en-US' | undefined) === 'en-US'
+                    ? 'I repaired this slide based on your latest request. You can keep refining it here.'
+                    : '我已经按你刚才的要求修了这一页。你可以继续告诉我下一步怎么改。'),
+                status: 'ready',
+              }
+            : message,
+        ),
+      }));
       toast.success('当前页已按你的要求完成 AI 修复');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'AI 修复失败');
+      const errorMessage = error instanceof Error ? error.message : 'AI 修复失败';
+      setRepairConversationByScene((prev) => ({
+        ...prev,
+        [sceneId]: (prev[sceneId] ?? []).map((message) =>
+          message.id === pendingAssistantMessage.id
+            ? {
+                ...message,
+                content: errorMessage,
+                status: 'error',
+              }
+            : message,
+        ),
+      }));
+      toast.error(errorMessage);
     } finally {
       setMathRepairPending(false);
     }
-  }, [currentScene, mathRepairPending, repairInstructions, stageLanguage, updateScene]);
+  }, [currentScene, mathRepairPending, repairConversation, repairInstructions, stageLanguage, updateScene]);
 
   useEffect(() => {
     if (!pendingRepairSidebarFocus || !slideEditorOpen || slideEditTab !== 'canvas') return;
@@ -1401,9 +1520,10 @@ export function Stage({
               currentSceneIndex={currentSceneIndex}
               activeSidebarTab={slideEditorSidebarTab}
               onActiveSidebarTabChange={setSlideEditorSidebarTab}
-              repairInstructions={repairInstructions}
-              onRepairInstructionsChange={setRepairInstructions}
-              onRepairCurrentSlide={() => void handleRepairCurrentSlideMath()}
+              repairDraft={repairInstructions}
+              onRepairDraftChange={setCurrentSlideRepairDraft}
+              repairConversation={repairConversation}
+              onSendRepairMessage={() => void handleRepairCurrentSlideMath()}
               repairPending={mathRepairPending}
               repairInputFocusNonce={repairSidebarFocusNonce}
               onCloseInspector={handleCloseSlideEditor}

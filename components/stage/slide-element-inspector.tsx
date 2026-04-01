@@ -13,6 +13,7 @@ import { useSceneSelector } from '@/lib/contexts/scene-context';
 import { useCanvasOperations } from '@/lib/hooks/use-canvas-operations';
 import { useHistorySnapshot } from '@/lib/hooks/use-history-snapshot';
 import { useCanvasStore } from '@/lib/store/canvas';
+import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
 import type { SlideContent } from '@/lib/types/stage';
 import type {
   PPTElement,
@@ -27,7 +28,7 @@ import type {
   PPTLatexElement,
 } from '@/lib/types/slides';
 import { cn } from '@/lib/utils';
-import { Loader2, Sparkles, X } from 'lucide-react';
+import { ArrowUp, Loader2, X } from 'lucide-react';
 
 function sectionTitle(title: string, description?: string) {
   return (
@@ -94,6 +95,12 @@ const COMMON_COLOR_SWATCHES = [
   '#c4b5fd',
 ] as const;
 
+const COMMON_REPAIR_PROMPTS = [
+  '把这一页讲清楚一点，补出关键推导。',
+  '只修公式和上下标，不要改正文。',
+  '保留原文意思，但把结构整理得更像证明页。',
+] as const;
+
 function colorInput(value: string | undefined, onChange: (next: string) => void) {
   return (
     <div className="space-y-2">
@@ -135,9 +142,10 @@ interface SlideElementInspectorProps {
   readonly className?: string;
   readonly activeTab: 'ai' | 'manual';
   readonly onActiveTabChange: (value: 'ai' | 'manual') => void;
-  readonly repairInstructions: string;
-  readonly onRepairInstructionsChange: (value: string) => void;
-  readonly onRepairCurrentSlide: () => void;
+  readonly repairDraft: string;
+  readonly onRepairDraftChange: (value: string) => void;
+  readonly repairConversation: SlideRepairChatMessage[];
+  readonly onSendRepairMessage: () => void;
   readonly repairPending: boolean;
   readonly repairInputFocusNonce?: number;
   readonly onClose?: () => void;
@@ -147,9 +155,10 @@ export function SlideElementInspector({
   className,
   activeTab,
   onActiveTabChange,
-  repairInstructions,
-  onRepairInstructionsChange,
-  onRepairCurrentSlide,
+  repairDraft,
+  onRepairDraftChange,
+  repairConversation,
+  onSendRepairMessage,
   repairPending,
   repairInputFocusNonce = 0,
   onClose,
@@ -159,6 +168,7 @@ export function SlideElementInspector({
   const { updateElement } = useCanvasOperations();
   const { addHistorySnapshot } = useHistorySnapshot();
   const repairInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const repairConversationRef = useRef<HTMLDivElement | null>(null);
 
   const selectedElements = useMemo(
     () => elements.filter((element) => activeElementIdList.includes(element.id)),
@@ -171,6 +181,15 @@ export function SlideElementInspector({
     repairInputRef.current?.focus();
     repairInputRef.current?.select();
   }, [repairInputFocusNonce]);
+
+  useEffect(() => {
+    const container = repairConversationRef.current;
+    if (!container) return;
+    container.scrollTo({
+      top: container.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [repairConversation]);
 
   const updateCurrentElement = useCallback(
     (props: Partial<PPTElement>, addSnapshot = false) => {
@@ -703,35 +722,98 @@ export function SlideElementInspector({
             </TabsList>
 
             <TabsContent value="ai" className="mt-4 space-y-3">
-              {sectionTitle('AI 修复', '先描述你希望修什么，再让 AI 针对这一页执行修复。')}
-              <div className="rounded-2xl border border-sky-200/80 bg-sky-50/80 p-3 dark:border-sky-500/20 dark:bg-sky-950/20">
-                <div className="space-y-1.5">
-                  {fieldLabel('修复要求')}
+              {sectionTitle('AI 修复对话', '像聊天一样告诉 AI 这一页要怎么改；它会回你一条，再去修当前页。')}
+              <div className="rounded-[24px] border border-sky-200/80 bg-[linear-gradient(180deg,rgba(240,249,255,0.95)_0%,rgba(255,255,255,0.92)_100%)] p-3 shadow-[0_18px_40px_rgba(56,189,248,0.12)] dark:border-sky-500/20 dark:bg-[linear-gradient(180deg,rgba(12,20,32,0.94)_0%,rgba(15,23,42,0.84)_100%)]">
+                <div
+                  ref={repairConversationRef}
+                  className="max-h-[360px] space-y-3 overflow-y-auto rounded-2xl border border-white/70 bg-white/75 p-3 dark:border-white/10 dark:bg-slate-950/30"
+                >
+                  {repairConversation.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-sky-500/20 dark:bg-sky-950/20 dark:text-slate-300">
+                      你可以直接说：
+                      <div className="mt-2 space-y-1 text-[13px] text-slate-500 dark:text-slate-400">
+                        <div>“把这页证明讲清楚一点”</div>
+                        <div>“只修公式，不要改正文”</div>
+                        <div>“如果这一页放不下，就先把最关键的推导补出来”</div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {repairConversation.map((message) => {
+                    const isAssistant = message.role === 'assistant';
+                    return (
+                      <div
+                        key={message.id}
+                        className={cn('flex', isAssistant ? 'justify-start' : 'justify-end')}
+                      >
+                        <div
+                          className={cn(
+                            'max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-6 shadow-sm',
+                            isAssistant
+                              ? message.status === 'error'
+                                ? 'border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100'
+                                : 'border border-sky-200 bg-white text-slate-700 dark:border-sky-500/20 dark:bg-slate-900/80 dark:text-slate-100'
+                              : 'bg-slate-900 text-white dark:bg-sky-500 dark:text-slate-950',
+                          )}
+                        >
+                          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium opacity-70">
+                            <span>{isAssistant ? 'AI 修复' : '你'}</span>
+                            {message.status === 'pending' ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : null}
+                          </div>
+                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {COMMON_REPAIR_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => onRepairDraftChange(prompt)}
+                      className="rounded-full border border-sky-200 bg-white/80 px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-sky-300 hover:text-slate-900 dark:border-sky-500/20 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:text-white"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-sky-200/80 bg-white/85 p-3 dark:border-sky-500/20 dark:bg-slate-950/40">
                   <Textarea
                     ref={repairInputRef}
-                    value={repairInstructions}
-                    onChange={(e) => onRepairInstructionsChange(e.target.value)}
-                    placeholder="例如：只修公式和上下标，不要改正文；把群论符号统一成 LaTeX。"
-                    className="min-h-[112px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
+                    value={repairDraft}
+                    onChange={(e) => onRepairDraftChange(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !repairPending) {
+                        e.preventDefault();
+                        onSendRepairMessage();
+                      }
+                    }}
+                    placeholder="像聊天一样发一句，例如：把这页的第二步推导补完整。"
+                    className="min-h-[108px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
                   />
-                </div>
-                <div className="mt-3 flex items-center justify-between gap-3">
-                  <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                    不填也可以，AI 会按默认规则修复数学符号和公式格式。
-                  </p>
-                  <Button
-                    type="button"
-                    onClick={onRepairCurrentSlide}
-                    disabled={repairPending}
-                    className="shrink-0 rounded-full px-4"
-                  >
-                    {repairPending ? (
-                      <Loader2 className="size-4 animate-spin" />
-                    ) : (
-                      <Sparkles className="size-4" />
-                    )}
-                    {repairPending ? '正在修复' : '开始修复'}
-                  </Button>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                      `Cmd/Ctrl + Enter` 发送。留空时，会按默认规则修当前页。
+                    </p>
+                    <Button
+                      type="button"
+                      onClick={onSendRepairMessage}
+                      disabled={repairPending}
+                      className="shrink-0 rounded-full px-4"
+                    >
+                      {repairPending ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="size-4" />
+                      )}
+                      {repairPending ? 'AI 正在回复' : '发送并修复'}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </TabsContent>

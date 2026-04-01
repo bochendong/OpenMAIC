@@ -11,6 +11,7 @@ import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 import type { SlideContent } from '@/lib/types/stage';
+import type { SlideRepairConversationTurn } from '@/lib/types/slide-repair';
 import type {
   PPTElement,
   PPTShapeElement,
@@ -27,11 +28,21 @@ type RepairRequestBody = {
   language?: 'zh-CN' | 'en-US';
   content?: SlideContent;
   repairInstructions?: string;
+  repairConversation?: SlideRepairConversationTurn[];
 };
 
 type RepairResponsePayload = {
   sceneTitle?: string;
   document?: unknown;
+  assistantReply?: string;
+};
+
+type RepairIntent = {
+  hasInstructions: boolean;
+  wantsExpansion: boolean;
+  wantsStructureChange: boolean;
+  wantsMinimalMathOnly: boolean;
+  hintsNeedAnotherPage: boolean;
 };
 
 type SlideRepairTextSummaryItem = {
@@ -312,13 +323,265 @@ function countReasoningBlocks(doc: NotebookContentDocument): number {
   }).length;
 }
 
-function buildSystemPrompt(language: 'zh-CN' | 'en-US') {
+function inferRepairIntent(repairInstructions?: string): RepairIntent {
+  const raw = repairInstructions?.trim() || '';
+  const normalized = raw.toLowerCase();
+
+  const includesAny = (keywords: string[]) =>
+    keywords.some((keyword) => raw.includes(keyword) || normalized.includes(keyword));
+
+  return {
+    hasInstructions: raw.length > 0,
+    wantsExpansion: includesAny([
+      '补充',
+      '补全',
+      '展开',
+      '详细',
+      '讲清楚',
+      '讲明白',
+      '更完整',
+      '完整一点',
+      '扩写',
+      'step by step',
+      'step-by-step',
+      'expand',
+      'more detail',
+      'detailed',
+      'clarify',
+      'explain',
+      'complete',
+      'fill in',
+    ]),
+    wantsStructureChange: includesAny([
+      '结构',
+      '层次',
+      '重组',
+      '重新组织',
+      '整理',
+      '分点',
+      '拆开',
+      '思路',
+      '推导',
+      '证明过程',
+      '步骤',
+      'structure',
+      'organize',
+      'restructure',
+      'flow',
+      'proof',
+      'derivation',
+      'steps',
+    ]),
+    wantsMinimalMathOnly: includesAny([
+      '只修公式',
+      '只修数学',
+      '只修 latex',
+      '只修latex',
+      '只修符号',
+      '不要改文案',
+      '保留原文',
+      '轻微修改',
+      '小修',
+      'math only',
+      'notation only',
+      'latex only',
+      'symbol only',
+      'do not rewrite',
+      'keep wording',
+    ]),
+    hintsNeedAnotherPage: includesAny([
+      '加新的页',
+      '加一页',
+      '补一页',
+      '新的一页',
+      '拆成两页',
+      '拆成 2 页',
+      '拆成2页',
+      'another page',
+      'new page',
+      'add a page',
+      'split into two pages',
+      'split into 2 pages',
+      'multi-page',
+    ]),
+  };
+}
+
+function summarizeBlockForComparison(block: NotebookContentDocument['blocks'][number]): string[] {
+  switch (block.type) {
+    case 'heading':
+      return [block.text];
+    case 'paragraph':
+      return [block.text];
+    case 'bullet_list':
+      return block.items;
+    case 'equation':
+      return [block.latex];
+    case 'derivation_steps':
+      return [
+        block.title || '',
+        ...block.steps.flatMap((step) => [step.expression, step.explanation || '']),
+      ];
+    case 'code_block':
+      return [block.caption || '', block.code];
+    case 'table':
+      return [block.caption || '', ...block.rows.flat()];
+    case 'callout':
+      return [block.title || '', block.text];
+    case 'example':
+      return [
+        block.title || '',
+        block.problem,
+        ...block.givens,
+        block.goal || '',
+        ...block.steps,
+        block.answer || '',
+        ...block.pitfalls,
+      ];
+    case 'chem_formula':
+      return [block.caption || '', block.formula];
+    case 'chem_equation':
+      return [block.caption || '', block.equation];
+    default:
+      return [];
+  }
+}
+
+function getDocumentComparableSegments(doc: NotebookContentDocument): string[] {
+  return doc.blocks
+    .flatMap((block) => summarizeBlockForComparison(block))
+    .map((text) => normalizeCompactText(text))
+    .filter((text) => text.length > 0);
+}
+
+function getDocumentComparableText(doc: NotebookContentDocument): string {
+  return getDocumentComparableSegments(doc).join('\n');
+}
+
+function computeSegmentReuseRatio(source: string[], repaired: string[]): number {
+  if (source.length === 0 && repaired.length === 0) return 1;
+  if (source.length === 0 || repaired.length === 0) return 0;
+
+  const counts = new Map<string, number>();
+  for (const segment of source) {
+    counts.set(segment, (counts.get(segment) || 0) + 1);
+  }
+
+  let shared = 0;
+  for (const segment of repaired) {
+    const current = counts.get(segment) || 0;
+    if (current <= 0) continue;
+    shared += 1;
+    counts.set(segment, current - 1);
+  }
+
+  return shared / Math.max(source.length, repaired.length);
+}
+
+function looksLikeInstructionWasIgnored(args: {
+  sourceDocument: NotebookContentDocument;
+  repairedDocument: NotebookContentDocument;
+  intent: RepairIntent;
+}): boolean {
+  if (!args.intent.hasInstructions) return false;
+
+  const sourceText = getDocumentComparableText(args.sourceDocument);
+  const repairedText = getDocumentComparableText(args.repairedDocument);
+  if (sourceText === repairedText) return true;
+
+  const sourceSegments = getDocumentComparableSegments(args.sourceDocument);
+  const repairedSegments = getDocumentComparableSegments(args.repairedDocument);
+  const reuseRatio = computeSegmentReuseRatio(sourceSegments, repairedSegments);
+
+  const sourceSignal = estimateDocumentSignal(args.sourceDocument);
+  const repairedSignal = estimateDocumentSignal(args.repairedDocument);
+  const sourceReasoningBlocks = countReasoningBlocks(args.sourceDocument);
+  const repairedReasoningBlocks = countReasoningBlocks(args.repairedDocument);
+  const blockDelta = Math.abs(args.repairedDocument.blocks.length - args.sourceDocument.blocks.length);
+
+  if (args.intent.wantsMinimalMathOnly) {
+    return repairedSignal < Math.max(40, Math.floor(sourceSignal * 0.72));
+  }
+
+  if (
+    args.intent.wantsExpansion &&
+    repairedSignal < Math.max(sourceSignal + 24, Math.floor(sourceSignal * 1.12)) &&
+    repairedReasoningBlocks <= sourceReasoningBlocks
+  ) {
+    return true;
+  }
+
+  if (
+    args.intent.wantsStructureChange &&
+    reuseRatio > 0.9 &&
+    repairedReasoningBlocks <= sourceReasoningBlocks &&
+    blockDelta <= 1
+  ) {
+    return true;
+  }
+
+  if (
+    args.intent.hintsNeedAnotherPage &&
+    repairedSignal < Math.max(sourceSignal + 30, Math.floor(sourceSignal * 1.15)) &&
+    repairedReasoningBlocks <= sourceReasoningBlocks
+  ) {
+    return true;
+  }
+
+  return reuseRatio > 0.94 && repairedSignal <= Math.max(sourceSignal + 12, Math.floor(sourceSignal * 1.03));
+}
+
+function normalizeRepairConversation(
+  conversation: SlideRepairConversationTurn[] | undefined,
+): SlideRepairConversationTurn[] {
+  if (!Array.isArray(conversation)) return [];
+  return conversation
+    .map((turn) => ({
+      role: (turn?.role === 'assistant' ? 'assistant' : 'user') as SlideRepairConversationTurn['role'],
+      content: typeof turn?.content === 'string' ? turn.content.trim() : '',
+    }))
+    .filter((turn) => turn.content.length > 0)
+    .slice(-8);
+}
+
+function buildFallbackAssistantReply(args: {
+  language: 'zh-CN' | 'en-US';
+  intent: RepairIntent;
+  repairInstructions?: string;
+}): string {
+  if (args.language === 'zh-CN') {
+    if (args.intent.wantsMinimalMathOnly) {
+      return '我已经按你的要求优先修了公式、符号和上下标，正文尽量保持不变。';
+    }
+    if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
+      return '我已经按你的要求补强了这一页的推导和层次。你可以继续告诉我哪一步还需要展开。';
+    }
+    if (args.repairInstructions?.trim()) {
+      return '我已经按你刚才的要求修了这一页。你可以继续补充更细的修改意见。';
+    }
+    return '我已经先按默认规则修了这一页的数学表达和讲解结构。你可以继续告诉我要保留或补强哪一部分。';
+  }
+
+  if (args.intent.wantsMinimalMathOnly) {
+    return 'I focused on formulas, notation, and subscripts while keeping the wording as intact as possible.';
+  }
+  if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
+    return 'I strengthened the reasoning flow on this slide. You can ask me to expand any specific step next.';
+  }
+  if (args.repairInstructions?.trim()) {
+    return 'I repaired this slide based on your instruction. You can keep refining it with follow-up requests.';
+  }
+  return 'I repaired the math notation and teaching structure of this slide with the default repair rules.';
+}
+
+function buildSystemPrompt(language: 'zh-CN' | 'en-US', intent: RepairIntent) {
   if (language === 'zh-CN') {
     return `你是一个“课堂单页数学内容与排版修复器”。
 
 你的任务是修复一页课堂幻灯片里的数学记号、公式表达，以及讲解结构，让它适合被结构化渲染并且真正便于学生理解。
 
 要求：
+- 教师在侧边栏输入的修复要求具有最高优先级，必须被明确响应，不能忽略。
 - 只修复当前这一页，不要扩写成多页。
 - 保留原页主题、结论、层次和大致信息量，不要引入新的知识点。
 - 不要删掉题解、步骤、结论、已知条件、易错点、答案或推导过程；如果拿不准，保留原内容。
@@ -327,6 +590,8 @@ function buildSystemPrompt(language: 'zh-CN' | 'en-US') {
 - 如果原页是“例题 / 证明 / 推导”页，必须把关键推导链明确写出来，不能只保留题目、标题和空占位。
 - 不要输出空标题、空小节或占位块，例如“已知：”“证明：”“思路：”后面没有实质内容的结构。
 - 如果原页里有两个结论，优先按“结论 1 -> 推导 -> 结论 2 -> 推导”或“已知 -> 推导 -> 结论”的方式整理清楚。
+- 如果教师要求“补充说明 / 展开推导 / 讲清楚”，结果必须体现出可见的内容级改进，而不是只换个说法。
+- 如果教师暗示“这一页其实需要补页或拆页”，你仍然要先把当前页中最缺的推导或解释补出来，不能装作没看到这个要求。
 - 重点修复数学对象、映射、集合、等式、核、像、同余类、下标、上标等表达。
 - 把真正的数学表达放进结构化公式块：
   - 单个或独立公式用 {"type":"equation","latex":"...","display":true}
@@ -346,6 +611,7 @@ function buildSystemPrompt(language: 'zh-CN' | 'en-US') {
 输出 schema：
 {
   "sceneTitle": "修复后的页标题",
+  "assistantReply": "给教师的简短回复，1 到 2 句话，说明你这次具体怎么改了这一页",
   "document": {
     "version": 1,
     "language": "zh-CN",
@@ -368,12 +634,20 @@ function buildSystemPrompt(language: 'zh-CN' | 'en-US') {
       }
     ]
   }
-}`;
+}
+
+当前教师意图：
+- hasInstructions: ${intent.hasInstructions ? 'yes' : 'no'}
+- wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
+- wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
+- wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
   }
 
   return `You repair the mathematical notation, content structure, and teaching clarity of a single classroom slide.
 
 Requirements:
+- The teacher's sidebar instruction has the highest priority and must be visibly addressed.
 - Repair this page only. Do not expand it into multiple pages.
 - Preserve the original topic, meaning, and rough information density.
 - Do not remove solution steps, givens, conclusions, or answer content. If unsure, keep it.
@@ -381,6 +655,8 @@ Requirements:
 - Keep the original block order and roughly the same number of blocks whenever possible.
 - If this is a proof / derivation / worked-example slide, keep the reasoning explicit. Do not collapse it into headings plus placeholders.
 - Do not output empty section headers or placeholder blocks such as "Given:", "Proof:", or "Idea:" without substantive content after them.
+- If the teacher asks for more explanation or clearer derivation, make a visible content-level improvement rather than superficial rewording.
+- If the teacher hints that this slide really needs another page, still strengthen the current page instead of ignoring the request.
 - Convert malformed mathematical notation into structured math blocks.
 - Use equation blocks for standalone math and derivation_steps for multi-line reasoning.
 - Keep prose as heading / paragraph / bullet_list.
@@ -396,13 +672,21 @@ Examples:
 Output schema:
 {
   "sceneTitle": "repaired page title",
+  "assistantReply": "a short reply to the teacher in 1-2 sentences describing what you changed",
   "document": {
     "version": 1,
     "language": "en-US",
     "title": "optional",
     "blocks": []
   }
-}`;
+}
+
+Current teacher intent:
+- hasInstructions: ${intent.hasInstructions ? 'yes' : 'no'}
+- wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
+- wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
+- wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
 }
 
 function buildUserPrompt(args: {
@@ -411,6 +695,8 @@ function buildUserPrompt(args: {
   semanticDocument: NotebookContentDocument | null;
   content: SlideContent;
   repairInstructions?: string;
+  repairConversation?: SlideRepairConversationTurn[];
+  retryReason?: string;
 }): string {
   const elementsSummary = summarizeElements(args.content.canvas.elements);
   const sourceDocument =
@@ -420,14 +706,19 @@ function buildUserPrompt(args: {
       language: args.language,
       content: args.content,
     });
+  const repairConversation = normalizeRepairConversation(args.repairConversation);
 
   return [
     `Language: ${args.language}`,
     `Current page title: ${args.sceneTitle}`,
     args.repairInstructions?.trim()
-      ? `Additional repair instructions from the teacher: ${args.repairInstructions.trim()}`
-      : 'Additional repair instructions from the teacher: none',
+      ? `Teacher instruction (highest priority): ${args.repairInstructions.trim()}`
+      : 'Teacher instruction (highest priority): none',
+    args.retryReason ? `Previous attempt was rejected because: ${args.retryReason}` : null,
     '',
+    repairConversation.length > 0 ? 'Recent repair conversation:' : null,
+    repairConversation.length > 0 ? JSON.stringify(repairConversation, null, 2) : null,
+    repairConversation.length > 0 ? '' : null,
     'Current page source document (edit this conservatively and preserve content):',
     JSON.stringify(sourceDocument, null, 2),
     '',
@@ -437,7 +728,66 @@ function buildUserPrompt(args: {
     'Return a repaired NotebookContentDocument for this same page.',
     'Keep the page focused. Do not add unrelated examples or sections.',
     'Do not shorten the worked solution. Preserve all meaningful steps and conclusions.',
-  ].join('\n');
+    'If the teacher gave a repair instruction, the final result must visibly satisfy it.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function runRepairAttempt(args: {
+  req: NextRequest;
+  sceneTitle: string;
+  language: 'zh-CN' | 'en-US';
+  semanticDocument: NotebookContentDocument | null;
+  content: SlideContent;
+  repairInstructions?: string;
+  repairConversation?: SlideRepairConversationTurn[];
+  retryReason?: string;
+  intent: RepairIntent;
+}) {
+  const { model, modelInfo, modelString } = await resolveModelFromHeaders(args.req, {
+    allowOpenAIModelOverride: true,
+  });
+
+  const system = buildSystemPrompt(args.language, args.intent);
+  const prompt = buildUserPrompt({
+    sceneTitle: args.sceneTitle,
+    language: args.language,
+    semanticDocument: args.semanticDocument,
+    content: args.content,
+    repairInstructions: args.repairInstructions,
+    repairConversation: args.repairConversation,
+    retryReason: args.retryReason,
+  });
+
+  log.info(
+    `Repairing slide math formatting [model=${modelString}]${args.retryReason ? ' retry=1' : ''}`,
+  );
+
+  const result = await callLLM(
+    {
+      model,
+      system,
+      prompt,
+      maxOutputTokens: modelInfo?.outputWindow,
+    },
+    'classroom-repair-slide-math',
+  );
+
+  const parsed = parseJsonResponse<RepairResponsePayload>(result.text);
+  if (!parsed) {
+    throw new Error('Failed to parse repaired slide response');
+  }
+
+  const document = parseNotebookContentDocument(parsed.document);
+  if (!document) {
+    throw new Error('Model did not return a valid notebook content document');
+  }
+
+  return {
+    parsed,
+    document,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -459,43 +809,49 @@ export async function POST(req: NextRequest) {
           language,
           content,
         });
+      const repairIntent = inferRepairIntent(body.repairInstructions);
 
-      const { model, modelInfo, modelString } = await resolveModelFromHeaders(req, {
-        allowOpenAIModelOverride: true,
-      });
-
-      const system = buildSystemPrompt(language);
-      const prompt = buildUserPrompt({
+      let attempt = await runRepairAttempt({
+        req,
         sceneTitle,
         language,
         semanticDocument,
         content,
         repairInstructions: body.repairInstructions,
+        repairConversation: body.repairConversation,
+        intent: repairIntent,
       });
 
-      log.info(`Repairing slide math formatting [model=${modelString}]`);
-      const result = await callLLM(
-        {
-          model,
-          system,
-          prompt,
-          maxOutputTokens: modelInfo?.outputWindow,
-        },
-        'classroom-repair-slide-math',
-      );
+      let parsed = attempt.parsed;
+      let document = attempt.document;
+      let instructionIgnored = looksLikeInstructionWasIgnored({
+        sourceDocument,
+        repairedDocument: document,
+        intent: repairIntent,
+      });
 
-      const parsed = parseJsonResponse<RepairResponsePayload>(result.text);
-      if (!parsed) {
-        return apiError('PARSE_FAILED', 500, 'Failed to parse repaired slide response');
-      }
-
-      const document = parseNotebookContentDocument(parsed.document);
-      if (!document) {
-        return apiError(
-          'PARSE_FAILED',
-          500,
-          'Model did not return a valid notebook content document',
-        );
+      if (instructionIgnored) {
+        attempt = await runRepairAttempt({
+          req,
+          sceneTitle,
+          language,
+          semanticDocument,
+          content,
+          repairInstructions: body.repairInstructions,
+          repairConversation: body.repairConversation,
+          retryReason:
+            language === 'zh-CN'
+              ? '上一版几乎没有体现教师输入的修复要求，请显式按要求补足内容或结构变化'
+              : 'The previous attempt did not visibly follow the teacher instruction. Make the requested content or structure change explicit.',
+          intent: repairIntent,
+        });
+        parsed = attempt.parsed;
+        document = attempt.document;
+        instructionIgnored = looksLikeInstructionWasIgnored({
+          sourceDocument,
+          repairedDocument: document,
+          intent: repairIntent,
+        });
       }
 
       const sourceBlockCount = sourceDocument.blocks.length;
@@ -510,18 +866,35 @@ export async function POST(req: NextRequest) {
         repairedBlockCount < Math.max(2, Math.ceil(sourceBlockCount * 0.6)) ||
         repairedSignal < Math.max(40, Math.floor(sourceSignal * 0.55)) ||
         placeholderCount > 0 ||
-        (sourceReasoningBlocks >= 2 && repairedReasoningBlocks < Math.max(2, sourceReasoningBlocks - 1))
+        (sourceReasoningBlocks >= 2 &&
+          repairedReasoningBlocks < Math.max(2, sourceReasoningBlocks - 1)) ||
+        instructionIgnored
       ) {
         return apiError(
           'GENERATION_FAILED',
           409,
           language === 'zh-CN'
-            ? '修复结果疑似删掉了题解内容，已保留原页不做修改'
-            : 'Repair result looked destructive, so the original slide was kept',
+            ? instructionIgnored
+              ? repairIntent.hintsNeedAnotherPage
+                ? 'AI 本轮没有真正按你的要求补足内容；这类请求更像需要补页，已保留原页不做修改'
+                : 'AI 本轮没有真正按你的要求把这一页修到位，已保留原页不做修改'
+              : '修复结果疑似删掉了题解内容，已保留原页不做修改'
+            : instructionIgnored
+              ? repairIntent.hintsNeedAnotherPage
+                ? 'The request looked more like an add-a-page task, so the original slide was kept'
+                : 'The AI did not visibly follow your repair instruction, so the original slide was kept'
+              : 'Repair result looked destructive, so the original slide was kept',
         );
       }
 
       const repairedSceneTitle = parsed.sceneTitle?.trim() || document.title?.trim() || sceneTitle;
+      const assistantReply =
+        parsed.assistantReply?.trim() ||
+        buildFallbackAssistantReply({
+          language,
+          intent: repairIntent,
+          repairInstructions: body.repairInstructions,
+        });
       const renderedSlide = renderNotebookContentDocumentToSlide({
         document: {
           ...document,
@@ -546,6 +919,7 @@ export async function POST(req: NextRequest) {
 
       return apiSuccess({
         sceneTitle: repairedSceneTitle,
+        assistantReply,
         content: repairedContent,
       });
     } catch (error) {

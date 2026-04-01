@@ -2,6 +2,7 @@
 
 import { SceneProvider } from '@/lib/contexts/scene-context';
 import type { Scene } from '@/lib/types/stage';
+import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
 import { cn } from '@/lib/utils';
 import { Canvas } from '@/components/slide-renderer/Editor/Canvas';
 import { SlideElementInspector } from '@/components/stage/slide-element-inspector';
@@ -11,9 +12,10 @@ interface ClassroomSlideCanvasEditorProps {
   readonly currentSceneIndex: number;
   readonly activeSidebarTab: 'ai' | 'manual';
   readonly onActiveSidebarTabChange: (value: 'ai' | 'manual') => void;
-  readonly repairInstructions: string;
-  readonly onRepairInstructionsChange: (value: string) => void;
-  readonly onRepairCurrentSlide: () => void;
+  readonly repairDraft: string;
+  readonly onRepairDraftChange: (value: string) => void;
+  readonly repairConversation: SlideRepairChatMessage[];
+  readonly onSendRepairMessage: () => void;
   readonly repairPending: boolean;
   readonly repairInputFocusNonce: number;
   readonly onCloseInspector?: () => void;
@@ -24,9 +26,10 @@ export function ClassroomSlideCanvasEditor({
   currentScene: _currentScene,
   activeSidebarTab,
   onActiveSidebarTabChange,
-  repairInstructions,
-  onRepairInstructionsChange,
-  onRepairCurrentSlide,
+  repairDraft,
+  onRepairDraftChange,
+  repairConversation,
+  onSendRepairMessage,
   repairPending,
   repairInputFocusNonce,
   onCloseInspector,
@@ -53,9 +56,10 @@ export function ClassroomSlideCanvasEditor({
           <SlideElementInspector
             activeTab={activeSidebarTab}
             onActiveTabChange={onActiveSidebarTabChange}
-            repairInstructions={repairInstructions}
-            onRepairInstructionsChange={onRepairInstructionsChange}
-            onRepairCurrentSlide={onRepairCurrentSlide}
+            repairDraft={repairDraft}
+            onRepairDraftChange={onRepairDraftChange}
+            repairConversation={repairConversation}
+            onSendRepairMessage={onSendRepairMessage}
             repairPending={repairPending}
             repairInputFocusNonce={repairInputFocusNonce}
             onClose={onCloseInspector}
