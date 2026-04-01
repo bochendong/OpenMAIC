@@ -19,6 +19,7 @@ import type {
   OrchestratorOutlineLength,
   OrchestratorWorkedExampleLevel,
 } from '@/lib/store/orchestrator-notebook-generation';
+import { parsePdfForGeneration } from '@/lib/pdf/parse-for-generation';
 
 type NotebookMetadata = {
   name: string;
@@ -185,104 +186,18 @@ async function parsePdfLikeGenerationPreview(args: {
 }> {
   const settings = useSettingsStore.getState();
   const pdfFile = args.pdfFile;
-  if (!(pdfFile instanceof File) || pdfFile.size === 0) {
-    throw new Error('PDF 文件无效或为空');
-  }
-
-  const parseFormData = new FormData();
-  parseFormData.append('pdf', pdfFile);
-  if (settings.pdfProviderId) {
-    parseFormData.append('providerId', settings.pdfProviderId);
-  }
-  const pdfCfg = settings.pdfProvidersConfig?.[settings.pdfProviderId];
-  if (pdfCfg?.apiKey?.trim()) {
-    parseFormData.append('apiKey', pdfCfg.apiKey);
-  }
-  if (pdfCfg?.baseUrl?.trim()) {
-    parseFormData.append('baseUrl', pdfCfg.baseUrl);
-  }
-
-  const parseResponse = await fetch('/api/parse-pdf', {
-    method: 'POST',
-    body: parseFormData,
+  return parsePdfForGeneration({
+    pdfFile,
     signal: args.signal,
+    language: 'zh-CN',
+    providerId: settings.pdfProviderId,
+    providerConfig: settings.pdfProvidersConfig?.[settings.pdfProviderId]
+      ? {
+          apiKey: settings.pdfProvidersConfig[settings.pdfProviderId]?.apiKey,
+          baseUrl: settings.pdfProvidersConfig[settings.pdfProviderId]?.baseUrl,
+        }
+      : undefined,
   });
-
-  if (!parseResponse.ok) {
-    const errorData = await parseResponse.json().catch(() => ({ error: 'PDF 解析失败' }));
-    throw new Error((errorData as { error?: string }).error || 'PDF 解析失败');
-  }
-
-  const parseResult = await parseResponse.json();
-  if (!parseResult.success || !parseResult.data) {
-    throw new Error('PDF 解析失败');
-  }
-
-  let pdfText = parseResult.data.text as string;
-  if (pdfText.length > MAX_PDF_CONTENT_CHARS) {
-    pdfText = pdfText.substring(0, MAX_PDF_CONTENT_CHARS);
-  }
-
-  const rawPdfImages = parseResult.data.metadata?.pdfImages;
-  const images = rawPdfImages
-    ? rawPdfImages.map(
-        (img: {
-          id: string;
-          src?: string;
-          pageNumber?: number;
-          description?: string;
-          width?: number;
-          height?: number;
-        }) => ({
-          id: img.id,
-          src: img.src || '',
-          pageNumber: img.pageNumber || 1,
-          description: img.description,
-          width: img.width,
-          height: img.height,
-        }),
-      )
-    : (parseResult.data.images as string[]).map((src: string, i: number) => ({
-        id: `img_${i + 1}`,
-        src,
-        pageNumber: 1,
-      }));
-
-  const imageStorageIds = await storeImages(images);
-
-  const pdfImages: PdfImage[] = images.map(
-    (
-      img: {
-        id: string;
-        src: string;
-        pageNumber: number;
-        description?: string;
-        width?: number;
-        height?: number;
-      },
-      i: number,
-    ) => ({
-      id: img.id,
-      src: '',
-      pageNumber: img.pageNumber,
-      description: img.description,
-      width: img.width,
-      height: img.height,
-      storageId: imageStorageIds[i],
-    }),
-  );
-
-  const imageMapping = await loadImageMapping(imageStorageIds);
-
-  const truncationWarnings: string[] = [];
-  if ((parseResult.data.text as string).length > MAX_PDF_CONTENT_CHARS) {
-    truncationWarnings.push(`正文已截断至前 ${MAX_PDF_CONTENT_CHARS} 字符`);
-  }
-  if (images.length > MAX_VISION_IMAGES) {
-    truncationWarnings.push(`图片数量已截断：保留 ${MAX_VISION_IMAGES} / ${images.length} 张`);
-  }
-
-  return { pdfText, pdfImages, imageStorageIds, imageMapping, truncationWarnings };
 }
 
 async function parsePptxLikeGenerationPreview(args: {

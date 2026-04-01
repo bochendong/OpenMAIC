@@ -798,6 +798,47 @@ export function Stage({
     [],
   );
 
+  const handleSidebarInputActivate = useCallback(async () => {
+    if (chatIsStreaming) {
+      await doSoftPause();
+    }
+
+    const mode = engineRef.current?.getMode();
+    if (engineRef.current && (mode === 'playing' || mode === 'live')) {
+      engineRef.current.pause();
+    }
+  }, [chatIsStreaming, doSoftPause]);
+
+  const handleSidebarQuestionSend = useCallback(
+    (msg: string) => {
+      const trimmed = msg.trim();
+      if (!trimmed) return;
+
+      if (isTopicPending) {
+        setIsTopicPending(false);
+        setLiveSpeech(null);
+        setSpeakingAgentId(null);
+      }
+
+      if (
+        engineRef.current &&
+        (engineMode === 'playing' || engineMode === 'live' || engineMode === 'paused')
+      ) {
+        engineRef.current.handleUserInterrupt(trimmed);
+      } else {
+        chatAreaRef.current?.sendMessage(trimmed);
+      }
+
+      chatAreaRef.current?.switchToTab('chat');
+      setIsCueUser(false);
+      setChatIsStreaming(true);
+      setChatSessionType(chatSessionType || 'qa');
+      setThinkingState({ stage: 'director' });
+      setIsDiscussionPaused(false);
+    },
+    [chatSessionType, engineMode, isTopicPending],
+  );
+
   // First speech text for idle display (extracted here for playbackView)
   const firstSpeechText = useMemo(
     () => currentScene?.actions?.find((a): a is SpeechAction => a.type === 'speech')?.text ?? null,
@@ -1763,38 +1804,7 @@ export function Stage({
             thinkingState={thinkingState}
             isCueUser={isCueUser}
             isTopicPending={isTopicPending}
-            onMessageSend={(msg) => {
-              // Clear soft-paused state — user is continuing the topic
-              if (isTopicPending) {
-                setIsTopicPending(false);
-                setLiveSpeech(null);
-                setSpeakingAgentId(null);
-              }
-              // User interrupts during playback — handleUserInterrupt triggers
-              // onUserInterrupt callback which already calls sendMessage, so skip
-              // the direct sendMessage below to avoid sending twice.
-              // Include 'paused' because onInputActivate pauses the engine before
-              // the user finishes typing — without this the interrupt position
-              // would never be saved and resuming after QA skips to the next sentence.
-              if (
-                engineRef.current &&
-                (engineMode === 'playing' || engineMode === 'live' || engineMode === 'paused')
-              ) {
-                engineRef.current.handleUserInterrupt(msg);
-              } else {
-                chatAreaRef.current?.sendMessage(msg);
-              }
-              // Auto-switch to chat tab when user sends a message
-              chatAreaRef.current?.switchToTab('chat');
-              setIsCueUser(false);
-              // Immediately mark streaming for synchronized stop button
-              setChatIsStreaming(true);
-              setChatSessionType(chatSessionType || 'qa');
-              // Optimistic thinking: show thinking dots immediately so there's
-              // no blank gap between userMessage expiry and the SSE thinking event.
-              // The real SSE event will overwrite this with the same or updated value.
-              setThinkingState({ stage: 'director' });
-            }}
+            onMessageSend={handleSidebarQuestionSend}
             onDiscussionStart={() => {
               // User clicks "Join" on ProactiveCard
               engineRef.current?.confirmDiscussion();
@@ -1804,16 +1814,7 @@ export function Stage({
               engineRef.current?.skipDiscussion();
             }}
             onStopDiscussion={handleStopDiscussion}
-            onInputActivate={async () => {
-              // Soft-pause QA/Discussion if streaming (opening input = implicit pause)
-              if (chatIsStreaming) {
-                await doSoftPause();
-              }
-              // Also pause playback engine
-              if (engineRef.current && (engineMode === 'playing' || engineMode === 'live')) {
-                engineRef.current.pause();
-              }
-            }}
+            onInputActivate={handleSidebarInputActivate}
             onResumeTopic={doResumeTopic}
             onPlayPause={handlePlayPause}
             isDiscussionPaused={isDiscussionPaused}
@@ -1891,6 +1892,8 @@ export function Stage({
           setIsCueUser(true);
         }}
         onStopSession={doSessionCleanup}
+        onInputActivate={handleSidebarInputActivate}
+        onMessageSend={handleSidebarQuestionSend}
       />
 
       {/* Scene switch confirmation dialog */}

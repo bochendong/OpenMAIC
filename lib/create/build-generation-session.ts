@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import { setSessionStorageJson, storeSourceBlob } from '@/lib/utils/image-storage';
 import { MAX_PDF_CONTENT_CHARS } from '@/lib/constants/generation';
 import type { UserRequirements } from '@/lib/types/generation';
+import type { PdfSourceSelection } from '@/lib/pdf/page-selection';
 
 /** 与 `/create`、`generation-preview` 使用的 sessionStorage 结构一致 */
 export type GenerationSessionState = {
@@ -14,6 +15,7 @@ export type GenerationSessionState = {
   pdfStorageKey?: string;
   pdfFileName?: string;
   sourceFileType?: 'pdf' | 'pptx';
+  sourcePageSelection?: PdfSourceSelection;
   pdfProviderId?: string;
   pdfProviderConfig?: { apiKey?: string; baseUrl?: string };
   sceneOutlines: null;
@@ -26,6 +28,7 @@ export async function buildGenerationSessionState(options: {
   language: 'zh-CN' | 'en-US';
   webSearch: boolean;
   sourceFile: File | null;
+  sourcePageSelection?: PdfSourceSelection;
   userNickname?: string;
   userBio?: string;
   pdfProviderId?: string;
@@ -37,6 +40,7 @@ export async function buildGenerationSessionState(options: {
     language,
     webSearch,
     sourceFile,
+    sourcePageSelection,
     userNickname,
     userBio,
     pdfProviderId,
@@ -99,6 +103,7 @@ export async function buildGenerationSessionState(options: {
     pdfStorageKey,
     pdfFileName,
     sourceFileType,
+    sourcePageSelection,
     pdfProviderId: pdfProvId,
     pdfProviderConfig: pdfProvCfg,
     sceneOutlines: null,

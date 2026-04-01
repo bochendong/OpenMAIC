@@ -6,6 +6,7 @@ import type {
   PdfImage,
   ImageMapping,
 } from '@/lib/types/generation';
+import type { PdfSourceSelection } from '@/lib/pdf/page-selection';
 
 // Session state stored in sessionStorage
 export interface GenerationSessionState {
@@ -23,6 +24,7 @@ export interface GenerationSessionState {
   pdfStorageKey?: string;
   pdfFileName?: string;
   sourceFileType?: 'pdf' | 'pptx';
+  sourcePageSelection?: PdfSourceSelection;
   pdfProviderId?: string;
   pdfProviderConfig?: { apiKey?: string; baseUrl?: string };
   // Web search context

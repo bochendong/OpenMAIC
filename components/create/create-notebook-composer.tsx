@@ -19,11 +19,17 @@ import {
   buildGenerationSessionState,
   persistGenerationSession,
 } from '@/lib/create/build-generation-session';
+import { PdfPageSelectionDialog } from '@/components/create/pdf-page-selection-dialog';
 import {
   ComposerInputShell,
   composerTextareaClassName,
 } from '@/components/ui/composer-input-shell';
 import { GreetingBar } from '@/components/create/greeting-bar';
+import {
+  PDF_PAGE_SELECTION_MAX_BYTES,
+  getPdfSourceFileSignature,
+  type PdfSourceSelection,
+} from '@/lib/pdf/page-selection';
 
 const log = createLogger('CreateNotebookComposer');
 
@@ -43,6 +49,12 @@ const initialFormState: FormState = {
   language: 'zh-CN',
   webSearch: false,
 };
+
+function isPdfSourceFile(file: File): boolean {
+  const mime = (file.type || '').toLowerCase();
+  const lower = file.name.toLowerCase();
+  return mime === 'application/pdf' || lower.endsWith('.pdf');
+}
 
 export interface CreateNotebookComposerProps {
   courseId: string;
@@ -69,7 +81,6 @@ export function CreateNotebookComposer({
 
   const currentModelId = useSettingsStore((s) => s.modelId);
 
-  /* eslint-disable react-hooks/set-state-in-effect -- Hydration from localStorage */
   useEffect(() => {
     try {
       const savedWebSearch = localStorage.getItem(WEB_SEARCH_STORAGE_KEY);
@@ -89,7 +100,6 @@ export function CreateNotebookComposer({
       /* localStorage unavailable */
     }
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     useMediaGenerationStore.getState().revokeObjectUrls();
@@ -106,6 +116,18 @@ export function CreateNotebookComposer({
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pageSelectionDialogOpen, setPageSelectionDialogOpen] = useState(false);
+  const [sourcePageSelection, setSourcePageSelection] = useState<PdfSourceSelection | null>(null);
+
+  useEffect(() => {
+    const file = form.sourceFile;
+    if (!file || !isPdfSourceFile(file)) {
+      setSourcePageSelection(null);
+      return;
+    }
+    const signature = getPdfSourceFileSignature(file);
+    setSourcePageSelection((current) => (current?.fileSignature === signature ? current : null));
+  }, [form.sourceFile]);
 
   const openSettings = (section?: import('@/lib/types/settings').SettingsSection) => {
     if (section) {
@@ -156,7 +178,7 @@ export function CreateNotebookComposer({
     );
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (forcedSelection?: PdfSourceSelection) => {
     if (!currentModelId) {
       showSetupToast(
         <BotOff className="size-4.5 text-amber-600 dark:text-amber-400" />,
@@ -175,6 +197,24 @@ export function CreateNotebookComposer({
     const cid = courseId.trim();
     if (!cid) {
       setError('请先从「我的课程」进入某一门课程，再创建笔记本。');
+      return;
+    }
+
+    const effectiveSelection = (() => {
+      const sourceFile = form.sourceFile;
+      if (!sourceFile || !isPdfSourceFile(sourceFile)) return undefined;
+      const signature = getPdfSourceFileSignature(sourceFile);
+      const candidate = forcedSelection ?? sourcePageSelection ?? undefined;
+      return candidate?.fileSignature === signature ? candidate : undefined;
+    })();
+
+    if (
+      form.sourceFile &&
+      isPdfSourceFile(form.sourceFile) &&
+      form.sourceFile.size > PDF_PAGE_SELECTION_MAX_BYTES &&
+      !effectiveSelection
+    ) {
+      setPageSelectionDialogOpen(true);
       return;
     }
 
@@ -203,6 +243,7 @@ export function CreateNotebookComposer({
         language: form.language,
         webSearch: form.webSearch,
         sourceFile: form.sourceFile,
+        sourcePageSelection: effectiveSelection,
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
         pdfProviderId,
@@ -232,6 +273,17 @@ export function CreateNotebookComposer({
 
   return (
     <div className={cn('w-full', className)}>
+      <PdfPageSelectionDialog
+        open={pageSelectionDialogOpen}
+        file={form.sourceFile}
+        language={form.language}
+        onOpenChange={setPageSelectionDialogOpen}
+        onConfirm={(selection) => {
+          setSourcePageSelection(selection);
+          setPageSelectionDialogOpen(false);
+          void handleGenerate(selection);
+        }}
+      />
       <ComposerInputShell className="w-full">
         <div className="relative z-20 flex items-start justify-between">
           <GreetingBar />

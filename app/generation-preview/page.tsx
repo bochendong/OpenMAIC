@@ -28,6 +28,7 @@ import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
 import { createLogger } from '@/lib/logger';
 import { useAuthStore } from '@/lib/store/auth';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
+import { parsePdfForGeneration } from '@/lib/pdf/parse-for-generation';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
 import { StepVisualizer } from './components/visualizers';
 
@@ -249,142 +250,133 @@ function GenerationPreviewContent() {
         }
 
         const sourceType = currentSession.sourceFileType || 'pdf';
-        const parseFormData = new FormData();
-        let parseResponse: Response;
 
         if (sourceType === 'pptx') {
+          const parseFormData = new FormData();
           const pptxFile = new File([sourceBlob], currentSession.pdfFileName || 'document.pptx', {
             type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
           });
           parseFormData.append('pptx', pptxFile);
-          parseResponse = await fetch('/api/parse-pptx', {
+          const parseResponse = await fetch('/api/parse-pptx', {
             method: 'POST',
             body: parseFormData,
             signal,
           });
+          if (!parseResponse.ok) {
+            const errorData = await parseResponse.json().catch(() => ({ error: t('generation.pdfParseFailed') }));
+            throw new Error(errorData.error || t('generation.pdfParseFailed'));
+          }
+
+          const parseResult = await parseResponse.json();
+          if (!parseResult.success || !parseResult.data) {
+            throw new Error(t('generation.pdfParseFailed'));
+          }
+
+          let pdfText = parseResult.data.text as string;
+          if (pdfText.length > MAX_PDF_CONTENT_CHARS) {
+            pdfText = pdfText.substring(0, MAX_PDF_CONTENT_CHARS);
+          }
+
+          const rawPdfImages = parseResult.data.metadata?.pdfImages || [];
+          const images = rawPdfImages.map(
+            (img: {
+              id: string;
+              src?: string;
+              pageNumber?: number;
+              description?: string;
+              width?: number;
+              height?: number;
+            }) => ({
+              id: img.id,
+              src: img.src || '',
+              pageNumber: img.pageNumber || 1,
+              description: img.description,
+              width: img.width,
+              height: img.height,
+            }),
+          );
+
+          const imageStorageIds = await storeImages(images);
+          const pdfImages: PdfImage[] = images.map(
+            (
+              img: {
+                id: string;
+                src: string;
+                pageNumber: number;
+                description?: string;
+                width?: number;
+                height?: number;
+              },
+              i: number,
+            ) => ({
+              id: img.id,
+              src: '',
+              pageNumber: img.pageNumber,
+              description: img.description,
+              width: img.width,
+              height: img.height,
+              storageId: imageStorageIds[i],
+            }),
+          );
+
+          const warnings: string[] = [];
+          if ((parseResult.data.text as string).length > MAX_PDF_CONTENT_CHARS) {
+            warnings.push(
+              t('generation.textTruncated').replace('{n}', String(MAX_PDF_CONTENT_CHARS)),
+            );
+          }
+          if (images.length > MAX_VISION_IMAGES) {
+            warnings.push(
+              t('generation.imageTruncated')
+                .replace('{total}', String(images.length))
+                .replace('{max}', String(MAX_VISION_IMAGES)),
+            );
+          }
+          if (warnings.length > 0) {
+            setTruncationWarnings(warnings);
+          }
+
+          const updatedSession = {
+            ...currentSession,
+            pdfText,
+            pdfImages,
+            imageStorageIds,
+            pdfStorageKey: undefined,
+          };
+          setSession(updatedSession);
+          sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
+          currentSession = updatedSession;
+          activeSteps = getActiveSteps(currentSession);
         } else {
           const pdfFile = new File([sourceBlob], currentSession.pdfFileName || 'document.pdf', {
             type: 'application/pdf',
           });
-          parseFormData.append('pdf', pdfFile);
-
-          if (currentSession.pdfProviderId) {
-            parseFormData.append('providerId', currentSession.pdfProviderId);
-          }
-          if (currentSession.pdfProviderConfig?.apiKey?.trim()) {
-            parseFormData.append('apiKey', currentSession.pdfProviderConfig.apiKey);
-          }
-          if (currentSession.pdfProviderConfig?.baseUrl?.trim()) {
-            parseFormData.append('baseUrl', currentSession.pdfProviderConfig.baseUrl);
-          }
-
-          parseResponse = await fetch('/api/parse-pdf', {
-            method: 'POST',
-            body: parseFormData,
+          const parsed = await parsePdfForGeneration({
+            pdfFile,
             signal,
+            language: currentSession.requirements.language,
+            providerId: currentSession.pdfProviderId as 'unpdf' | 'mineru' | undefined,
+            providerConfig: currentSession.pdfProviderConfig,
+            selection: currentSession.sourcePageSelection,
           });
+
+          if (parsed.truncationWarnings.length > 0) {
+            setTruncationWarnings(parsed.truncationWarnings);
+          }
+
+          const updatedSession = {
+            ...currentSession,
+            pdfText: parsed.pdfText,
+            pdfImages: parsed.pdfImages,
+            imageStorageIds: parsed.imageStorageIds,
+            pdfStorageKey: undefined, // Clear so we don't re-parse
+          };
+          setSession(updatedSession);
+          sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
+
+          currentSession = updatedSession;
+          activeSteps = getActiveSteps(currentSession);
         }
-
-        if (!parseResponse.ok) {
-          const errorData = await parseResponse.json();
-          throw new Error(errorData.error || t('generation.pdfParseFailed'));
-        }
-
-        const parseResult = await parseResponse.json();
-        if (!parseResult.success || !parseResult.data) {
-          throw new Error(t('generation.pdfParseFailed'));
-        }
-
-        let pdfText = parseResult.data.text as string;
-
-        // Truncate if needed
-        if (pdfText.length > MAX_PDF_CONTENT_CHARS) {
-          pdfText = pdfText.substring(0, MAX_PDF_CONTENT_CHARS);
-        }
-
-        // Create image metadata and store images
-        // Prefer metadata.pdfImages (both parsers now return this)
-        const rawPdfImages = parseResult.data.metadata?.pdfImages;
-        const images = rawPdfImages
-          ? rawPdfImages.map(
-              (img: {
-                id: string;
-                src?: string;
-                pageNumber?: number;
-                description?: string;
-                width?: number;
-                height?: number;
-              }) => ({
-                id: img.id,
-                src: img.src || '',
-                pageNumber: img.pageNumber || 1,
-                description: img.description,
-                width: img.width,
-                height: img.height,
-              }),
-            )
-          : (parseResult.data.images as string[]).map((src: string, i: number) => ({
-              id: `img_${i + 1}`,
-              src,
-              pageNumber: 1,
-            }));
-
-        const imageStorageIds = await storeImages(images);
-
-        const pdfImages: PdfImage[] = images.map(
-          (
-            img: {
-              id: string;
-              src: string;
-              pageNumber: number;
-              description?: string;
-              width?: number;
-              height?: number;
-            },
-            i: number,
-          ) => ({
-            id: img.id,
-            src: '',
-            pageNumber: img.pageNumber,
-            description: img.description,
-            width: img.width,
-            height: img.height,
-            storageId: imageStorageIds[i],
-          }),
-        );
-
-        // Update session with parsed source data
-        const updatedSession = {
-          ...currentSession,
-          pdfText,
-          pdfImages,
-          imageStorageIds,
-          pdfStorageKey: undefined, // Clear so we don't re-parse
-        };
-        setSession(updatedSession);
-        sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
-
-        // Truncation warnings
-        const warnings: string[] = [];
-        if ((parseResult.data.text as string).length > MAX_PDF_CONTENT_CHARS) {
-          warnings.push(
-            t('generation.textTruncated').replace('{n}', String(MAX_PDF_CONTENT_CHARS)),
-          );
-        }
-        if (images.length > MAX_VISION_IMAGES) {
-          warnings.push(
-            t('generation.imageTruncated')
-              .replace('{total}', String(images.length))
-              .replace('{max}', String(MAX_VISION_IMAGES)),
-          );
-        }
-        if (warnings.length > 0) {
-          setTruncationWarnings(warnings);
-        }
-
-        // Reassign local reference for subsequent steps
-        currentSession = updatedSession;
-        activeSteps = getActiveSteps(currentSession);
       }
 
       // Step: Web Search (if enabled)

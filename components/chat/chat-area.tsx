@@ -1,6 +1,14 @@
 'use client';
 
-import { useImperativeHandle, forwardRef, useRef, useCallback, useState, useMemo } from 'react';
+import {
+  useImperativeHandle,
+  forwardRef,
+  useRef,
+  useCallback,
+  useState,
+  useMemo,
+  type CSSProperties,
+} from 'react';
 import type { SessionType } from '@/lib/types/chat';
 import type { LectureNoteEntry } from '@/lib/types/chat';
 import type { DiscussionRequest } from '@/components/roundtable';
@@ -8,8 +16,9 @@ import type { Action, SpeechAction, DiscussionAction } from '@/lib/types/action'
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useStageStore } from '@/lib/store';
-import { PanelRightClose, BookOpen, MessageSquare } from 'lucide-react';
+import { PanelRightClose, BookOpen, MessageSquare, SendHorizonal } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { useChatSessions } from './use-chat-sessions';
 import { SessionList } from './session-list';
 import { LectureNotesView } from './lecture-notes-view';
@@ -27,6 +36,8 @@ interface ChatAreaProps {
   onThinking?: (state: { stage: string; agentId?: string } | null) => void;
   onCueUser?: (fromAgentId?: string, prompt?: string) => void;
   onStopSession?: () => void;
+  onMessageSend?: (message: string) => Promise<void> | void;
+  onInputActivate?: () => Promise<void> | void;
   currentSceneId?: string | null;
 }
 
@@ -69,6 +80,8 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       onThinking,
       onCueUser,
       onStopSession,
+      onMessageSend,
+      onInputActivate,
       currentSceneId,
     },
     ref,
@@ -105,6 +118,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
     });
 
     const [activeTab, setActiveTab] = useState<'lecture' | 'chat'>('lecture');
+    const [composerValue, setComposerValue] = useState('');
     const isDraggingRef = useRef(false);
     const [isDragging, setIsDragging] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
@@ -168,6 +182,25 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
     const switchToTab = useCallback((tab: 'lecture' | 'chat') => {
       setActiveTab(tab);
     }, []);
+
+    const handleComposerFocus = useCallback(() => {
+      void onInputActivate?.();
+    }, [onInputActivate]);
+
+    const handleComposerSend = useCallback(() => {
+      const message = composerValue.trim();
+      if (!message) return;
+
+      setComposerValue('');
+      setActiveTab('chat');
+
+      if (onMessageSend) {
+        void onMessageSend(message);
+        return;
+      }
+
+      void sendMessage(message);
+    }, [composerValue, onMessageSend, sendMessage]);
 
     useImperativeHandle(ref, () => ({
       createSession,
@@ -248,7 +281,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
           <Tabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as 'lecture' | 'chat')}
-            className="flex flex-col h-full gap-0"
+            className="flex min-h-0 flex-1 flex-col gap-0"
           >
             {/* Tab header row */}
             <div className="h-10 flex items-center gap-1 shrink-0 mt-3 mb-1 px-3">
@@ -316,6 +349,45 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
               </div>
             </TabsContent>
           </Tabs>
+
+          <div className="shrink-0 border-t border-slate-900/[0.06] bg-white/55 px-3 py-3 dark:border-white/[0.08] dark:bg-black/15">
+            <div className="rounded-[18px] border border-slate-900/[0.08] bg-white/85 p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] dark:border-white/[0.1] dark:bg-black/25 dark:shadow-[0_8px_30px_rgba(0,0,0,0.22)]">
+              <div className="flex items-end gap-2">
+                <Textarea
+                  value={composerValue}
+                  onFocus={handleComposerFocus}
+                  onChange={(e) => setComposerValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      handleComposerSend();
+                    }
+                  }}
+                  placeholder={t('chat.askPlaceholder')}
+                  rows={1}
+                  className="min-h-[44px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0"
+                  style={{ fieldSizing: 'content' } as CSSProperties}
+                />
+                <button
+                  type="button"
+                  onClick={handleComposerSend}
+                  disabled={!composerValue.trim()}
+                  className={cn(
+                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-200',
+                    composerValue.trim()
+                      ? 'bg-[#007AFF] text-white shadow-[0_10px_24px_rgba(0,122,255,0.28)] hover:bg-[#0a84ff]'
+                      : 'bg-slate-200/80 text-slate-400 dark:bg-white/[0.08] dark:text-white/30',
+                  )}
+                  aria-label={t('chat.send')}
+                >
+                  <SendHorizonal className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="px-2 pt-1 text-[10px] text-[#86868b] dark:text-[#a1a1a6]">
+                {t('chat.askHint')}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
