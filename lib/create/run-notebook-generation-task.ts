@@ -503,6 +503,16 @@ function applyOutlinePreferenceHardConstraints(
   });
 }
 
+function applyOutlineLanguage(
+  outlines: SceneOutline[],
+  language: 'zh-CN' | 'en-US',
+): SceneOutline[] {
+  return outlines.map((outline) => ({
+    ...outline,
+    language,
+  }));
+}
+
 function getMinimumSceneCount(length: OrchestratorOutlineLength): number {
   switch (length) {
     case 'compact':
@@ -908,13 +918,16 @@ async function generateOutlines(args: {
         if (!line.startsWith('data: ')) continue;
         const evt = JSON.parse(line.slice(6)) as OutlineStreamEvent;
         if (evt.type === 'outline') {
-          outlines.push(evt.data);
+          outlines.push({
+            ...evt.data,
+            language: args.language,
+          });
           args.onOutline?.(outlines.length);
         } else if (evt.type === 'retry') {
           outlines.length = 0;
           args.onOutline?.(0);
         } else if (evt.type === 'done') {
-          return evt.outlines?.length ? evt.outlines : outlines;
+          return applyOutlineLanguage(evt.outlines?.length ? evt.outlines : outlines, args.language);
         } else if (evt.type === 'error') {
           throw new Error(evt.error || '大纲生成失败');
         }
@@ -922,7 +935,7 @@ async function generateOutlines(args: {
     }
 
     if (done) {
-      return outlines;
+      return applyOutlineLanguage(outlines, args.language);
     }
   }
 }
@@ -950,18 +963,24 @@ async function repairOutlinesIfNeeded(args: {
 }): Promise<SceneOutline[]> {
   if (!args.outlinePreferences) {
     return normalizeOutlineCollection(
-      applyOutlinePreferenceHardConstraints(args.outlines, {
-        coursePurpose: args.coursePurpose,
-        outlinePreferences: args.outlinePreferences,
-      }),
+      applyOutlineLanguage(
+        applyOutlinePreferenceHardConstraints(args.outlines, {
+          coursePurpose: args.coursePurpose,
+          outlinePreferences: args.outlinePreferences,
+        }),
+        args.language,
+      ),
     );
   }
 
   let currentOutlines = normalizeOutlineCollection(
-    applyOutlinePreferenceHardConstraints(args.outlines, {
-      coursePurpose: args.coursePurpose,
-      outlinePreferences: args.outlinePreferences,
-    }),
+    applyOutlineLanguage(
+      applyOutlinePreferenceHardConstraints(args.outlines, {
+        coursePurpose: args.coursePurpose,
+        outlinePreferences: args.outlinePreferences,
+      }),
+      args.language,
+    ),
   );
   const maxRepairPasses = 2;
 
@@ -1026,7 +1045,10 @@ async function repairOutlinesIfNeeded(args: {
         outlinePreferences: args.outlinePreferences,
       },
     );
-    const mergedOutlines = mergeSupplementalOutlines(currentOutlines, supplementalOutlines);
+    const mergedOutlines = mergeSupplementalOutlines(
+      currentOutlines,
+      applyOutlineLanguage(supplementalOutlines, args.language),
+    );
 
     if (mergedOutlines.length === currentOutlines.length) {
       return currentOutlines;

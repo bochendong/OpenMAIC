@@ -128,6 +128,14 @@ export async function POST(req: NextRequest) {
     // ── Build cross-scene context ──
     const allTitles = allOutlines.map((o) => o.title);
     const pageIndex = allOutlines.findIndex((o) => o.id === outline.id);
+    const normalizedOutline: SceneOutline = {
+      ...outline,
+      language:
+        outline.language ||
+        (pageIndex >= 0 ? allOutlines[pageIndex]?.language : undefined) ||
+        allOutlines.find((item) => item.language)?.language ||
+        'zh-CN',
+    };
     const ctx: SceneGenerationContext = {
       pageIndex: (pageIndex >= 0 ? pageIndex : 0) + 1,
       totalPages: allOutlines.length,
@@ -136,13 +144,15 @@ export async function POST(req: NextRequest) {
     };
 
     // ── Generate actions ──
-    log.info(`Generating actions: "${outline.title}" (${outline.type}) [model=${modelString}]`);
+    log.info(
+      `Generating actions: "${normalizedOutline.title}" (${normalizedOutline.type}) [model=${modelString}]`,
+    );
 
     let actions = null;
     let generationError: unknown = null;
     try {
       actions = await generateSceneActions(
-        outline,
+        normalizedOutline,
         content,
         aiCall,
         ctx,
@@ -156,7 +166,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!actions) {
-      actions = buildFallbackSceneActions(outline, content, agents);
+      actions = buildFallbackSceneActions(normalizedOutline, content, agents);
       log.warn(`Falling back to default actions for: "${outline.title}"`, {
         stageId,
         outlineId: outline.id,
@@ -170,10 +180,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    log.info(`Generated ${actions.length} actions for: "${outline.title}"`);
+    log.info(`Generated ${actions.length} actions for: "${normalizedOutline.title}"`);
 
     // ── Build complete scene ──
-    const scene = buildCompleteScene(outline, content, actions, stageId);
+    const scene = buildCompleteScene(normalizedOutline, content, actions, stageId);
 
     if (!scene) {
       log.error(`Failed to build scene: "${outline.title}"`);

@@ -437,6 +437,7 @@ export async function POST(req: NextRequest) {
                     ...normalizeSceneOutlineContentProfile(outline),
                     id: outline.id || nanoid(),
                     order: parsedOutlines.length + 1,
+                    language: requirements.language,
                   };
                   parsedOutlines.push(enriched);
 
