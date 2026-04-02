@@ -250,6 +250,7 @@ You must output a JSON array where each element is a scene outline object:
   {
     "id": "scene_1",
     "type": "slide",
+    "contentProfile": "math",
     "title": "Scene Title",
     "description": "1-2 sentences describing the teaching purpose",
     "keyPoints": ["Key point 1", "Key point 2", "Key point 3"],
@@ -302,6 +303,7 @@ You must output a JSON array where each element is a scene outline object:
 | ----------------- | ------------------------ | -------- | ------------------------------------------------------------------------------------------------ |
 | id                | string                   | ✅       | Unique identifier, format: `scene_1`, `scene_2`...                                               |
 | type              | string                   | ✅       | `"slide"`, `"quiz"`, `"interactive"`, or `"pbl"`                                                 |
+| contentProfile    | string                   | ❌       | For slide scenes, prefer `"general"`, `"math"`, or `"code"` to steer downstream generation      |
 | title             | string                   | ✅       | Scene title, concise and clear                                                                   |
 | description       | string                   | ✅       | 1-2 sentences describing teaching purpose                                                        |
 | keyPoints         | string[]                 | ✅       | 3-5 core points                                                                                  |
@@ -418,4 +420,5 @@ Guidance:
 12. **No teacher identity on slides**: Scene titles and keyPoints must be neutral and topic-focused. Never include the teacher's name or role (e.g., avoid "Teacher Wang's Tips", "Teacher's Wishes"). Use generic labels like "Tips", "Summary", "Key Takeaways" instead.
 13. When a problem statement is too long for one slide, split it across multiple consecutive scenes rather than overloading a single page
 14. For every worked-example sequence, include the original problem text or a faithful excerpt before solving
+15. Set `contentProfile` to `math` for formula / proof / matrix-heavy slide scenes, `code` for programming walkthrough scenes, otherwise `general`
 15. For every worked-example walkthrough page, include enough detail that the learner can follow the full reasoning or calculation, not just the section labels

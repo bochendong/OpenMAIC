@@ -1,4 +1,5 @@
 import type { NotebookContentBlock, NotebookContentDocument } from './schema';
+import { matrixBlockToLatex } from './block-utils';
 
 function renderBlock(block: NotebookContentBlock, language: 'zh-CN' | 'en-US'): string {
   switch (block.type) {
@@ -10,6 +11,10 @@ function renderBlock(block: NotebookContentBlock, language: 'zh-CN' | 'en-US'): 
       return block.items.map((item) => `- ${item}`).join('\n');
     case 'equation':
       return block.display ? `$$\n${block.latex}\n$$` : `$${block.latex}$`;
+    case 'matrix':
+      return [block.label || '', `$$\n${matrixBlockToLatex(block)}\n$$`, block.caption || '']
+        .filter(Boolean)
+        .join('\n');
     case 'derivation_steps':
       return [
         block.title ? `### ${block.title}` : '',
@@ -23,6 +28,24 @@ function renderBlock(block: NotebookContentBlock, language: 'zh-CN' | 'en-US'): 
         .join('\n\n');
     case 'code_block':
       return `${block.caption ? `${block.caption}\n` : ''}\`\`\`${block.language}\n${block.code}\n\`\`\``;
+    case 'code_walkthrough':
+      return [
+        `### ${block.title || (language === 'en-US' ? 'Code Walkthrough' : '代码讲解')}`,
+        block.caption || '',
+        `\`\`\`${block.language}\n${block.code}\n\`\`\``,
+        `${language === 'en-US' ? 'Key Steps' : '关键步骤'}:\n${block.steps
+          .map((step, idx) => {
+            const prefix = `${idx + 1}.`;
+            const title = step.title || step.focus;
+            return `${prefix} ${title ? `${title} - ` : ''}${step.explanation}`;
+          })
+          .join('\n')}`,
+        block.output
+          ? `${language === 'en-US' ? 'Output' : '输出'}:\n\`\`\`\n${block.output}\n\`\`\``
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
     case 'table': {
       const headers = block.headers && block.headers.length > 0 ? block.headers : undefined;
       if (!headers) {

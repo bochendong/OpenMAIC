@@ -14,6 +14,7 @@
 import { NextRequest } from 'next/server';
 import { streamLLM } from '@/lib/ai/llm';
 import { buildPrompt, PROMPT_IDS } from '@/lib/generation/prompts';
+import { normalizeSceneOutlineContentProfile } from '@/lib/generation/content-profile';
 import {
   formatImageDescription,
   formatImagePlaceholder,
@@ -56,12 +57,9 @@ function buildOrchestratorPreferencesBlock(
   const exampleLevel: OrchestratorWorkedExampleLevel = prefs.workedExampleLevel ?? 'moderate';
 
   const lengthZh: Record<OrchestratorOutlineLength, string> = {
-    compact:
-      '**篇幅**：简短——总场景数（与幻灯页数大致对应）宜在 **10 个以下**，紧凑成课。',
-    standard:
-      '**篇幅**：中等——总场景数（与幻灯页数大致对应）宜在 **约 10–20 个** 范围内。',
-    extended:
-      '**篇幅**：深入——总场景数（与幻灯页数大致对应）宜 **超过 20 个**，可分阶段展开。',
+    compact: '**篇幅**：简短——总场景数（与幻灯页数大致对应）宜在 **10 个以下**，紧凑成课。',
+    standard: '**篇幅**：中等——总场景数（与幻灯页数大致对应）宜在 **约 10–20 个** 范围内。',
+    extended: '**篇幅**：深入——总场景数（与幻灯页数大致对应）宜 **超过 20 个**，可分阶段展开。',
   };
   const lengthEn: Record<OrchestratorOutlineLength, string> = {
     compact:
@@ -73,8 +71,7 @@ function buildOrchestratorPreferencesBlock(
   };
 
   const exampleZh: Record<OrchestratorWorkedExampleLevel, string> = {
-    none:
-      '**例题数量**：**无**——不要规划独立的「老师讲完整例题 / 分步走读」类 `slide` 序列（含证明走读、代码走读、大题拆解等）；以概念、框架与要点为主，除非用户在需求原文中明确要求讲题。',
+    none: '**例题数量**：**无**——不要规划独立的「老师讲完整例题 / 分步走读」类 `slide` 序列（含证明走读、代码走读、大题拆解等）；以概念、框架与要点为主，除非用户在需求原文中明确要求讲题。',
     light:
       '**例题数量（老师带做的完整例题 / 走读，多为 `slide` 序列）**：**少量**——除非用户明确要求，优先概念与框架；完整例题（含证明走读、代码走读、大题分步讲解等）宜控制在 **约 0–1 组**，可提纲式点到为止。',
     moderate:
@@ -83,8 +80,7 @@ function buildOrchestratorPreferencesBlock(
       '**例题数量**：**丰富**——安排 **约 5 组及以上** 完整例题讲解，必要时同一难点用多页 `slide` 分步拆解，并覆盖变式与边界情况（在篇幅允许内）。',
   };
   const exampleEn: Record<OrchestratorWorkedExampleLevel, string> = {
-    none:
-      '**Worked-example density**: **None** — do **not** plan dedicated teacher-led full worked-example / step-by-step walkthrough `slide` sequences (proof walkthroughs, code walkthroughs, large-problem decompositions); stay concept/framework-first unless the user explicitly asks for problem walkthroughs in the requirement text.',
+    none: '**Worked-example density**: **None** — do **not** plan dedicated teacher-led full worked-example / step-by-step walkthrough `slide` sequences (proof walkthroughs, code walkthroughs, large-problem decompositions); stay concept/framework-first unless the user explicitly asks for problem walkthroughs in the requirement text.',
     light:
       '**Worked-example density (teacher-led walkthroughs, usually `slide` sequences)**: **Light** — unless the user explicitly asks, prioritize concepts/structure; aim for **about 0–1** full worked-example sequences (proof/code/large-problem walkthroughs), keep demos sketch-level.',
     moderate:
@@ -101,7 +97,9 @@ function buildOrchestratorPreferencesBlock(
     : '**Quizzes**: Do **not** plan standalone `quiz` scenes; teach with `slide` (and `interactive` when helpful), avoid quiz pages.';
 
   const title =
-    language === 'zh-CN' ? '## 用户在本轮指定的生成偏好' : '## User-selected generation preferences for this run';
+    language === 'zh-CN'
+      ? '## 用户在本轮指定的生成偏好'
+      : '## User-selected generation preferences for this run';
   const lines =
     language === 'zh-CN'
       ? [
@@ -220,7 +218,11 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     // Get API configuration from request headers
-    const { model: languageModel, modelInfo, modelString } = await resolveModelFromHeaders(req, {
+    const {
+      model: languageModel,
+      modelInfo,
+      modelString,
+    } = await resolveModelFromHeaders(req, {
       allowOpenAIModelOverride: true,
     });
 
@@ -432,7 +434,7 @@ export async function POST(req: NextRequest) {
                 for (const outline of newOutlines) {
                   // Ensure ID and order
                   const enriched = {
-                    ...outline,
+                    ...normalizeSceneOutlineContentProfile(outline),
                     id: outline.id || nanoid(),
                     order: parsedOutlines.length + 1,
                   };

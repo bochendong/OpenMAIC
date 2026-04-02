@@ -21,6 +21,7 @@ export {
   buildCourseContext,
   formatCoursePersonalizationForPrompt,
   formatSlideRewriteContext,
+  formatSceneContentProfileContext,
   formatAgentsForPrompt,
   formatTeacherPersonaForPrompt,
   formatImageDescription,

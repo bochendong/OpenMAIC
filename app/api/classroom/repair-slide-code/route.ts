@@ -11,6 +11,7 @@ import {
   computeSegmentReuseRatio,
   estimateDocumentSignal,
   getDocumentComparableSegments,
+  looksLikeCodeSnippet,
   normalizeCompactText,
   normalizeRepairConversation,
   runSlideRepairAttempt,
@@ -20,7 +21,7 @@ import {
   type SlideRepairLanguage,
 } from '../repair-slide-shared';
 
-const log = createLogger('Classroom Repair Slide Math API');
+const log = createLogger('Classroom Repair Slide Code API');
 
 export const maxDuration = 180;
 
@@ -28,9 +29,10 @@ type RepairIntent = {
   hasInstructions: boolean;
   wantsExpansion: boolean;
   wantsStructureChange: boolean;
-  wantsMinimalMathOnly: boolean;
+  wantsMinimalCodeOnly: boolean;
+  wantsTrace: boolean;
+  wantsOutput: boolean;
   hintsNeedAnotherPage: boolean;
-  wantsExplicitDerivation: boolean;
 };
 
 function buildFallbackDocumentFromSlideContent(args: {
@@ -56,8 +58,19 @@ function buildFallbackDocumentFromSlideContent(args: {
       continue;
     }
 
-    const lines = splitMeaningfulLines(item.text);
+    const lines = splitMeaningfulLines(item.text, 'trimEnd');
     if (lines.length === 0) continue;
+
+    const joined = lines.join('\n');
+    if (looksLikeCodeSnippet(joined)) {
+      blocks.push({
+        type: 'code_block',
+        language: 'text',
+        code: joined,
+        caption: item.name || (args.language === 'en-US' ? 'Code snippet' : '代码片段'),
+      });
+      continue;
+    }
 
     const bulletItems = lines
       .filter((line) => /^[-•·▪◦]/.test(line))
@@ -91,13 +104,13 @@ function buildFallbackDocumentFromSlideContent(args: {
       continue;
     }
 
-    blocks.push({ type: 'paragraph', text: lines.join('\n') });
+    blocks.push({ type: 'paragraph', text: joined });
   }
 
   return {
     version: 1,
     language: args.language,
-    profile: 'math',
+    profile: 'code',
     title: args.sceneTitle,
     blocks:
       blocks.length > 0
@@ -107,8 +120,8 @@ function buildFallbackDocumentFromSlideContent(args: {
               type: 'paragraph',
               text:
                 args.language === 'zh-CN'
-                  ? '请保留当前页内容，仅修复数学符号。'
-                  : 'Keep the current page content and only repair mathematical notation.',
+                  ? '请保留当前页内容，只修复代码讲解结构。'
+                  : 'Keep the current page content and only repair the code explanation structure.',
             },
           ],
   };
@@ -116,9 +129,8 @@ function buildFallbackDocumentFromSlideContent(args: {
 
 function countReasoningBlocks(doc: NotebookContentDocument): number {
   return doc.blocks.filter((block) => {
-    if (block.type === 'derivation_steps' || block.type === 'example') return true;
-    if (block.type === 'equation') return true;
-    if (block.type === 'matrix') return true;
+    if (block.type === 'code_walkthrough' || block.type === 'example') return true;
+    if (block.type === 'code_block') return block.code.trim().length >= 20;
     if (block.type === 'bullet_list') return block.items.length >= 2;
     if (block.type === 'paragraph') return normalizeCompactText(block.text).length >= 30;
     return false;
@@ -128,7 +140,6 @@ function countReasoningBlocks(doc: NotebookContentDocument): number {
 function inferRepairIntent(repairInstructions?: string): RepairIntent {
   const raw = repairInstructions?.trim() || '';
   const normalized = raw.toLowerCase();
-
   const includesAny = (keywords: string[]) =>
     keywords.some((keyword) => raw.includes(keyword) || normalized.includes(keyword));
 
@@ -144,8 +155,6 @@ function inferRepairIntent(repairInstructions?: string): RepairIntent {
       '更完整',
       '完整一点',
       '扩写',
-      'step by step',
-      'step-by-step',
       'expand',
       'more detail',
       'detailed',
@@ -162,35 +171,43 @@ function inferRepairIntent(repairInstructions?: string): RepairIntent {
       '整理',
       '分点',
       '拆开',
-      '思路',
-      '推导',
-      '证明过程',
+      '流程',
+      '逐行',
       '步骤',
       'structure',
       'organize',
       'restructure',
       'flow',
-      'proof',
-      'derivation',
-      'steps',
+      'step by step',
+      'step-by-step',
+      'line by line',
     ]),
-    wantsMinimalMathOnly: includesAny([
-      '只修公式',
-      '只修数学',
-      '只修 latex',
-      '只修latex',
-      '只修符号',
+    wantsMinimalCodeOnly: includesAny([
+      '只修代码',
+      '只修讲解',
       '不要改文案',
       '保留原文',
       '轻微修改',
       '小修',
-      'math only',
-      'notation only',
-      'latex only',
-      'symbol only',
+      'code only',
       'do not rewrite',
       'keep wording',
+      'minimal change',
     ]),
+    wantsTrace: includesAny([
+      'trace',
+      '逐行',
+      '逐步',
+      '变量变化',
+      '执行过程',
+      '运行过程',
+      'line by line',
+      'step by step',
+      'state change',
+      'execution flow',
+      'variable state',
+    ]),
+    wantsOutput: includesAny(['输出', '返回值', 'print', 'stdout', 'return value', 'output']),
     hintsNeedAnotherPage: includesAny([
       '加新的页',
       '加一页',
@@ -206,27 +223,12 @@ function inferRepairIntent(repairInstructions?: string): RepairIntent {
       'split into 2 pages',
       'multi-page',
     ]),
-    wantsExplicitDerivation: includesAny([
-      '推导',
-      '证明',
-      '证明过程',
-      '关键步骤',
-      '步骤',
-      'derive',
-      'derivation',
-      'proof',
-      'reasoning',
-      'step by step',
-      'step-by-step',
-      'steps',
-    ]),
   };
 }
 
-function countMathStructureBlocks(doc: NotebookContentDocument): number {
+function countCodeStructureBlocks(doc: NotebookContentDocument): number {
   return doc.blocks.filter(
-    (block) =>
-      block.type === 'equation' || block.type === 'matrix' || block.type === 'derivation_steps',
+    (block) => block.type === 'code_block' || block.type === 'code_walkthrough',
   ).length;
 }
 
@@ -239,23 +241,19 @@ function looksLikeInstructionWasIgnored(args: {
 
   const sourceSegments = getDocumentComparableSegments(args.sourceDocument);
   const repairedSegments = getDocumentComparableSegments(args.repairedDocument);
-  const sourceText = sourceSegments.join('\n');
-  const repairedText = repairedSegments.join('\n');
-  if (sourceText === repairedText) return true;
-
   const reuseRatio = computeSegmentReuseRatio(sourceSegments, repairedSegments);
 
   const sourceSignal = estimateDocumentSignal(args.sourceDocument);
   const repairedSignal = estimateDocumentSignal(args.repairedDocument);
   const sourceReasoningBlocks = countReasoningBlocks(args.sourceDocument);
   const repairedReasoningBlocks = countReasoningBlocks(args.repairedDocument);
-  const sourceMathStructureBlocks = countMathStructureBlocks(args.sourceDocument);
-  const repairedMathStructureBlocks = countMathStructureBlocks(args.repairedDocument);
+  const sourceCodeBlocks = countCodeStructureBlocks(args.sourceDocument);
+  const repairedCodeBlocks = countCodeStructureBlocks(args.repairedDocument);
   const blockDelta = Math.abs(
     args.repairedDocument.blocks.length - args.sourceDocument.blocks.length,
   );
 
-  if (args.intent.wantsMinimalMathOnly) {
+  if (args.intent.wantsMinimalCodeOnly) {
     return repairedSignal < Math.max(40, Math.floor(sourceSignal * 0.72));
   }
 
@@ -267,11 +265,7 @@ function looksLikeInstructionWasIgnored(args: {
     return true;
   }
 
-  if (
-    args.intent.wantsExplicitDerivation &&
-    repairedMathStructureBlocks <= sourceMathStructureBlocks &&
-    repairedReasoningBlocks <= sourceReasoningBlocks
-  ) {
+  if (args.intent.wantsTrace && repairedCodeBlocks < Math.max(1, sourceCodeBlocks)) {
     return true;
   }
 
@@ -304,75 +298,55 @@ function buildFallbackAssistantReply(args: {
   repairInstructions?: string;
   document: NotebookContentDocument;
 }): string {
-  const mathStructureBlocks = countMathStructureBlocks(args.document);
+  const codeStructureBlocks = countCodeStructureBlocks(args.document);
   if (args.language === 'zh-CN') {
-    if (args.intent.wantsMinimalMathOnly) {
-      return '我已经按你的要求优先修了公式、符号和上下标，正文尽量保持不变。';
+    if (args.intent.wantsMinimalCodeOnly) {
+      return '我已经优先修了代码块和讲解结构，正文尽量保持原意不变。';
     }
-    if (
-      (args.intent.wantsExpansion || args.intent.wantsStructureChange) &&
-      mathStructureBlocks > 0
-    ) {
-      return '我把这一页里关键的数学表达尽量拆成了更清楚的公式或推导块，你可以继续告诉我哪一步还要再展开。';
-    }
-    if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
-      return '我已经先把这一页的层次整理得更清楚了，但如果你想补完整证明，下一步更适合继续追着某一步展开。';
+    if ((args.intent.wantsTrace || args.intent.wantsExpansion) && codeStructureBlocks > 0) {
+      return '我把这页里的代码和讲解拆得更清楚了，更适合继续逐行追问执行过程。';
     }
     if (args.repairInstructions?.trim()) {
-      return '我已经按你刚才的要求修了这一页。你可以继续补充更细的修改意见。';
+      return '我已经按你刚才的要求修了这一页代码讲解。你可以继续指定哪一段还要再展开。';
     }
-    return '我已经先按默认规则修了这一页的数学表达和讲解结构。你可以继续告诉我要保留或补强哪一部分。';
+    return '我已经先按默认规则修了这一页的代码讲解结构。你可以继续告诉我要补哪段 trace 或输出分析。';
   }
 
-  if (args.intent.wantsMinimalMathOnly) {
-    return 'I focused on formulas, notation, and subscripts while keeping the wording as intact as possible.';
+  if (args.intent.wantsMinimalCodeOnly) {
+    return 'I focused on the code blocks and explanation structure while keeping the original wording as intact as possible.';
   }
-  if ((args.intent.wantsExpansion || args.intent.wantsStructureChange) && mathStructureBlocks > 0) {
-    return 'I split more of the key math into clearer equation or derivation blocks. You can ask me to expand any specific step next.';
-  }
-  if (args.intent.wantsExpansion || args.intent.wantsStructureChange) {
-    return 'I clarified the slide structure first. If you want a fuller proof, tell me which step to expand next.';
+  if ((args.intent.wantsTrace || args.intent.wantsExpansion) && codeStructureBlocks > 0) {
+    return 'I separated the code and explanation more clearly, so it is easier to keep tracing execution from here.';
   }
   if (args.repairInstructions?.trim()) {
-    return 'I repaired this slide based on your instruction. You can keep refining it with follow-up requests.';
+    return 'I repaired this code-explanation slide based on your instruction. You can keep refining it step by step.';
   }
-  return 'I repaired the math notation and teaching structure of this slide with the default repair rules.';
+  return 'I repaired the code explanation structure of this slide with the default repair rules.';
 }
 
 function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) {
   if (language === 'zh-CN') {
-    return `你是一个“课堂单页数学内容与排版修复器”。
+    return `你是一个“课堂单页代码讲解与结构修复器”。
 
-你的任务是修复一页课堂幻灯片里的数学记号、公式表达，以及讲解结构，让它适合被结构化渲染并且真正便于学生理解。
+你的任务是修复一页课堂幻灯片里的代码呈现方式、执行解释和讲解结构，让它适合被结构化渲染，并且真正便于学生跟住代码逻辑。
 
 要求：
 - 教师在侧边栏输入的修复要求具有最高优先级，必须被明确响应，不能忽略。
 - 只修复当前这一页，不要扩写成多页。
-- 保留原页主题、结论、层次和大致信息量，不要引入新的知识点。
-- 不要删掉题解、步骤、结论、已知条件、易错点、答案或推导过程；如果拿不准，保留原内容。
+- 保留原页主题、代码意图、结论和大致信息量，不要引入不相关的新知识点。
+- 不要删掉关键代码、执行步骤、复杂度结论、边界情况、输出分析或调试思路；如果拿不准，保留原内容。
 - 优先在原有内容上做最小修改，而不是重写整页。
-- 尽量保持原有 block 顺序与数量；除非某一块明显应该拆成“说明 + 公式”，否则不要合并或删减。
-- 如果原页是“例题 / 证明 / 推导”页，必须把关键推导链明确写出来，不能只保留题目、标题和空占位。
-- 不要输出空标题、空小节或占位块，例如“已知：”“证明：”“思路：”后面没有实质内容的结构。
-- 如果原页里有两个结论，优先按“结论 1 -> 推导 -> 结论 2 -> 推导”或“已知 -> 推导 -> 结论”的方式整理清楚。
-- 如果教师要求“补充说明 / 展开推导 / 讲清楚”，结果必须体现出可见的内容级改进，而不是只换个说法。
-- 如果教师暗示“这一页其实需要补页或拆页”，你仍然要先把当前页中最缺的推导或解释补出来，不能装作没看到这个要求。
-- 重点修复数学对象、映射、集合、等式、核、像、同余类、下标、上标等表达。
-- 把真正的数学表达放进结构化公式块：
-  - 单个或独立公式用 {"type":"equation","latex":"...","display":true}
-  - 独立矩阵优先用 {"type":"matrix","rows":[...],"brackets":"bmatrix",...}
-  - 连续推导用 {"type":"derivation_steps", ...}
-- 解释性语句、标题、小结保留为 heading / paragraph / bullet_list。
-- 如果原文里只是把数学表达硬塞在句子里，请拆成“说明文字 + 公式块”，不要继续把复杂公式塞进 paragraph。
-- 不要输出 markdown，不要输出解释，不要输出代码块，只输出 JSON。
-
-数学修复示例：
-- Z12 -> \\mathbb{Z}_{12}
-- Z6 -> \\mathbb{Z}_{6}
-- ker(φ) -> \\ker(\\varphi)
-- im(φ) -> \\operatorname{im}(\\varphi)
-- [x]12 -> [x]_{12}
-- φ([x]12)=[2x]6 -> \\varphi([x]_{12}) = [2x]_{6}
+- 尽量保持原有 block 顺序与数量；除非某一块明显应该拆成“代码 + 讲解”或“代码 + 输出”，否则不要随意合并。
+- 如果原页是“代码 walkthrough / trace / 调试”页，必须把关键执行链写清楚，不能只留下标题和空占位。
+- 如果教师要求“补充说明 / 逐行解释 / 讲清楚输出 / 补变量变化”，结果必须体现出可见的内容级改进，而不是只换个说法。
+- 如果教师暗示“这一页其实需要补页或拆页”，你仍然要先把当前页最缺的执行解释补出来，不能忽略要求。
+- 把真正的代码放进结构化代码块：
+  - 独立代码用 {"type":"code_block","language":"...","code":"..."}
+  - 代码 + 分步骤解释优先用 {"type":"code_walkthrough", ...}
+- 对变量状态、循环轮次、函数调用顺序、输入输出、复杂度或 bug 原因的解释，优先写进 code_walkthrough.steps、paragraph、bullet_list 或 callout。
+- 如果原文里把大段代码和解释硬塞在同一个 paragraph 里，请拆开，不要继续把代码埋在普通 prose 中。
+- 允许保留少量公式或符号，必要时可以用 equation，但不要让公式喧宾夺主。
+- 不要输出 markdown，不要输出解释，不要输出代码块围栏，只输出 JSON。
 
 输出 schema：
 {
@@ -381,18 +355,21 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
   "document": {
     "version": 1,
     "language": "zh-CN",
-    "profile": "math",
+    "profile": "code",
     "title": "可选，通常与 sceneTitle 一致",
     "blocks": [
       { "type": "heading", "level": 2, "text": "..." },
       { "type": "paragraph", "text": "..." },
       { "type": "bullet_list", "items": ["..."] },
-      { "type": "equation", "latex": "...", "display": true },
-      { "type": "matrix", "rows": [["a", "b"], ["c", "d"]], "brackets": "bmatrix", "label": "可选", "caption": "可选" },
+      { "type": "code_block", "language": "python", "code": "...", "caption": "可选" },
       {
-        "type": "derivation_steps",
+        "type": "code_walkthrough",
         "title": "可选",
-        "steps": [{ "expression": "...", "format": "latex", "explanation": "可选" }]
+        "language": "python",
+        "code": "...",
+        "caption": "可选",
+        "steps": [{ "title": "可选", "focus": "可选", "explanation": "..." }],
+        "output": "可选"
       },
       {
         "type": "callout",
@@ -408,35 +385,30 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 - hasInstructions: ${intent.hasInstructions ? 'yes' : 'no'}
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
-- wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
-- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
-- wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
+- wantsMinimalCodeOnly: ${intent.wantsMinimalCodeOnly ? 'yes' : 'no'}
+- wantsTrace: ${intent.wantsTrace ? 'yes' : 'no'}
+- wantsOutput: ${intent.wantsOutput ? 'yes' : 'no'}
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
   }
 
-  return `You repair the mathematical notation, content structure, and teaching clarity of a single classroom slide.
+  return `You repair the code explanation, code presentation, and teaching structure of a single classroom slide.
 
 Requirements:
 - The teacher's sidebar instruction has the highest priority and must be visibly addressed.
 - Repair this page only. Do not expand it into multiple pages.
-- Preserve the original topic, meaning, and rough information density.
-- Do not remove solution steps, givens, conclusions, or answer content. If unsure, keep it.
-- Prefer minimal edits to the existing blocks instead of rewriting the page.
+- Preserve the original topic, code intent, conclusions, and rough information density.
+- Do not remove important code, execution steps, output analysis, complexity notes, edge cases, or debugging logic. If unsure, keep it.
+- Prefer minimal edits to the existing blocks instead of rewriting the whole page.
 - Keep the original block order and roughly the same number of blocks whenever possible.
-- If this is a proof / derivation / worked-example slide, keep the reasoning explicit. Do not collapse it into headings plus placeholders.
-- Do not output empty section headers or placeholder blocks such as "Given:", "Proof:", or "Idea:" without substantive content after them.
-- If the teacher asks for more explanation or clearer derivation, make a visible content-level improvement rather than superficial rewording.
-- If the teacher hints that this slide really needs another page, still strengthen the current page instead of ignoring the request.
-- Convert malformed mathematical notation into structured math blocks.
-- Use equation blocks for standalone math, matrix blocks for standalone matrices, and derivation_steps for multi-line reasoning.
-- Keep prose as heading / paragraph / bullet_list.
-- If a sentence contains a heavy formula, split it into prose plus a formula block.
+- If this is a code walkthrough / tracing / debugging slide, keep the execution chain explicit. Do not collapse it into headings plus placeholders.
+- If the teacher asks for more explanation, line-by-line tracing, or clearer output reasoning, make a visible content-level improvement rather than superficial rewording.
+- If the teacher hints that this slide really needs another page, still strengthen the current page first instead of ignoring the request.
+- Put real code into structured code blocks:
+  - standalone code should use {"type":"code_block", ...}
+  - code plus explanation should prefer {"type":"code_walkthrough", ...}
+- Use paragraph / bullet_list / callout for explanation, debugging notes, output reasoning, complexity notes, or edge cases.
+- If code and explanation are currently buried in one paragraph, split them apart.
 - Output JSON only. No markdown. No commentary. No code fences.
-
-Examples:
-- Z12 -> \\mathbb{Z}_{12}
-- ker(phi) -> \\ker(\\varphi)
-- im(phi) -> \\operatorname{im}(\\varphi)
-- [x]12 -> [x]_{12}
 
 Output schema:
 {
@@ -445,7 +417,7 @@ Output schema:
   "document": {
     "version": 1,
     "language": "en-US",
-    "profile": "math",
+    "profile": "code",
     "title": "optional",
     "blocks": []
   }
@@ -455,9 +427,10 @@ Current teacher intent:
 - hasInstructions: ${intent.hasInstructions ? 'yes' : 'no'}
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
-- wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
-- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
-- wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
+- wantsMinimalCodeOnly: ${intent.wantsMinimalCodeOnly ? 'yes' : 'no'}
+- wantsTrace: ${intent.wantsTrace ? 'yes' : 'no'}
+- wantsOutput: ${intent.wantsOutput ? 'yes' : 'no'}
+- hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}`;
 }
 
 function buildUserPrompt(args: {
@@ -498,7 +471,7 @@ function buildUserPrompt(args: {
     '',
     'Return a repaired NotebookContentDocument for this same page.',
     'Keep the page focused. Do not add unrelated examples or sections.',
-    'Do not shorten the worked solution. Preserve all meaningful steps and conclusions.',
+    'Do not shorten the important code reasoning. Preserve meaningful steps, output analysis, and conclusions.',
     'If the teacher gave a repair instruction, the final result must visibly satisfy it.',
   ]
     .filter(Boolean)
@@ -527,18 +500,18 @@ async function runRepairAttempt(args: {
     retryReason: args.retryReason,
   });
 
-  log.info(`Repairing slide math formatting${args.retryReason ? ' retry=1' : ''}`);
+  log.info(`Repairing slide code structure${args.retryReason ? ' retry=1' : ''}`);
 
   return runSlideRepairAttempt({
     req: args.req,
     system,
     prompt,
-    usageTag: 'classroom-repair-slide-math',
+    usageTag: 'classroom-repair-slide-code',
   });
 }
 
 export async function POST(req: NextRequest) {
-  return runWithRequestContext(req, '/api/classroom/repair-slide-math', async () => {
+  return runWithRequestContext(req, '/api/classroom/repair-slide-code', async () => {
     try {
       const body = (await req.json()) as RepairRequestBody;
       const content = body.content;
@@ -588,8 +561,8 @@ export async function POST(req: NextRequest) {
           repairConversation: body.repairConversation,
           retryReason:
             language === 'zh-CN'
-              ? '上一版几乎没有体现教师输入的修复要求，请显式按要求补足内容或结构变化'
-              : 'The previous attempt did not visibly follow the teacher instruction. Make the requested content or structure change explicit.',
+              ? '上一版几乎没有体现教师输入的修复要求，请显式补足代码讲解或结构变化'
+              : 'The previous attempt did not visibly follow the teacher instruction. Make the requested code explanation or structure change explicit.',
           intent: repairIntent,
         });
         parsed = attempt.parsed;
@@ -606,19 +579,19 @@ export async function POST(req: NextRequest) {
       const sourceSignal = estimateDocumentSignal(sourceDocument);
       const repairedSignal = estimateDocumentSignal(document);
       const placeholderCount = countSuspiciousPlaceholderBlocks(document, [
-        '已知',
-        '证明',
+        '代码',
         '思路',
-        '题目',
-        '解',
-        '解答',
-        '结论',
-        '目标',
+        '步骤',
+        '输出',
+        '解释',
         '分析',
-        '证明过程',
+        'trace',
+        'walkthrough',
       ]);
       const sourceReasoningBlocks = countReasoningBlocks(sourceDocument);
       const repairedReasoningBlocks = countReasoningBlocks(document);
+      const sourceCodeBlocks = countCodeStructureBlocks(sourceDocument);
+      const repairedCodeBlocks = countCodeStructureBlocks(document);
 
       if (
         repairedBlockCount < Math.max(2, Math.ceil(sourceBlockCount * 0.6)) ||
@@ -626,6 +599,7 @@ export async function POST(req: NextRequest) {
         placeholderCount > 0 ||
         (sourceReasoningBlocks >= 2 &&
           repairedReasoningBlocks < Math.max(2, sourceReasoningBlocks - 1)) ||
+        (sourceCodeBlocks >= 1 && repairedCodeBlocks < 1) ||
         instructionIgnored
       ) {
         return apiError(
@@ -636,12 +610,12 @@ export async function POST(req: NextRequest) {
               ? repairIntent.hintsNeedAnotherPage
                 ? 'AI 本轮没有真正按你的要求补足内容；这类请求更像需要补页，已保留原页不做修改'
                 : 'AI 本轮没有真正按你的要求把这一页修到位，已保留原页不做修改'
-              : '修复结果疑似删掉了题解内容，已保留原页不做修改'
+              : '修复结果疑似删掉了关键代码讲解，已保留原页不做修改'
             : instructionIgnored
               ? repairIntent.hintsNeedAnotherPage
                 ? 'The request looked more like an add-a-page task, so the original slide was kept'
                 : 'The AI did not visibly follow your repair instruction, so the original slide was kept'
-              : 'Repair result looked destructive, so the original slide was kept',
+              : 'Repair result looked destructive to the code explanation, so the original slide was kept',
         );
       }
 
@@ -657,7 +631,7 @@ export async function POST(req: NextRequest) {
       const repairedContent = buildRenderedRepairContent({
         content,
         document,
-        profile: 'math',
+        profile: 'code',
         sceneTitle: repairedSceneTitle,
       });
 
@@ -667,7 +641,7 @@ export async function POST(req: NextRequest) {
         content: repairedContent,
       });
     } catch (error) {
-      log.error('repair-slide-math route error:', error);
+      log.error('repair-slide-code route error:', error);
       return apiError(
         'INTERNAL_ERROR',
         500,

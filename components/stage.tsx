@@ -8,6 +8,7 @@ import { useSettingsStore } from '@/lib/store/settings';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { backendFetch } from '@/lib/utils/backend-api';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
+import { resolveNotebookContentProfile, type NotebookContentProfile } from '@/lib/notebook-content';
 import { Header } from './header';
 import { QuizCourseQuestionHub } from '@/components/scene-renderers/quiz-course-question-hub';
 import { CanvasPlaybackPill } from '@/components/canvas/canvas-playback-pill';
@@ -19,7 +20,8 @@ import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import type { Action, DiscussionAction, MouthShape, SpeechAction } from '@/lib/types/action';
 import type { Scene, SceneType, SlideContent } from '@/lib/types/stage';
-import type { GeneratedSlideContent, SceneOutline } from '@/lib/types/generation';
+import type { SceneOutline } from '@/lib/types/generation';
+import { inferSceneContentProfile } from '@/lib/generation/content-profile';
 import {
   normalizeAzureVisemesToMouthCues,
   resolveCurrentMouthCueFrame,
@@ -30,7 +32,6 @@ import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/regi
 import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
 import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
-import type { AgentInfo } from '@/lib/generation/generation-pipeline';
 import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
 import {
   AlertDialog,
@@ -62,10 +63,23 @@ function createRepairMessageId(role: 'user' | 'assistant') {
   return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function getDefaultRepairRequest(language: 'zh-CN' | 'en-US' | undefined) {
+function getDefaultRepairRequest(
+  language: 'zh-CN' | 'en-US' | undefined,
+  profile: NotebookContentProfile,
+) {
+  if (profile === 'code') {
+    return language === 'en-US'
+      ? 'Repair this slide with the default code-slide repair flow.'
+      : '按默认代码页修复链路优化当前页。';
+  }
+  if (profile === 'math') {
+    return language === 'en-US'
+      ? 'Repair this slide with the default math-slide repair flow.'
+      : '按默认数学页修复链路优化当前页。';
+  }
   return language === 'en-US'
-    ? 'Rewrite this slide with the default slide-generation flow.'
-    : '按默认主生成流程重写当前页。';
+    ? 'Repair this slide with the default general-slide repair flow.'
+    : '按默认通用页修复链路优化当前页。';
 }
 
 function stripHtmlToText(html: string): string {
@@ -94,12 +108,27 @@ function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
           return block.items;
         case 'equation':
           return [block.latex];
+        case 'matrix':
+          return [block.label || '', block.caption || '', ...block.rows.flat()];
         case 'derivation_steps':
           return block.steps.map((step) => step.expression);
+        case 'code_block':
+          return [block.caption || '', block.code];
+        case 'code_walkthrough':
+          return [
+            block.title || '',
+            block.caption || '',
+            ...block.steps.map((step) => step.title || step.focus || step.explanation),
+          ];
         case 'callout':
           return [block.title || '', block.text];
         case 'example':
-          return [block.problem, ...block.givens, ...(block.goal ? [block.goal] : []), ...block.steps];
+          return [
+            block.problem,
+            ...block.givens,
+            ...(block.goal ? [block.goal] : []),
+            ...block.steps,
+          ];
         default:
           return [];
       }
@@ -127,18 +156,20 @@ function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
   return canvasPoints.slice(0, 5);
 }
 
-function buildFallbackRewriteOutline(
-  scene: Scene,
-  language: 'zh-CN' | 'en-US',
-): SceneOutline {
+function buildFallbackRewriteOutline(scene: Scene, language: 'zh-CN' | 'en-US'): SceneOutline {
   const keyPoints =
     scene.type === 'slide' && scene.content.type === 'slide'
       ? collectFallbackKeyPointsFromSlide(scene.content)
       : [scene.title];
+  const contentProfile =
+    scene.type === 'slide' && scene.content.type === 'slide' && scene.content.semanticDocument
+      ? resolveNotebookContentProfile(scene.content.semanticDocument)
+      : undefined;
 
   return {
     id: `rewrite_${scene.id}`,
     type: scene.type === 'slide' ? 'slide' : 'slide',
+    contentProfile,
     title: scene.title,
     description:
       language === 'en-US'
@@ -169,20 +200,61 @@ function resolveRewriteOutline(
   return buildFallbackRewriteOutline(scene, language);
 }
 
-function buildRewriteAssistantReply(args: {
+function resolveSlideRepairProfile(scene: Scene, outline?: SceneOutline): NotebookContentProfile {
+  if (scene.type === 'slide' && scene.content.type === 'slide' && scene.content.semanticDocument) {
+    return resolveNotebookContentProfile(scene.content.semanticDocument);
+  }
+  if (outline?.contentProfile) return outline.contentProfile;
+  return outline ? inferSceneContentProfile(outline) : 'general';
+}
+
+function buildRepairPendingMessage(args: {
   language: 'zh-CN' | 'en-US';
+  profile: NotebookContentProfile;
+}): string {
+  if (args.profile === 'code') {
+    return args.language === 'en-US'
+      ? "I'm repairing this slide through the code-specific repair flow now."
+      : '收到，我现在按代码讲解修复链路重写当前页。';
+  }
+  if (args.profile === 'math') {
+    return args.language === 'en-US'
+      ? "I'm repairing this slide through the math-specific repair flow now."
+      : '收到，我现在按数学修复链路重写当前页。';
+  }
+  return args.language === 'en-US'
+    ? "I'm repairing this slide through the general slide-repair flow now."
+    : '收到，我现在按通用页修复链路重写当前页。';
+}
+
+function buildRepairAssistantReply(args: {
+  language: 'zh-CN' | 'en-US';
+  profile: NotebookContentProfile;
   rewriteReason: string;
   outlineTitle: string;
 }): string {
+  const flowLabel =
+    args.profile === 'code'
+      ? args.language === 'en-US'
+        ? 'the code-specific repair flow'
+        : '代码页修复链路'
+      : args.profile === 'math'
+        ? args.language === 'en-US'
+          ? 'the math-specific repair flow'
+          : '数学页修复链路'
+        : args.language === 'en-US'
+          ? 'the general slide-repair flow'
+          : '通用页修复链路';
+
   if (args.language === 'en-US') {
     return args.rewriteReason.trim()
-      ? `I rewrote this slide through the main slide-generation flow and used your rewrite reason to steer the new structure and emphasis around "${args.outlineTitle}".`
-      : `I rewrote this slide through the main slide-generation flow and regenerated a fresh version around "${args.outlineTitle}".`;
+      ? `I repaired this slide through ${flowLabel} and used your instruction to steer the new structure and emphasis around "${args.outlineTitle}".`
+      : `I repaired this slide through ${flowLabel} and regenerated a clearer version around "${args.outlineTitle}".`;
   }
 
   return args.rewriteReason.trim()
-    ? `我已经按主生成流程重写了这一页，并把你给的重写原因真正带进了“${args.outlineTitle}”这一页的新结构和重点里。`
-    : `我已经按主生成流程重写了这一页，重新生成了一版围绕“${args.outlineTitle}”的新页面。`;
+    ? `我已经按${flowLabel}修了这一页，并把你给的要求真正带进了“${args.outlineTitle}”这一页的新结构和重点里。`
+    : `我已经按${flowLabel}修了这一页，重新整理出了一版围绕“${args.outlineTitle}”的更清楚页面。`;
 }
 
 function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
@@ -323,7 +395,7 @@ export function Stage({
   >({});
   const [pendingRepairSidebarFocus, setPendingRepairSidebarFocus] = useState(false);
   const [repairSidebarFocusNonce, setRepairSidebarFocusNonce] = useState(0);
-  const [mathRepairPending, setMathRepairPending] = useState(false);
+  const [slideRepairPending, setSlideRepairPending] = useState(false);
   const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
   const currentSlideSceneId = currentScene?.type === 'slide' ? currentScene.id : null;
   const repairInstructions = useMemo(
@@ -341,18 +413,6 @@ export function Stage({
 
   // Selected agents from settings store (Zustand)
   const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
-  const generationAgents = useMemo<AgentInfo[]>(() => {
-    const registry = useAgentRegistry.getState();
-    return selectedAgentIds
-      .map((id) => registry.getAgent(id))
-      .filter((agent): agent is AgentConfig => agent != null)
-      .map((agent) => ({
-        id: agent.id,
-        name: agent.name,
-        role: agent.role,
-        persona: agent.persona,
-      }));
-  }, [selectedAgentIds]);
 
   // Generate participants from selected agents
   const participants = useMemo(
@@ -1190,9 +1250,9 @@ export function Stage({
     [currentScene, updateScene],
   );
 
-  const handleRepairCurrentSlideMath = useCallback(async () => {
+  const handleRepairCurrentSlide = useCallback(async () => {
     if (
-      mathRepairPending ||
+      slideRepairPending ||
       !currentScene ||
       currentScene.type !== 'slide' ||
       currentScene.content.type !== 'slide' ||
@@ -1204,8 +1264,10 @@ export function Stage({
     const sceneId = currentScene.id;
     const trimmedDraft = repairInstructions.trim();
     const rewriteLanguage = (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN';
-    const userMessageContent = trimmedDraft || getDefaultRepairRequest(rewriteLanguage);
     const matchedOutline = resolveRewriteOutline(currentScene, outlines, rewriteLanguage);
+    const repairProfile = resolveSlideRepairProfile(currentScene, matchedOutline);
+    const userMessageContent =
+      trimmedDraft || getDefaultRepairRequest(rewriteLanguage, repairProfile);
     const outlineExists = outlines.some((outline) => outline.id === matchedOutline.id);
     const outlineCollection = (outlineExists ? outlines : [...outlines, matchedOutline])
       .slice()
@@ -1220,10 +1282,10 @@ export function Stage({
     const pendingAssistantMessage: SlideRepairChatMessage = {
       id: createRepairMessageId('assistant'),
       role: 'assistant',
-      content:
-        rewriteLanguage === 'en-US'
-          ? "I'm rewriting this slide now through the main generation flow."
-          : '收到，我现在按主生成流程重写当前页。',
+      content: buildRepairPendingMessage({
+        language: rewriteLanguage,
+        profile: repairProfile,
+      }),
       createdAt: Date.now() + 1,
       status: 'pending',
     };
@@ -1235,10 +1297,23 @@ export function Stage({
       ...prev,
       [sceneId]: '',
     }));
-    setMathRepairPending(true);
+    setSlideRepairPending(true);
     try {
       const modelConfig = getCurrentModelConfig();
-      const resp = await backendFetch('/api/generate/scene-content', {
+      const repairSnapshot =
+        currentScene.repairSnapshot ||
+        ({
+          title: currentScene.title,
+          content: JSON.parse(JSON.stringify(currentScene.content)) as SlideContent,
+          savedAt: Date.now(),
+        } satisfies NonNullable<Scene['repairSnapshot']>);
+      const repairRoute =
+        repairProfile === 'code'
+          ? '/api/classroom/repair-slide-code'
+          : repairProfile === 'math'
+            ? '/api/classroom/repair-slide-math'
+            : '/api/classroom/repair-slide-general';
+      const repairResp = await backendFetch(repairRoute, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -1247,45 +1322,38 @@ export function Stage({
           'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
         },
         body: JSON.stringify({
-          outline: matchedOutline,
-          allOutlines: outlineCollection.length > 0 ? outlineCollection : [matchedOutline],
-          stageInfo: {
-            name: stage.name,
-            description: stage.description,
-            language: rewriteLanguage,
-            style: stage.style,
-          },
-          stageId: stage.id || currentScene.stageId,
-          agents: generationAgents,
-          rewriteReason: userMessageContent,
+          sceneTitle: currentScene.title,
+          language: rewriteLanguage,
+          content: currentScene.content,
+          repairInstructions: userMessageContent,
+          repairConversation: [
+            ...repairConversation,
+            { role: 'user' as const, content: userMessageContent },
+          ],
         }),
       });
 
-      const data = (await resp.json().catch(() => ({}))) as {
+      const repairData = (await repairResp.json().catch(() => ({}))) as {
         success?: boolean;
         error?: string;
-        effectiveOutline?: SceneOutline;
-        content?: GeneratedSlideContent;
+        sceneTitle?: string;
+        assistantReply?: string;
+        content?: SlideContent;
       };
 
-      if (!resp.ok || !data.success || !data.content?.elements) {
-        throw new Error(data.error?.trim() || 'AI 重写失败');
+      if (!repairResp.ok || !repairData.success || !repairData.content) {
+        throw new Error(repairData.error?.trim() || 'AI 重写失败');
       }
 
-      const repairSnapshot =
-        currentScene.repairSnapshot ||
-        ({
-          title: currentScene.title,
-          content: JSON.parse(JSON.stringify(currentScene.content)) as SlideContent,
-          savedAt: Date.now(),
-        } satisfies NonNullable<Scene['repairSnapshot']>);
-
+      const nextTitle = repairData.sceneTitle?.trim() || currentScene.title;
       const nextOutline: SceneOutline = {
-        ...(data.effectiveOutline || matchedOutline),
+        ...matchedOutline,
         id: matchedOutline.id,
         order: currentScene.order,
         type: 'slide',
         language: rewriteLanguage,
+        contentProfile: repairProfile,
+        title: nextTitle,
       };
       const nextOutlines = (() => {
         if (outlineCollection.length === 0) return [nextOutline];
@@ -1301,20 +1369,9 @@ export function Stage({
         return updated.slice().sort((a, b) => a.order - b.order);
       })();
 
-      const rewrittenContent: SlideContent = {
-        type: 'slide',
-        canvas: {
-          ...currentScene.content.canvas,
-          elements: data.content.elements,
-          background: data.content.background ?? currentScene.content.canvas.background,
-          theme: data.content.theme ?? currentScene.content.canvas.theme,
-        },
-        semanticDocument: data.content.contentDocument,
-      };
-
       updateScene(currentScene.id, {
-        title: nextOutline.title?.trim() || currentScene.title,
-        content: rewrittenContent,
+        title: nextTitle,
+        content: repairData.content,
         repairSnapshot,
         updatedAt: Date.now(),
       });
@@ -1325,17 +1382,26 @@ export function Stage({
           message.id === pendingAssistantMessage.id
             ? {
                 ...message,
-                content: buildRewriteAssistantReply({
-                  language: rewriteLanguage,
-                  rewriteReason: userMessageContent,
-                  outlineTitle: nextOutline.title || currentScene.title,
-                }),
+                content:
+                  repairData.assistantReply?.trim() ||
+                  buildRepairAssistantReply({
+                    language: rewriteLanguage,
+                    profile: repairProfile,
+                    rewriteReason: userMessageContent,
+                    outlineTitle: nextTitle,
+                  }),
                 status: 'ready',
               }
             : message,
         ),
       }));
-      toast.success('当前页已按主生成流程完成重写');
+      toast.success(
+        repairProfile === 'code'
+          ? '当前页已完成代码讲解修复'
+          : repairProfile === 'math'
+            ? '当前页已完成数学内容修复'
+            : '当前页已完成通用讲解修复',
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'AI 重写失败';
       setRepairConversationByScene((prev) => ({
@@ -1352,15 +1418,15 @@ export function Stage({
       }));
       toast.error(errorMessage);
     } finally {
-      setMathRepairPending(false);
+      setSlideRepairPending(false);
     }
   }, [
     currentScene,
-    generationAgents,
-    mathRepairPending,
     outlines,
+    repairConversation,
     repairInstructions,
     setOutlines,
+    slideRepairPending,
     stage,
     stageLanguage,
     updateScene,
@@ -1785,8 +1851,8 @@ export function Stage({
               repairDraft={repairInstructions}
               onRepairDraftChange={setCurrentSlideRepairDraft}
               repairConversation={repairConversation}
-              onSendRepairMessage={() => void handleRepairCurrentSlideMath()}
-              repairPending={mathRepairPending}
+              onSendRepairMessage={() => void handleRepairCurrentSlide()}
+              repairPending={slideRepairPending}
               repairInputFocusNonce={repairSidebarFocusNonce}
               onCloseInspector={handleCloseSlideEditor}
             />

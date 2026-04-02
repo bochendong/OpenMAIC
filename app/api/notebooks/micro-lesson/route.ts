@@ -6,6 +6,7 @@ import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 import { nanoid } from 'nanoid';
 import { generateSceneOutlinesFromRequirements } from '@/lib/generation/outline-generator';
+import { normalizeSceneOutlineContentProfile } from '@/lib/generation/content-profile';
 import { generateFullScenes } from '@/lib/generation/scene-generator';
 import type { AICallFn } from '@/lib/generation/pipeline-types';
 import type { SceneOutline, UserRequirements } from '@/lib/types/generation';
@@ -48,7 +49,7 @@ function createInMemoryStore(stageId: string): StageStore {
 
 function fallbackOutlines(language: 'zh-CN' | 'en-US'): SceneOutline[] {
   if (language === 'en-US') {
-    return [
+    const outlines: SceneOutline[] = [
       {
         id: nanoid(),
         type: 'slide',
@@ -81,8 +82,9 @@ function fallbackOutlines(language: 'zh-CN' | 'en-US'): SceneOutline[] {
         language,
       },
     ];
+    return outlines.map((outline) => normalizeSceneOutlineContentProfile(outline));
   }
-  return [
+  const outlines: SceneOutline[] = [
     {
       id: nanoid(),
       type: 'slide',
@@ -111,6 +113,7 @@ function fallbackOutlines(language: 'zh-CN' | 'en-US'): SceneOutline[] {
       language,
     },
   ];
+  return outlines.map((outline) => normalizeSceneOutlineContentProfile(outline));
 }
 
 function normalizeOutlines(outlines: SceneOutline[], language: 'zh-CN' | 'en-US'): SceneOutline[] {
@@ -132,7 +135,7 @@ function normalizeOutlines(outlines: SceneOutline[], language: 'zh-CN' | 'en-US'
                 : ['澄清假设条件', '解释关键步骤', '用边界案例验证']),
             ].slice(0, 3);
       return {
-        ...o,
+        ...normalizeSceneOutlineContentProfile(o),
         id: o.id || nanoid(),
         type: 'slide',
         title: o.title.trim(),

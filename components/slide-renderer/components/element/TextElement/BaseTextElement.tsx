@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import type { PPTTextElement } from '@/lib/types/slides';
 import { renderHtmlWithLatex } from '@/lib/render-html-with-latex';
 import { useElementShadow } from '../hooks/useElementShadow';
@@ -17,11 +17,10 @@ export interface BaseTextElementProps {
  */
 export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
   const { shadowStyle } = useElementShadow(elementInfo.shadow);
-  const [renderedContent, setRenderedContent] = useState(elementInfo.content);
-
-  useEffect(() => {
-    setRenderedContent(renderHtmlWithLatex(elementInfo.content));
-  }, [elementInfo.content]);
+  const renderedContent = useMemo(
+    () => renderHtmlWithLatex(elementInfo.content),
+    [elementInfo.content],
+  );
 
   return (
     <div
@@ -60,7 +59,9 @@ export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
             outline={elementInfo.outline}
           />
           <div
-            className={`text ProseMirror-static relative ${target === 'thumbnail' ? 'pointer-events-none' : ''}`}
+            className={`text ProseMirror-static relative [&_ol]:my-0 [&_p]:m-0 [&_p:not(:last-child)]:mb-[var(--paragraphSpace)] [&_ul]:my-0 ${
+              target === 'thumbnail' ? 'pointer-events-none' : ''
+            }`}
             dangerouslySetInnerHTML={{ __html: renderedContent }}
           />
         </div>

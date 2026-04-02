@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const notebookContentLanguageSchema = z.enum(['zh-CN', 'en-US']);
+export const notebookContentProfileSchema = z.enum(['general', 'math', 'code']);
 
 export const notebookContentHeadingBlockSchema = z.object({
   type: z.literal('heading'),
@@ -25,6 +26,19 @@ export const notebookContentEquationBlockSchema = z.object({
   caption: z.string().trim().max(300).optional(),
 });
 
+export const notebookContentMatrixBlockSchema = z.object({
+  type: z.literal('matrix'),
+  rows: z
+    .array(z.array(z.string().trim().min(1).max(300)).min(1).max(10))
+    .min(1)
+    .max(10),
+  brackets: z
+    .enum(['matrix', 'pmatrix', 'bmatrix', 'Bmatrix', 'vmatrix', 'Vmatrix'])
+    .default('bmatrix'),
+  label: z.string().trim().max(200).optional(),
+  caption: z.string().trim().max(300).optional(),
+});
+
 export const notebookContentDerivationStepSchema = z.object({
   expression: z.string().trim().min(1).max(4000),
   format: z.enum(['latex', 'text', 'chem']).default('latex'),
@@ -42,6 +56,22 @@ export const notebookContentCodeBlockSchema = z.object({
   language: z.string().trim().min(1).max(64).default('text'),
   code: z.string().min(1).max(20000),
   caption: z.string().trim().max(300).optional(),
+});
+
+export const notebookContentCodeWalkthroughStepSchema = z.object({
+  title: z.string().trim().max(200).optional(),
+  focus: z.string().trim().max(200).optional(),
+  explanation: z.string().trim().min(1).max(1200),
+});
+
+export const notebookContentCodeWalkthroughBlockSchema = z.object({
+  type: z.literal('code_walkthrough'),
+  title: z.string().trim().max(200).optional(),
+  language: z.string().trim().min(1).max(64).default('text'),
+  code: z.string().min(1).max(20000),
+  caption: z.string().trim().max(300).optional(),
+  steps: z.array(notebookContentCodeWalkthroughStepSchema).min(1).max(12),
+  output: z.string().trim().max(4000).optional(),
 });
 
 export const notebookContentTableBlockSchema = z.object({
@@ -89,8 +119,10 @@ export const notebookContentBlockSchema = z.discriminatedUnion('type', [
   notebookContentParagraphBlockSchema,
   notebookContentBulletListBlockSchema,
   notebookContentEquationBlockSchema,
+  notebookContentMatrixBlockSchema,
   notebookContentDerivationBlockSchema,
   notebookContentCodeBlockSchema,
+  notebookContentCodeWalkthroughBlockSchema,
   notebookContentTableBlockSchema,
   notebookContentCalloutBlockSchema,
   notebookContentExampleBlockSchema,
@@ -101,22 +133,30 @@ export const notebookContentBlockSchema = z.discriminatedUnion('type', [
 export const notebookContentDocumentSchema = z.object({
   version: z.literal(1).default(1),
   language: notebookContentLanguageSchema.default('zh-CN'),
+  profile: notebookContentProfileSchema.default('general'),
   title: z.string().trim().max(300).optional(),
   blocks: z.array(notebookContentBlockSchema).min(1).max(64),
 });
 
 export type NotebookContentLanguage = z.infer<typeof notebookContentLanguageSchema>;
+export type NotebookContentProfile = z.infer<typeof notebookContentProfileSchema>;
 export type NotebookContentHeadingBlock = z.infer<typeof notebookContentHeadingBlockSchema>;
 export type NotebookContentParagraphBlock = z.infer<typeof notebookContentParagraphBlockSchema>;
 export type NotebookContentBulletListBlock = z.infer<typeof notebookContentBulletListBlockSchema>;
 export type NotebookContentEquationBlock = z.infer<typeof notebookContentEquationBlockSchema>;
+export type NotebookContentMatrixBlock = z.infer<typeof notebookContentMatrixBlockSchema>;
 export type NotebookContentDerivationBlock = z.infer<typeof notebookContentDerivationBlockSchema>;
 export type NotebookContentCodeBlock = z.infer<typeof notebookContentCodeBlockSchema>;
+export type NotebookContentCodeWalkthroughBlock = z.infer<
+  typeof notebookContentCodeWalkthroughBlockSchema
+>;
 export type NotebookContentTableBlock = z.infer<typeof notebookContentTableBlockSchema>;
 export type NotebookContentCalloutBlock = z.infer<typeof notebookContentCalloutBlockSchema>;
 export type NotebookContentExampleBlock = z.infer<typeof notebookContentExampleBlockSchema>;
 export type NotebookContentChemFormulaBlock = z.infer<typeof notebookContentChemFormulaBlockSchema>;
-export type NotebookContentChemEquationBlock = z.infer<typeof notebookContentChemEquationBlockSchema>;
+export type NotebookContentChemEquationBlock = z.infer<
+  typeof notebookContentChemEquationBlockSchema
+>;
 export type NotebookContentBlock = z.infer<typeof notebookContentBlockSchema>;
 export type NotebookContentDocument = z.infer<typeof notebookContentDocumentSchema>;
 

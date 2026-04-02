@@ -7,7 +7,7 @@ import { LaserOverlay } from './LaserOverlay';
 import { useSlideBackgroundStyle } from '@/lib/hooks/use-slide-background-style';
 import { useCanvasStore } from '@/lib/store';
 import { useSceneSelector } from '@/lib/contexts/scene-context';
-import { findElementGeometry } from '@/lib/utils/geometry';
+import { getElementListRange, getElementRange } from '@/lib/utils/element';
 import type { SlideContent } from '@/lib/types/stage';
 import type { PPTElement, SlideBackground } from '@/lib/types/slides';
 import type { PercentageGeometry } from '@/lib/types/action';
@@ -18,6 +18,31 @@ import { AnimatePresence } from 'motion/react';
 export interface ScreenCanvasProps {
   /** Fills the slide stage; used for viewport measurement and clipping (no extra wrapper inside). */
   readonly containerRef: RefObject<HTMLDivElement | null>;
+}
+
+const CONTENT_BOTTOM_PADDING = 24;
+
+function getPercentageGeometryForElement(
+  element: PPTElement,
+  viewportWidth: number,
+  contentHeight: number,
+): PercentageGeometry {
+  const { minX, maxX, minY, maxY } = getElementRange(element);
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const x = (minX / viewportWidth) * 100;
+  const y = (minY / contentHeight) * 100;
+  const w = (width / viewportWidth) * 100;
+  const h = (height / contentHeight) * 100;
+
+  return {
+    x,
+    y,
+    w,
+    h,
+    centerX: x + w / 2,
+    centerY: y + h / 2,
+  };
 }
 
 export function ScreenCanvas({ containerRef }: ScreenCanvasProps) {
@@ -35,6 +60,21 @@ export function ScreenCanvas({ containerRef }: ScreenCanvasProps) {
   );
   const { backgroundStyle } = useSlideBackgroundStyle(background);
 
+  const contentHeight = useMemo(() => {
+    if (!elements.length) return viewportStyles.height;
+    const { maxY } = getElementListRange(elements);
+    return Math.max(viewportStyles.height, maxY + CONTENT_BOTTOM_PADDING);
+  }, [elements, viewportStyles.height]);
+  const fitScale = useMemo(
+    () => Math.min(1, viewportStyles.height / contentHeight),
+    [contentHeight, viewportStyles.height],
+  );
+  const fittedCanvasScale = canvasScale * fitScale;
+  const fittedCanvasWidth = viewportStyles.width * fittedCanvasScale;
+  const fittedCanvasHeight = contentHeight * fittedCanvasScale;
+  const fittedCanvasLeft =
+    viewportStyles.left + (viewportStyles.width * canvasScale - fittedCanvasWidth) / 2;
+
   // Get visual effect state
   const laserElementId = useCanvasStore.use.laserElementId();
   const laserOptions = useCanvasStore.use.laserOptions();
@@ -45,30 +85,24 @@ export function ScreenCanvas({ containerRef }: ScreenCanvasProps) {
     if (!laserElementId) return null;
     const element = elements.find((el) => el.id === laserElementId);
     if (!element) return null;
-    return findElementGeometry(
-      { type: 'slide', content: { canvas: { elements } } } as Record<string, unknown>,
-      laserElementId,
-    );
-  }, [laserElementId, elements]);
+    return getPercentageGeometryForElement(element, viewportStyles.width, contentHeight);
+  }, [contentHeight, elements, laserElementId, viewportStyles.width]);
 
   // Compute zoom target geometry
   const zoomGeometry = useMemo<PercentageGeometry | null>(() => {
     if (!zoomTarget) return null;
     const element = elements.find((el) => el.id === zoomTarget.elementId);
     if (!element) return null;
-    return findElementGeometry(
-      { type: 'slide', content: { canvas: { elements } } } as Record<string, unknown>,
-      zoomTarget.elementId,
-    );
-  }, [zoomTarget, elements]);
+    return getPercentageGeometryForElement(element, viewportStyles.width, contentHeight);
+  }, [contentHeight, elements, viewportStyles.width, zoomTarget]);
 
   return (
     <div
       className="absolute overflow-hidden transition-transform duration-700"
       style={{
-        width: `${viewportStyles.width * canvasScale}px`,
-        height: `${viewportStyles.height * canvasScale}px`,
-        left: `${viewportStyles.left}px`,
+        width: `${fittedCanvasWidth}px`,
+        height: `${fittedCanvasHeight}px`,
+        left: `${fittedCanvasLeft}px`,
         top: `${viewportStyles.top}px`,
         ...(zoomTarget && zoomGeometry
           ? {
@@ -86,8 +120,8 @@ export function ScreenCanvas({ containerRef }: ScreenCanvasProps) {
         className="absolute top-0 left-0 origin-top-left"
         style={{
           width: `${viewportStyles.width}px`,
-          height: `${viewportStyles.height}px`,
-          transform: `scale(${canvasScale})`,
+          height: `${contentHeight}px`,
+          transform: `scale(${fittedCanvasScale})`,
         }}
       >
         {elements.map((element, index) => (

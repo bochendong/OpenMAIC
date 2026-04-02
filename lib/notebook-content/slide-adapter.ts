@@ -9,8 +9,18 @@ import type {
   Slide,
   TableCell,
 } from '@/lib/types/slides';
-import type { NotebookContentBlock, NotebookContentDocument } from './schema';
+import type {
+  NotebookContentBlock,
+  NotebookContentDocument,
+  NotebookContentProfile,
+} from './schema';
+import {
+  estimateCodeBlockHeight,
+  estimateLatexDisplayHeight,
+  matrixBlockToLatex,
+} from './block-utils';
 import { chemistryTextToHtml } from './chemistry';
+import { resolveNotebookContentProfile } from './profile';
 
 const CANVAS_WIDTH = 1000;
 const CANVAS_HEIGHT = 562.5;
@@ -19,13 +29,74 @@ const CONTENT_WIDTH = 872;
 const CONTENT_BOTTOM = 522;
 const CARD_INSET_X = 18;
 const CARD_INSET_Y = 12;
+type ContentCardTone = {
+  fill: string;
+  border: string;
+  accent: string;
+};
 
-const CONTENT_CARD_PALETTES = [
-  { fill: '#eef4ff', border: '#c7d7fe', accent: '#4f46e5' },
-  { fill: '#ecfeff', border: '#bae6fd', accent: '#0891b2' },
-  { fill: '#f8f5ff', border: '#d8b4fe', accent: '#7c3aed' },
-  { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' },
-] as const;
+function getProfileTokens(profile: NotebookContentProfile) {
+  if (profile === 'code') {
+    return {
+      titleAccent: '#0f766e',
+      titleText: '#0f172a',
+      themeColors: ['#0f766e', '#0f172a', '#155e75', '#334155'],
+      backgroundColors: ['#f7fffd', '#f8fafc', '#ecfeff'],
+      cardPalettes: [
+        { fill: '#ecfeff', border: '#99f6e4', accent: '#0f766e' },
+        { fill: '#eff6ff', border: '#bfdbfe', accent: '#2563eb' },
+        { fill: '#f8fafc', border: '#cbd5e1', accent: '#334155' },
+        { fill: '#f0fdf4', border: '#bbf7d0', accent: '#16a34a' },
+      ] as const,
+      codeSurface: {
+        fill: '#0f172a',
+        outline: '#134e4a',
+        text: '#e2e8f0',
+        caption: '#99f6e4',
+      },
+    };
+  }
+
+  if (profile === 'math') {
+    return {
+      titleAccent: '#2563eb',
+      titleText: '#0f172a',
+      themeColors: ['#2563eb', '#0f172a', '#1d4ed8', '#475569'],
+      backgroundColors: ['#f8fbff', '#fdfdff', '#eef4ff'],
+      cardPalettes: [
+        { fill: '#eff6ff', border: '#bfdbfe', accent: '#2563eb' },
+        { fill: '#eef2ff', border: '#c7d2fe', accent: '#4f46e5' },
+        { fill: '#f8fafc', border: '#cbd5e1', accent: '#475569' },
+        { fill: '#effcf6', border: '#bbf7d0', accent: '#16a34a' },
+      ] as const,
+      codeSurface: {
+        fill: '#0f172a',
+        outline: '#1e293b',
+        text: '#e2e8f0',
+        caption: '#cbd5e1',
+      },
+    };
+  }
+
+  return {
+    titleAccent: '#4f46e5',
+    titleText: '#0f172a',
+    themeColors: ['#4f46e5', '#0f172a', '#334155', '#64748b'],
+    backgroundColors: ['#f8fbff', '#fdfdff', '#eef4ff'],
+    cardPalettes: [
+      { fill: '#eef4ff', border: '#c7d7fe', accent: '#4f46e5' },
+      { fill: '#ecfeff', border: '#bae6fd', accent: '#0891b2' },
+      { fill: '#f8f5ff', border: '#d8b4fe', accent: '#7c3aed' },
+      { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' },
+    ] as const,
+    codeSurface: {
+      fill: '#0f172a',
+      outline: '#1e293b',
+      text: '#e2e8f0',
+      caption: '#cbd5e1',
+    },
+  };
+}
 
 function escapeHtml(text: string): string {
   return text
@@ -69,6 +140,30 @@ function estimateParagraphHeight(text: string, charsPerLine: number, lineHeightP
       .reduce((sum, value) => sum + value, 0),
   );
   return Math.max(lineHeightPx + 12, lines * lineHeightPx + 18);
+}
+
+function estimateParagraphStackHeight(
+  items: string[],
+  charsPerLine: number,
+  lineHeightPx: number,
+  paragraphSpacePx = 5,
+): number {
+  const normalized = items.map((item) => item.trim()).filter(Boolean);
+  if (normalized.length === 0) return lineHeightPx + 12;
+
+  const totalLines = normalized.reduce((sum, item) => {
+    const wrappedLines = item
+      .split('\n')
+      .map((line) => Math.max(1, Math.ceil(line.length / Math.max(charsPerLine, 1))))
+      .reduce((lineSum, value) => lineSum + value, 0);
+
+    return sum + wrappedLines;
+  }, 0);
+
+  return Math.max(
+    lineHeightPx + 12,
+    totalLines * lineHeightPx + Math.max(0, normalized.length - 1) * paragraphSpacePx + 18,
+  );
 }
 
 function createTextElement(args: {
@@ -130,7 +225,7 @@ function createRectShape(args: {
 function createContentCardShell(args: {
   top: number;
   height: number;
-  tone: (typeof CONTENT_CARD_PALETTES)[number];
+  tone: ContentCardTone;
 }): PPTElement[] {
   return [
     createRectShape({
@@ -253,7 +348,10 @@ function createTableElement(args: {
   return elements;
 }
 
-function expandBlocks(blocks: NotebookContentDocument['blocks'], language: 'zh-CN' | 'en-US'): NotebookContentBlock[] {
+function expandBlocks(
+  blocks: NotebookContentDocument['blocks'],
+  language: 'zh-CN' | 'en-US',
+): NotebookContentBlock[] {
   const expanded: NotebookContentBlock[] = [];
   for (const block of blocks) {
     if (block.type === 'example') {
@@ -280,7 +378,9 @@ function expandBlocks(blocks: NotebookContentDocument['blocks'], language: 'zh-C
       }
       expanded.push({
         type: 'bullet_list',
-        items: block.steps.map((item, idx) => `${language === 'en-US' ? `Step ${idx + 1}` : `步骤 ${idx + 1}`}：${item}`),
+        items: block.steps.map(
+          (item, idx) => `${language === 'en-US' ? `Step ${idx + 1}` : `步骤 ${idx + 1}`}：${item}`,
+        ),
       });
       if (block.answer) {
         expanded.push({
@@ -293,7 +393,9 @@ function expandBlocks(blocks: NotebookContentDocument['blocks'], language: 'zh-C
       if (block.pitfalls.length > 0) {
         expanded.push({
           type: 'bullet_list',
-          items: block.pitfalls.map((item) => `${language === 'en-US' ? 'Pitfall' : '易错点'}：${item}`),
+          items: block.pitfalls.map(
+            (item) => `${language === 'en-US' ? 'Pitfall' : '易错点'}：${item}`,
+          ),
         });
       }
       continue;
@@ -328,6 +430,9 @@ export function renderNotebookContentDocumentToSlide(args: {
   fallbackTitle: string;
 }): Slide {
   const language = args.document.language || 'zh-CN';
+  const profile = resolveNotebookContentProfile(args.document);
+  const tokens = getProfileTokens(profile);
+  const cardPalettes = tokens.cardPalettes;
   const blocks = expandBlocks(args.document.blocks, language);
   const elements: PPTElement[] = [];
 
@@ -337,7 +442,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       top: 52,
       width: 10,
       height: 38,
-      fill: '#4f46e5',
+      fill: tokens.titleAccent,
     }),
     createTextElement({
       left: CONTENT_LEFT + 22,
@@ -345,7 +450,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       width: CONTENT_WIDTH - 22,
       height: 52,
       html: `<p style="font-size:30px;"><strong>${renderInlineLatexToHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
-      color: '#0f172a',
+      color: tokens.titleText,
       textType: 'title',
     }),
   );
@@ -373,7 +478,7 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
 
     if (block.type === 'paragraph') {
-      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
       const contentHeight = estimateParagraphHeight(block.text, 34, 22);
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
@@ -385,7 +490,10 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: contentHeight,
           html: block.text
             .split('\n')
-            .map((line) => `<p style="font-size:16px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`)
+            .map(
+              (line) =>
+                `<p style="font-size:16px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`,
+            )
             .join(''),
           color: '#334155',
           textType: 'content',
@@ -397,10 +505,10 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
 
     if (block.type === 'bullet_list') {
-      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
       const contentHeight = Math.min(
         180,
-        Math.max(56, block.items.reduce((sum, item) => sum + estimateParagraphHeight(item, 34, 20), 0)),
+        Math.max(56, estimateParagraphStackHeight(block.items, 34, 20)),
       );
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
@@ -411,7 +519,10 @@ export function renderNotebookContentDocumentToSlide(args: {
           width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
           height: contentHeight,
           html: block.items
-            .map((item) => `<p style="font-size:16px;color:#334155;">• ${renderInlineLatexToHtml(item)}</p>`)
+            .map(
+              (item) =>
+                `<p style="font-size:16px;color:#334155;">• ${renderInlineLatexToHtml(item)}</p>`,
+            )
             .join(''),
           color: '#334155',
           textType: 'content',
@@ -423,8 +534,8 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
 
     if (block.type === 'equation') {
-      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
-      const contentHeight = block.display ? 64 : 42;
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
+      const contentHeight = estimateLatexDisplayHeight(block.latex, block.display);
       const cardHeight = contentHeight + CARD_INSET_Y * 2 + (block.caption ? 22 : 0);
       elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
@@ -434,7 +545,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           top: cursorTop + CARD_INSET_Y,
           width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
           height: contentHeight,
-          align: 'left',
+          align: block.display ? 'center' : 'left',
         }),
       );
       if (block.caption) {
@@ -455,17 +566,65 @@ export function renderNotebookContentDocumentToSlide(args: {
       continue;
     }
 
+    if (block.type === 'matrix') {
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
+      const latex = matrixBlockToLatex(block);
+      const contentHeight = estimateLatexDisplayHeight(latex, true);
+      const labelHeight = block.label ? 24 : 0;
+      const captionHeight = block.caption ? 22 : 0;
+      const cardHeight = contentHeight + CARD_INSET_Y * 2 + labelHeight + captionHeight;
+      elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
+      if (block.label) {
+        elements.push(
+          createTextElement({
+            left: CONTENT_LEFT + CARD_INSET_X + 8,
+            top: cursorTop + CARD_INSET_Y,
+            width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+            height: 24,
+            html: `<p style="font-size:15px;color:${tone.accent};"><strong>${escapeHtml(block.label)}</strong></p>`,
+            color: tone.accent,
+            textType: 'itemTitle',
+          }),
+        );
+      }
+      elements.push(
+        createLatexElement({
+          latex,
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y + labelHeight,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: contentHeight,
+          align: 'center',
+        }),
+      );
+      if (block.caption) {
+        elements.push(
+          createTextElement({
+            left: CONTENT_LEFT + CARD_INSET_X + 8,
+            top: cursorTop + CARD_INSET_Y + labelHeight + contentHeight + 2,
+            width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+            height: 22,
+            html: `<p style="font-size:13px;color:#64748b;">${escapeHtml(block.caption)}</p>`,
+            color: '#64748b',
+            textType: 'notes',
+          }),
+        );
+      }
+      cursorTop += cardHeight + 10;
+      visualBlockIndex += 1;
+      continue;
+    }
+
     if (block.type === 'code_block') {
-      const lineCount = block.code.split('\n').length;
-      const height = Math.min(220, Math.max(84, lineCount * 18 + (block.caption ? 40 : 28)));
+      const height = estimateCodeBlockHeight(block.code, block.caption ? 1 : 0);
       elements.push(
         createRectShape({
           left: CONTENT_LEFT,
           top: cursorTop,
           width: CONTENT_WIDTH,
           height,
-          fill: '#0f172a',
-          outlineColor: '#1e293b',
+          fill: tokens.codeSurface.fill,
+          outlineColor: tokens.codeSurface.outline,
         }),
         createTextElement({
           left: CONTENT_LEFT + 18,
@@ -474,21 +633,137 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: height - 28,
           html: [
             block.caption
-              ? `<p style="font-size:14px;color:#cbd5e1;"><strong>${escapeHtml(block.caption)}</strong></p>`
+              ? `<p style="font-size:14px;color:${tokens.codeSurface.caption};"><strong>${escapeHtml(block.caption)}</strong></p>`
               : '',
-            ...block.code.split('\n').map(
-              (line) =>
-                `<p style="font-size:13px;color:#e2e8f0;font-family:Menlo, Monaco, Consolas, monospace;">${escapeHtml(line)}</p>`,
-            ),
+            ...block.code
+              .split('\n')
+              .map(
+                (line) =>
+                  `<p style="font-size:13px;color:${tokens.codeSurface.text};font-family:Menlo, Monaco, Consolas, monospace;">${escapeHtml(line)}</p>`,
+              ),
           ]
             .filter(Boolean)
             .join(''),
-          color: '#e2e8f0',
+          color: tokens.codeSurface.text,
           fontName: 'Menlo, Monaco, Consolas, monospace',
           textType: 'content',
         }),
       );
       cursorTop += height + 12;
+      continue;
+    }
+
+    if (block.type === 'code_walkthrough') {
+      if (block.title) {
+        elements.push(
+          createTextElement({
+            left: CONTENT_LEFT,
+            top: cursorTop,
+            width: CONTENT_WIDTH,
+            height: 28,
+            html: `<p style="font-size:18px;color:${tokens.titleAccent};"><strong>${escapeHtml(block.title)}</strong></p>`,
+            color: tokens.titleAccent,
+            textType: 'itemTitle',
+          }),
+        );
+        cursorTop += 34;
+      }
+
+      const codeHeight = estimateCodeBlockHeight(block.code, block.caption ? 1 : 0);
+      elements.push(
+        createRectShape({
+          left: CONTENT_LEFT,
+          top: cursorTop,
+          width: CONTENT_WIDTH,
+          height: codeHeight,
+          fill: tokens.codeSurface.fill,
+          outlineColor: tokens.codeSurface.outline,
+        }),
+        createTextElement({
+          left: CONTENT_LEFT + 18,
+          top: cursorTop + 14,
+          width: CONTENT_WIDTH - 36,
+          height: codeHeight - 28,
+          html: [
+            block.caption
+              ? `<p style="font-size:14px;color:${tokens.codeSurface.caption};"><strong>${escapeHtml(block.caption)}</strong></p>`
+              : '',
+            ...block.code
+              .split('\n')
+              .map(
+                (line) =>
+                  `<p style="font-size:13px;color:${tokens.codeSurface.text};font-family:Menlo, Monaco, Consolas, monospace;">${escapeHtml(line)}</p>`,
+              ),
+          ]
+            .filter(Boolean)
+            .join(''),
+          color: tokens.codeSurface.text,
+          fontName: 'Menlo, Monaco, Consolas, monospace',
+          textType: 'content',
+        }),
+      );
+      cursorTop += codeHeight + 10;
+
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
+      const stepItems = block.steps.map((step, idx) => {
+        const focus = step.title || step.focus;
+        return `${idx + 1}. ${focus ? `${focus}: ` : ''}${step.explanation}`;
+      });
+      const stepHeight = Math.min(
+        180,
+        Math.max(56, estimateParagraphStackHeight(stepItems, 34, 20)),
+      );
+      const stepCardHeight = stepHeight + CARD_INSET_Y * 2;
+      elements.push(...createContentCardShell({ top: cursorTop, height: stepCardHeight, tone }));
+      elements.push(
+        createTextElement({
+          left: CONTENT_LEFT + CARD_INSET_X + 8,
+          top: cursorTop + CARD_INSET_Y,
+          width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+          height: stepHeight,
+          html: stepItems
+            .map((item) => `<p style="font-size:15px;color:#334155;">${escapeHtml(item)}</p>`)
+            .join(''),
+          color: '#334155',
+          textType: 'content',
+        }),
+      );
+      cursorTop += stepCardHeight + 10;
+      visualBlockIndex += 1;
+
+      if (block.output) {
+        const outputHeight = estimateCodeBlockHeight(block.output, 1);
+        elements.push(
+          createRectShape({
+            left: CONTENT_LEFT,
+            top: cursorTop,
+            width: CONTENT_WIDTH,
+            height: outputHeight,
+            fill: '#111827',
+            outlineColor: '#1f2937',
+          }),
+          createTextElement({
+            left: CONTENT_LEFT + 18,
+            top: cursorTop + 14,
+            width: CONTENT_WIDTH - 36,
+            height: outputHeight - 28,
+            html: [
+              `<p style="font-size:14px;color:#cbd5e1;"><strong>${language === 'en-US' ? 'Output' : '输出'}</strong></p>`,
+              ...block.output
+                .split('\n')
+                .map(
+                  (line) =>
+                    `<p style="font-size:13px;color:#f8fafc;font-family:Menlo, Monaco, Consolas, monospace;">${escapeHtml(line)}</p>`,
+                ),
+            ].join(''),
+            color: '#f8fafc',
+            fontName: 'Menlo, Monaco, Consolas, monospace',
+            textType: 'content',
+          }),
+        );
+        cursorTop += outputHeight + 10;
+      }
+
       continue;
     }
 
@@ -500,7 +775,11 @@ export function renderNotebookContentDocumentToSlide(args: {
         caption: block.caption,
       });
       elements.push(...tableEls);
-      cursorTop += Math.min(220, Math.max(72, (block.rows.length + (block.headers?.length ? 1 : 0)) * 34 + 12)) + (block.caption ? 38 : 12);
+      cursorTop +=
+        Math.min(
+          220,
+          Math.max(72, (block.rows.length + (block.headers?.length ? 1 : 0)) * 34 + 12),
+        ) + (block.caption ? 38 : 12);
       visualBlockIndex += 1;
       continue;
     }
@@ -546,7 +825,7 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
 
     if (block.type === 'chem_formula' || block.type === 'chem_equation') {
-      const tone = CONTENT_CARD_PALETTES[visualBlockIndex % CONTENT_CARD_PALETTES.length];
+      const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
       const raw = block.type === 'chem_formula' ? block.formula : block.equation;
       const caption = block.caption;
       const contentHeight = 34 + (caption ? 24 : 0);
@@ -579,9 +858,9 @@ export function renderNotebookContentDocumentToSlide(args: {
     viewportSize: CANVAS_WIDTH,
     viewportRatio: CANVAS_HEIGHT / CANVAS_WIDTH,
     theme: {
-      backgroundColor: '#f8fbff',
-      themeColors: ['#4f46e5', '#0f172a', '#334155', '#64748b'],
-      fontColor: '#0f172a',
+      backgroundColor: tokens.backgroundColors[0],
+      themeColors: tokens.themeColors,
+      fontColor: tokens.titleText,
       fontName: 'Microsoft YaHei',
     },
     elements,
@@ -591,9 +870,9 @@ export function renderNotebookContentDocumentToSlide(args: {
         type: 'linear',
         rotate: 135,
         colors: [
-          { pos: 0, color: '#f8fbff' },
-          { pos: 55, color: '#fdfdff' },
-          { pos: 100, color: '#eef4ff' },
+          { pos: 0, color: tokens.backgroundColors[0] },
+          { pos: 55, color: tokens.backgroundColors[1] },
+          { pos: 100, color: tokens.backgroundColors[2] },
         ],
       },
     },

@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-block';
 import type { NotebookContentDocument } from '@/lib/notebook-content';
 import { chemistryTextToHtml } from '@/lib/notebook-content';
+import { matrixBlockToLatex } from '@/lib/notebook-content/block-utils';
 
 interface NotebookContentViewProps {
   document: NotebookContentDocument;
@@ -67,6 +68,21 @@ export const NotebookContentView = memo(function NotebookContentView({
                 ) : null}
               </div>
             );
+          case 'matrix':
+            return (
+              <div
+                key={index}
+                className="space-y-1 rounded-xl border border-border/60 bg-muted/20 px-4 py-3"
+              >
+                {block.label ? (
+                  <p className="text-sm font-medium text-foreground">{block.label}</p>
+                ) : null}
+                <FormulaBlock latex={matrixBlockToLatex(block)} display />
+                {block.caption ? (
+                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                ) : null}
+              </div>
+            );
           case 'derivation_steps':
             return (
               <div key={index} className="space-y-2">
@@ -77,7 +93,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                     className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2"
                   >
                     <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {document.language === 'en-US' ? `Step ${stepIdx + 1}` : `步骤 ${stepIdx + 1}`}
+                      {document.language === 'en-US'
+                        ? `Step ${stepIdx + 1}`
+                        : `步骤 ${stepIdx + 1}`}
                     </p>
                     {step.format === 'latex' ? (
                       <FormulaBlock latex={step.expression} display />
@@ -103,10 +121,57 @@ export const NotebookContentView = memo(function NotebookContentView({
           case 'code_block':
             return (
               <div key={index} className="space-y-2">
-                {block.caption ? <p className="text-xs font-medium text-muted-foreground">{block.caption}</p> : null}
+                {block.caption ? (
+                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                ) : null}
                 <CodeBlock code={block.code} language={(block.language || 'text') as any}>
                   <CodeBlockCopyButton />
                 </CodeBlock>
+              </div>
+            );
+          case 'code_walkthrough':
+            return (
+              <div
+                key={index}
+                className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
+              >
+                {block.title ? (
+                  <p className="text-sm font-semibold text-foreground">{block.title}</p>
+                ) : null}
+                {block.caption ? (
+                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                ) : null}
+                <CodeBlock code={block.code} language={(block.language || 'text') as any}>
+                  <CodeBlockCopyButton />
+                </CodeBlock>
+                <div className="space-y-2">
+                  {block.steps.map((step, stepIdx) => (
+                    <div
+                      key={stepIdx}
+                      className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {document.language === 'en-US'
+                          ? `Step ${stepIdx + 1}`
+                          : `步骤 ${stepIdx + 1}`}
+                        {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
+                      </p>
+                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                        {step.explanation}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                {block.output ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {document.language === 'en-US' ? 'Output' : '输出'}
+                    </p>
+                    <CodeBlock code={block.output} language={'plaintext' as any}>
+                      <CodeBlockCopyButton />
+                    </CodeBlock>
+                  </div>
+                ) : null}
               </div>
             );
           case 'table': {
@@ -118,7 +183,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                   ) || [];
             return (
               <div key={index} className="space-y-2 overflow-x-auto">
-                {block.caption ? <p className="text-xs font-medium text-muted-foreground">{block.caption}</p> : null}
+                {block.caption ? (
+                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                ) : null}
                 <table className="w-full min-w-[320px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
@@ -168,7 +235,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                 <p className="text-sm font-semibold text-foreground">
                   {block.title || (document.language === 'en-US' ? 'Worked Example' : '例题讲解')}
                 </p>
-                <p className="mt-2 whitespace-pre-wrap leading-7 text-foreground">{block.problem}</p>
+                <p className="mt-2 whitespace-pre-wrap leading-7 text-foreground">
+                  {block.problem}
+                </p>
                 {block.givens.length > 0 ? (
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-foreground">
                     {block.givens.map((item, itemIdx) => (
@@ -176,7 +245,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                     ))}
                   </ul>
                 ) : null}
-                {block.goal ? <p className="mt-2 text-sm text-muted-foreground">{block.goal}</p> : null}
+                {block.goal ? (
+                  <p className="mt-2 text-sm text-muted-foreground">{block.goal}</p>
+                ) : null}
                 <ol className="mt-3 list-decimal space-y-1 pl-5 text-foreground">
                   {block.steps.map((step, stepIdx) => (
                     <li key={stepIdx} className="whitespace-pre-wrap leading-7">
@@ -206,7 +277,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                   className="text-base text-foreground"
                   dangerouslySetInnerHTML={{ __html: chemistryTextToHtml(block.formula) }}
                 />
-                {block.caption ? <p className="text-xs text-muted-foreground">{block.caption}</p> : null}
+                {block.caption ? (
+                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                ) : null}
               </div>
             );
           case 'chem_equation':
@@ -216,7 +289,9 @@ export const NotebookContentView = memo(function NotebookContentView({
                   className="text-base text-foreground"
                   dangerouslySetInnerHTML={{ __html: chemistryTextToHtml(block.equation) }}
                 />
-                {block.caption ? <p className="text-xs text-muted-foreground">{block.caption}</p> : null}
+                {block.caption ? (
+                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                ) : null}
               </div>
             );
           default:

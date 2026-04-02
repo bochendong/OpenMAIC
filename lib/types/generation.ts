@@ -7,6 +7,7 @@
 
 import type { ActionType } from './action';
 import type { MediaGenerationRequest } from '@/lib/media/types';
+import type { NotebookContentProfile } from '@/lib/notebook-content';
 
 // ==================== PDF Image Types ====================
 
@@ -94,6 +95,7 @@ export interface LegacyUserRequirements {
 export interface SceneOutline {
   id: string;
   type: 'slide' | 'quiz' | 'interactive' | 'pbl';
+  contentProfile?: NotebookContentProfile;
   title: string;
   description: string; // 1-2 sentences describing the purpose
   keyPoints: string[]; // 3-5 core key points

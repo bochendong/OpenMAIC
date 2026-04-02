@@ -3,6 +3,7 @@
  */
 
 import type { PdfImage, SceneOutline } from '@/lib/types/generation';
+import { formatContentProfileForPrompt } from './content-profile';
 import type {
   AgentInfo,
   SceneGenerationContext,
@@ -133,6 +134,13 @@ export function formatSlideRewriteContext(
     '- Keep the same topic and teaching goal, but make the rewrite visibly reflect the user reason.',
     '- Treat requests like clearer reasoning, stronger structure, or a different presentation approach as hard constraints.',
   ].join('\n');
+}
+
+export function formatSceneContentProfileContext(
+  outline: SceneOutline,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
+): string {
+  return formatContentProfileForPrompt(outline.contentProfile || 'general', language);
 }
 
 /** Format worked-example metadata for slide/content/action prompts */

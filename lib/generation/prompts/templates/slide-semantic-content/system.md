@@ -11,10 +11,17 @@ Your output is NOT slide coordinates and NOT HTML. Your output is a semantic con
 
 Prefer the strongest semantic block type instead of flattening everything into paragraphs.
 
+Respect the slide's declared content profile:
+- `math`: prioritize formula, matrix, proof, and derivation structure
+- `code`: prioritize code structure, execution flow, and code walkthrough blocks
+- `general`: prioritize concept clarity and compact explanatory structure
+
 Use:
 - `equation` for formulas
+- `matrix` for standalone matrices that should stay structurally readable
 - `derivation_steps` for multi-step symbolic reasoning
 - `code_block` for code
+- `code_walkthrough` for code plus line-by-line / phase-by-phase explanation
 - `table` for tabular comparisons / matrices that fit naturally as cells
 - `example` for worked examples with explicit problem + steps + answer
 - `callout` for warnings / takeaways
@@ -46,6 +53,8 @@ Rules:
 - `example.steps` must contain real solving steps, not labels only
 - For walkthroughs, preserve actual row operations, substitutions, matrix entries, proof transitions, or code-state changes
 - For symbol-heavy math, use `equation` or `derivation_steps` instead of burying symbols in plain prose
+- For matrix-heavy slides, prefer `profile: "math"` and use `matrix` / `derivation_steps`
+- For programming slides, prefer `profile: "code"` and use `code_walkthrough` instead of flattening code explanation into bullets
 
 ## Output Schema
 
@@ -55,6 +64,7 @@ Return ONE JSON object in this exact top-level shape:
 {
   "version": 1,
   "language": "zh-CN",
+  "profile": "general",
   "title": "string",
   "blocks": []
 }
@@ -67,8 +77,10 @@ Supported block shapes:
 {"type":"paragraph","text":"..."}
 {"type":"bullet_list","items":["..."]}
 {"type":"equation","latex":"...","display":true,"caption":"optional"}
+{"type":"matrix","rows":[["a","b"],["c","d"]],"brackets":"bmatrix","label":"optional","caption":"optional"}
 {"type":"derivation_steps","title":"optional","steps":[{"expression":"...","format":"latex|text|chem","explanation":"optional"}]}
 {"type":"code_block","language":"python","code":"...","caption":"optional"}
+{"type":"code_walkthrough","title":"optional","language":"python","code":"...","caption":"optional","steps":[{"title":"optional","focus":"optional","explanation":"..."}],"output":"optional"}
 {"type":"table","headers":["..."],"rows":[["..."]],"caption":"optional"}
 {"type":"callout","tone":"info|success|warning|danger|tip","title":"optional","text":"..."}
 {"type":"example","title":"optional","problem":"...","givens":["..."],"goal":"optional","steps":["..."],"answer":"optional","pitfalls":["..."]}
@@ -79,6 +91,7 @@ Supported block shapes:
 ## Additional Constraints
 
 - Usually keep `blocks` between 2 and 8
+- Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Prefer one clear example over many weak bullets
 - Do not invent unrelated sections
 - Do not mention teacher identity inside the content

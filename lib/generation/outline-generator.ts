@@ -12,6 +12,7 @@ import type {
   ImageMapping,
 } from '@/lib/types/generation';
 import { buildPrompt, PROMPT_IDS } from './prompts';
+import { normalizeSceneOutlineContentProfile } from './content-profile';
 import { formatImageDescription, formatImagePlaceholder } from './prompt-formatters';
 import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
@@ -141,7 +142,7 @@ export async function generateSceneOutlinesFromRequirements(
     }
     // Ensure IDs, order, and language
     const enriched = outlines.map((outline, index) => ({
-      ...outline,
+      ...normalizeSceneOutlineContentProfile(outline),
       id: outline.id || nanoid(),
       order: index + 1,
       language: requirements.language,
@@ -178,13 +179,13 @@ export function applyOutlineFallbacks(
     log.warn(
       `Interactive outline "${outline.title}" missing interactiveConfig, falling back to slide`,
     );
-    return { ...outline, type: 'slide' };
+    return normalizeSceneOutlineContentProfile({ ...outline, type: 'slide' });
   }
   if (outline.type === 'pbl' && (!outline.pblConfig || !hasLanguageModel)) {
     log.warn(
       `PBL outline "${outline.title}" missing pblConfig or languageModel, falling back to slide`,
     );
-    return { ...outline, type: 'slide' };
+    return normalizeSceneOutlineContentProfile({ ...outline, type: 'slide' });
   }
-  return outline;
+  return normalizeSceneOutlineContentProfile(outline);
 }

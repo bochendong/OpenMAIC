@@ -31,10 +31,7 @@ function stripCodeFences(text: string): string {
   return cleaned.trim();
 }
 
-function sanitizePlan(
-  raw: unknown,
-  language: 'zh-CN' | 'en-US' = 'zh-CN',
-): NotebookMessagePlan {
+function sanitizePlan(raw: unknown, language: 'zh-CN' | 'en-US' = 'zh-CN'): NotebookMessagePlan {
   const parsed = (raw || {}) as Partial<NotebookMessagePlan>;
   const answerDocument = parseNotebookContentDocument(
     (parsed as { answerDocument?: unknown }).answerDocument,
@@ -57,13 +54,16 @@ function sanitizePlan(
     ? ops.insert
         .map((x) => ({
           afterOrder: Number((x as { afterOrder?: number }).afterOrder || 0),
-          type: ((x as { type?: 'slide' | 'quiz' }).type === 'quiz'
-            ? 'quiz'
-            : 'slide') as 'slide' | 'quiz',
+          type: ((x as { type?: 'slide' | 'quiz' }).type === 'quiz' ? 'quiz' : 'slide') as
+            | 'slide'
+            | 'quiz',
           title: String((x as { title?: string }).title || '').trim(),
           description: String((x as { description?: string }).description || '').trim(),
           keyPoints: Array.isArray((x as { keyPoints?: string[] }).keyPoints)
-            ? (x as { keyPoints: string[] }).keyPoints.map((k) => String(k).trim()).filter(Boolean).slice(0, 6)
+            ? (x as { keyPoints: string[] }).keyPoints
+                .map((k) => String(k).trim())
+                .filter(Boolean)
+                .slice(0, 6)
             : [],
           contentDocument: parseNotebookContentDocument(
             (x as { contentDocument?: unknown }).contentDocument,
@@ -104,7 +104,8 @@ function sanitizePlan(
     : [];
 
   return {
-    answer: answer || (answerDocument ? renderNotebookContentToMarkdown(answerDocument) : fallbackAnswer),
+    answer:
+      answer || (answerDocument ? renderNotebookContentToMarkdown(answerDocument) : fallbackAnswer),
     answerDocument:
       answerDocument ||
       buildNotebookContentDocumentFromText({
@@ -190,7 +191,10 @@ export async function POST(req: NextRequest) {
         .slice(-12)
         .map((m, idx) => {
           const role = m.role === 'assistant' ? 'assistant' : 'user';
-          const content = String(m.content || '').replace(/\s+/g, ' ').trim().slice(0, 800);
+          const content = String(m.content || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 800);
           return `  ${idx + 1}. [${role}] ${content}`;
         })
         .join('\n');
@@ -245,6 +249,7 @@ Output schema:
   "answerDocument": {
     "version": 1,
     "language": "zh-CN" | "en-US",
+    "profile": "general" | "math" | "code",
     "title": "optional",
     "blocks": [
       { "type": "paragraph", "text": "string" }
@@ -262,6 +267,7 @@ Output schema:
       "contentDocument": {
         "version": 1,
         "language": "zh-CN" | "en-US",
+        "profile": "general" | "math" | "code",
         "title": "optional",
         "blocks": [{ "type": "paragraph", "text": "string" }]
       }
@@ -278,14 +284,17 @@ Rules:
 - never request full PPT rewrite; only incremental insert/update/delete.
 - keep answer short and practical.
 - answerDocument should be the structured version of the answer for rendering in chat.
+- choose profile='math' for formula / proof / matrix-heavy content, profile='code' for programming explanations, and profile='general' otherwise.
 - when the answer or inserted slide contains formulas, derivation steps, code, tables, worked examples, or chemistry expressions, use structured blocks instead of hiding them inside plain paragraph text.
 - supported block types for answerDocument/contentDocument are:
   - {"type":"heading","level":1-4,"text":"..."}
   - {"type":"paragraph","text":"..."}
   - {"type":"bullet_list","items":["..."]}
   - {"type":"equation","latex":"...","display":true}
+  - {"type":"matrix","rows":[["a","b"],["c","d"]],"brackets":"bmatrix","label":"optional","caption":"optional"}
   - {"type":"derivation_steps","title":"optional","steps":[{"expression":"...","format":"latex"|"text"|"chem","explanation":"optional"}]}
   - {"type":"code_block","language":"python","code":"...","caption":"optional"}
+  - {"type":"code_walkthrough","title":"optional","language":"python","code":"...","caption":"optional","steps":[{"title":"optional","focus":"optional","explanation":"..."}],"output":"optional"}
   - {"type":"table","headers":["..."],"rows":[["..."]],"caption":"optional"}
   - {"type":"callout","tone":"info"|"success"|"warning"|"danger"|"tip","title":"optional","text":"..."}
   - {"type":"example","title":"optional","problem":"...","givens":["..."],"goal":"optional","steps":["..."],"answer":"optional","pitfalls":["..."]}

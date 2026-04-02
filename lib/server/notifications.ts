@@ -136,7 +136,11 @@ function inferUsageContext(row: CreditNotificationRow): UsageContext {
     return { key: 'quiz_grade', label: '测验批改' };
   }
 
-  if (fingerprint.includes('repair-slide-math')) {
+  if (
+    fingerprint.includes('repair-slide-math') ||
+    fingerprint.includes('repair-slide-code') ||
+    fingerprint.includes('repair-slide-general')
+  ) {
     return { key: 'slide_repair', label: '课件修复' };
   }
 

@@ -36,6 +36,7 @@ import {
   formatCoursePersonalizationForPrompt,
   formatAgentsForPrompt,
   formatTeacherPersonaForPrompt,
+  formatSceneContentProfileContext,
   formatSlideRewriteContext,
   formatWorkedExampleForPrompt,
   formatImageDescription,
@@ -224,10 +225,9 @@ export async function generateSceneContent(
   }
 }
 
-export function buildFallbackSlideContentFromOutline(
-  outline: SceneOutline,
-): GeneratedSlideContent {
+export function buildFallbackSlideContentFromOutline(outline: SceneOutline): GeneratedSlideContent {
   const lang = outline.language || 'zh-CN';
+  const contentProfile = outline.contentProfile || 'general';
   const summary = normalizeText(
     outline.description || outline.keyPoints.join(' ') || outline.title,
     360,
@@ -247,10 +247,7 @@ export function buildFallbackSlideContentFromOutline(
   const takeaway = normalizeList(
     [],
     lang === 'zh-CN'
-      ? [
-          '先理解这一页的核心概念与结论',
-          '讲解时可根据上下文继续补充细节与例子',
-        ]
+      ? ['先理解这一页的核心概念与结论', '讲解时可根据上下文继续补充细节与例子']
       : [
           'Focus on the main concept and conclusion first',
           'Add examples and detail during narration if needed',
@@ -259,10 +256,14 @@ export function buildFallbackSlideContentFromOutline(
     96,
   );
 
-  const accent = '#4f46e5';
-  const accentSoft = '#e0e7ff';
-  const panel = '#eef2ff';
-  const panelAlt = '#f8fafc';
+  const accent =
+    contentProfile === 'code' ? '#0f766e' : contentProfile === 'math' ? '#2563eb' : '#4f46e5';
+  const accentSoft =
+    contentProfile === 'code' ? '#ccfbf1' : contentProfile === 'math' ? '#dbeafe' : '#e0e7ff';
+  const panel =
+    contentProfile === 'code' ? '#ecfeff' : contentProfile === 'math' ? '#eff6ff' : '#eef2ff';
+  const panelAlt =
+    contentProfile === 'code' ? '#f8fafc' : contentProfile === 'math' ? '#f8fbff' : '#f8fafc';
 
   const elements: PPTElement[] = [
     createRectElement({
@@ -2082,6 +2083,7 @@ async function generateSemanticSlideContent(
   const lang = outline.language || 'zh-CN';
   const teacherContext = formatTeacherPersonaForPrompt(agents);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
+  const contentProfileContext = formatSceneContentProfileContext(outline, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
   const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
@@ -2089,6 +2091,7 @@ async function generateSemanticSlideContent(
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
+    contentProfileContext,
     teacherContext,
     coursePersonalization,
     workedExampleContext,
@@ -2098,7 +2101,16 @@ async function generateSemanticSlideContent(
   if (!prompts) return null;
 
   const response = await aiCall(prompts.system, prompts.user);
-  const contentDocument = extractNotebookContentDocumentFromResponse(response);
+  const contentDocumentRaw = extractNotebookContentDocumentFromResponse(response);
+  const contentDocument = contentDocumentRaw
+    ? {
+        ...contentDocumentRaw,
+        profile:
+          contentDocumentRaw.profile === 'general' && outline.contentProfile
+            ? outline.contentProfile
+            : contentDocumentRaw.profile,
+      }
+    : null;
   if (!contentDocument) {
     log.warn(`Semantic slide content parse failed for: ${outline.title}`);
     return null;
@@ -2235,6 +2247,7 @@ async function generateSlideContent(
 
   const teacherContext = formatTeacherPersonaForPrompt(agents);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
+  const contentProfileContext = formatSceneContentProfileContext(outline, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
   const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
@@ -2246,6 +2259,7 @@ async function generateSlideContent(
     assignedImages: assignedImagesText,
     canvas_width: canvasWidth,
     canvas_height: canvasHeight,
+    contentProfileContext,
     teacherContext,
     coursePersonalization,
     workedExampleContext,

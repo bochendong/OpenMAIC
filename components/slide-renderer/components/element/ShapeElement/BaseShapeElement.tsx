@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import type { PPTShapeElement, ShapeText } from '@/lib/types/slides';
 import { renderHtmlWithLatex } from '@/lib/render-html-with-latex';
 import { useElementOutline } from '../hooks/useElementOutline';
@@ -29,11 +29,7 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
     defaultFontName: 'Microsoft YaHei',
     defaultColor: '#333333',
   };
-  const [renderedTextContent, setRenderedTextContent] = useState(text.content);
-
-  useEffect(() => {
-    setRenderedTextContent(renderHtmlWithLatex(text.content));
-  }, [text.content]);
+  const renderedTextContent = useMemo(() => renderHtmlWithLatex(text.content), [text.content]);
 
   return (
     <div
@@ -110,7 +106,7 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
             }}
           >
             <div
-              className="ProseMirror-static [&_p]:mb-[var(--paragraphSpace)]"
+              className="ProseMirror-static [&_ol]:my-0 [&_p]:m-0 [&_p:not(:last-child)]:mb-[var(--paragraphSpace)] [&_ul]:my-0"
               style={{
                 // @ts-expect-error CSS custom properties
                 '--paragraphSpace': `${text.paragraphSpace === undefined ? 5 : text.paragraphSpace}px`,

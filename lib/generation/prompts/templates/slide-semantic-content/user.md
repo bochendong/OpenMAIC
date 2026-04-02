@@ -7,6 +7,7 @@
 - **Key Points**:
   {{keyPoints}}
 
+{{contentProfileContext}}
 {{workedExampleContext}}
 {{teacherContext}}
 {{coursePersonalization}}
@@ -23,3 +24,4 @@ Important:
 3. Do not output slide coordinates, HTML, or PPT elements
 4. Keep the language consistent with the title/description above
 5. If the scene contains formulas, worked examples, matrix operations, code, or tables, use the corresponding structured blocks instead of plain paragraphs whenever possible
+6. Set `profile` to `math` for matrix / proof / derivation-heavy slides, `code` for programming walkthroughs, otherwise `general`

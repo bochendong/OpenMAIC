@@ -447,7 +447,9 @@ export const ProsemirrorEditor = forwardRef<ProsemirrorEditorRef, ProsemirrorEdi
     return (
       <div
         ref={editorViewRef}
-        className={`prosemirror-editor cursor-text ${textFormatPainter ? 'format-painter' : ''}`}
+        className={`prosemirror-editor cursor-text [&_ol]:my-0 [&_p]:m-0 [&_p:not(:last-child)]:mb-[var(--paragraphSpace)] [&_ul]:my-0 ${
+          textFormatPainter ? 'format-painter' : ''
+        }`}
         onMouseDown={(e) => onMouseDown?.(e)}
       />
     );
