@@ -78,6 +78,13 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'stageId is required');
     }
 
+    const pageIndex = allOutlines.findIndex((o) => o.id === outline.id);
+    const normalizedLanguage =
+      outline.language ||
+      (pageIndex >= 0 ? allOutlines[pageIndex]?.language : undefined) ||
+      allOutlines.find((item) => item.language)?.language ||
+      'zh-CN';
+
     // ── Model resolution from request headers ──
     const { model: languageModel, modelInfo, modelString } = await resolveModelFromHeaders(req, {
       allowOpenAIModelOverride: true,
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
               messages: [
                 {
                   role: 'user' as const,
-                  content: buildVisionUserContent(userPrompt, images),
+                  content: buildVisionUserContent(userPrompt, images, normalizedLanguage),
                 },
               ],
               maxOutputTokens: modelInfo?.outputWindow,
@@ -127,14 +134,9 @@ export async function POST(req: NextRequest) {
 
     // ── Build cross-scene context ──
     const allTitles = allOutlines.map((o) => o.title);
-    const pageIndex = allOutlines.findIndex((o) => o.id === outline.id);
     const normalizedOutline: SceneOutline = {
       ...outline,
-      language:
-        outline.language ||
-        (pageIndex >= 0 ? allOutlines[pageIndex]?.language : undefined) ||
-        allOutlines.find((item) => item.language)?.language ||
-        'zh-CN',
+      language: normalizedLanguage,
     };
     const ctx: SceneGenerationContext = {
       pageIndex: (pageIndex >= 0 ? pageIndex : 0) + 1,

@@ -67,13 +67,21 @@ export function formatAgentsForPrompt(agents?: AgentInfo[]): string {
 }
 
 /** Extract the teacher agent's persona for injection into outline/content prompts */
-export function formatTeacherPersonaForPrompt(agents?: AgentInfo[]): string {
+export function formatTeacherPersonaForPrompt(
+  agents?: AgentInfo[],
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
+): string {
   if (!agents || agents.length === 0) return '';
 
   const teacher = agents.find((a) => a.role === 'teacher');
   if (!teacher?.persona) return '';
 
-  return `Teacher Persona:\nName: ${teacher.name}\n${teacher.persona}\n\nAdapt the content style and tone to match this teacher's personality. IMPORTANT: The teacher's name and identity must NOT appear on the slides — no "Teacher ${teacher.name}'s tips", no "Teacher's message", etc. Slides should read as neutral, professional visual aids.`;
+  const languageGuard =
+    language === 'zh-CN'
+      ? '即使教师 persona 使用其他语言，最终生成内容也必须严格使用当前场景语言。'
+      : 'Even if the teacher persona is written in another language, the final generated content must still use the declared scene language only.';
+
+  return `Teacher Persona:\nName: ${teacher.name}\n${teacher.persona}\n\nAdapt the content style and tone to match this teacher's personality. IMPORTANT: The teacher's name and identity must NOT appear on the slides — no "Teacher ${teacher.name}'s tips", no "Teacher's message", etc. Slides should read as neutral, professional visual aids. ${languageGuard}`;
 }
 
 /** Format course-level personalization hints for content/action generation prompts */
@@ -221,7 +229,10 @@ export function formatImageDescription(img: PdfImage, language: string): string 
   let dimInfo = '';
   if (img.width && img.height) {
     const ratio = (img.width / img.height).toFixed(2);
-    dimInfo = ` | 尺寸: ${img.width}×${img.height} (宽高比${ratio})`;
+    dimInfo =
+      language === 'zh-CN'
+        ? ` | 尺寸: ${img.width}×${img.height} (宽高比${ratio})`
+        : ` | size: ${img.width}×${img.height} (aspect ratio ${ratio})`;
   }
   const desc = img.description ? ` | ${img.description}` : '';
   return language === 'zh-CN'
@@ -237,7 +248,10 @@ export function formatImagePlaceholder(img: PdfImage, language: string): string 
   let dimInfo = '';
   if (img.width && img.height) {
     const ratio = (img.width / img.height).toFixed(2);
-    dimInfo = ` | 尺寸: ${img.width}×${img.height} (宽高比${ratio})`;
+    dimInfo =
+      language === 'zh-CN'
+        ? ` | 尺寸: ${img.width}×${img.height} (宽高比${ratio})`
+        : ` | size: ${img.width}×${img.height} (aspect ratio ${ratio})`;
   }
   return language === 'zh-CN'
     ? `- **${img.id}**: PDF第${img.pageNumber}页的图片${dimInfo} [参见附图]`
@@ -253,17 +267,24 @@ export function formatImagePlaceholder(img: PdfImage, language: string): string 
 export function buildVisionUserContent(
   userPrompt: string,
   images: Array<{ id: string; src: string; width?: number; height?: number }>,
+  language: 'zh-CN' | 'en-US' = 'zh-CN',
 ): Array<{ type: 'text'; text: string } | { type: 'image'; image: string; mimeType?: string }> {
   const parts: Array<
     { type: 'text'; text: string } | { type: 'image'; image: string; mimeType?: string }
   > = [{ type: 'text', text: userPrompt }];
   if (images.length > 0) {
-    parts.push({ type: 'text', text: '\n\n--- Attached Images ---' });
+    parts.push({
+      type: 'text',
+      text: language === 'zh-CN' ? '\n\n--- 附图 ---' : '\n\n--- Attached Images ---',
+    });
     for (const img of images) {
       let dimInfo = '';
       if (img.width && img.height) {
         const ratio = (img.width / img.height).toFixed(2);
-        dimInfo = ` (${img.width}×${img.height}, 宽高比${ratio})`;
+        dimInfo =
+          language === 'zh-CN'
+            ? ` (${img.width}×${img.height}, 宽高比${ratio})`
+            : ` (${img.width}×${img.height}, aspect ratio ${ratio})`;
       }
       parts.push({ type: 'text', text: `\n**${img.id}**${dimInfo}:` });
       // Strip data URI prefix — AI SDK only accepts http(s) URLs or raw base64

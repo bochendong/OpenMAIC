@@ -288,11 +288,14 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
       top: 28,
       width: 860,
       height: 56,
-      content: toTextHtml(splitIntoLines(outline.title || '未命名页面', 30, 2), {
+      content: toTextHtml(
+        splitIntoLines(outline.title || (lang === 'zh-CN' ? '未命名页面' : 'Untitled Slide'), 30, 2),
+        {
         fontSize: 30,
         color: '#0f172a',
         bold: true,
-      }),
+        },
+      ),
       defaultColor: '#0f172a',
       textType: 'title',
     }),
@@ -366,6 +369,17 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
     background: { type: 'solid', color: '#fcfcfd' },
     remark: outline.description,
   };
+}
+
+const CJK_TEXT_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+function hasUnexpectedCjkForLanguage(
+  value: unknown,
+  language: 'zh-CN' | 'en-US',
+): boolean {
+  if (language !== 'en-US') return false;
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return CJK_TEXT_REGEX.test(text);
 }
 
 /**
@@ -2081,13 +2095,14 @@ async function generateSemanticSlideContent(
   rewriteReason?: string,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
-  const teacherContext = formatTeacherPersonaForPrompt(agents);
+  const teacherContext = formatTeacherPersonaForPrompt(agents, lang);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
   const contentProfileContext = formatSceneContentProfileContext(outline, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
   const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
   const prompts = buildPrompt(PROMPT_IDS.SLIDE_SEMANTIC_CONTENT, {
+    language: lang,
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
@@ -2105,6 +2120,7 @@ async function generateSemanticSlideContent(
   const contentDocument = contentDocumentRaw
     ? {
         ...contentDocumentRaw,
+        language: lang,
         profile:
           contentDocumentRaw.profile === 'general' && outline.contentProfile
             ? outline.contentProfile
@@ -2113,6 +2129,10 @@ async function generateSemanticSlideContent(
     : null;
   if (!contentDocument) {
     log.warn(`Semantic slide content parse failed for: ${outline.title}`);
+    return null;
+  }
+  if (hasUnexpectedCjkForLanguage(contentDocument, lang)) {
+    log.warn(`Semantic slide content language mismatch for: ${outline.title}`);
     return null;
   }
 
@@ -2182,7 +2202,10 @@ async function generateSlideContent(
   }
 
   // Build assigned images description for the prompt
-  let assignedImagesText = '无可用图片，禁止插入任何 image 元素';
+  let assignedImagesText =
+    lang === 'zh-CN'
+      ? '无可用图片，禁止插入任何 image 元素'
+      : 'No images are available. Do not create any image element.';
   let visionImages: Array<{ id: string; src: string }> | undefined;
 
   if (assignedImages && assignedImages.length > 0) {
@@ -2245,17 +2268,18 @@ async function generateSlideContent(
   const canvasWidth = 1000;
   const canvasHeight = 562.5;
 
-  const teacherContext = formatTeacherPersonaForPrompt(agents);
+  const teacherContext = formatTeacherPersonaForPrompt(agents, lang);
   const coursePersonalization = formatCoursePersonalizationForPrompt(courseContext, lang);
   const contentProfileContext = formatSceneContentProfileContext(outline, lang);
   const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
   const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
 
   const prompts = buildPrompt(PROMPT_IDS.SLIDE_CONTENT, {
+    language: lang,
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
-    elements: '（根据要点自动生成）',
+    elements: lang === 'zh-CN' ? '（根据要点自动生成）' : '(Generate automatically from the key points)',
     assignedImages: assignedImagesText,
     canvas_width: canvasWidth,
     canvas_height: canvasHeight,
@@ -2283,6 +2307,10 @@ async function generateSlideContent(
 
   if (!generatedData || !generatedData.elements || !Array.isArray(generatedData.elements)) {
     log.error(`Failed to parse AI response for: ${outline.title}`);
+    return null;
+  }
+  if (hasUnexpectedCjkForLanguage(generatedData, lang)) {
+    log.warn(`Slide content language mismatch for: ${outline.title}`);
     return null;
   }
 
@@ -2354,6 +2382,7 @@ async function generateQuizContent(
   aiCall: AICallFn,
   courseContext?: CoursePersonalizationContext,
 ): Promise<GeneratedQuizContent | null> {
+  const lang = outline.language || 'zh-CN';
   const quizConfig = outline.quizConfig || {
     questionCount: 3,
     difficulty: 'medium',
@@ -2361,16 +2390,14 @@ async function generateQuizContent(
   };
 
   const prompts = buildPrompt(PROMPT_IDS.QUIZ_CONTENT, {
+    language: lang,
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
     questionCount: quizConfig.questionCount,
     difficulty: quizConfig.difficulty,
     questionTypes: quizConfig.questionTypes.join(', '),
-    coursePersonalization: formatCoursePersonalizationForPrompt(
-      courseContext,
-      outline.language || 'zh-CN',
-    ),
+    coursePersonalization: formatCoursePersonalizationForPrompt(courseContext, lang),
   });
 
   if (!prompts) {
@@ -2383,6 +2410,10 @@ async function generateQuizContent(
 
   if (!generatedQuestions || !Array.isArray(generatedQuestions)) {
     log.error(`Failed to parse AI response for: ${outline.title}`);
+    return null;
+  }
+  if (hasUnexpectedCjkForLanguage(generatedQuestions, lang)) {
+    log.warn(`Quiz content language mismatch for: ${outline.title}`);
     return null;
   }
 
@@ -2645,6 +2676,7 @@ async function generateInteractiveContent(
   let scientificModel: ScientificModel | undefined;
   try {
     const modelPrompts = buildPrompt(PROMPT_IDS.INTERACTIVE_SCIENTIFIC_MODEL, {
+      language,
       subject: config.subject || '',
       conceptName: config.conceptName,
       conceptOverview: config.conceptOverview,
@@ -2715,6 +2747,10 @@ async function generateInteractiveContent(
 
   // Step 3: Post-process HTML (LaTeX delimiter conversion + KaTeX injection)
   const processedHtml = postProcessInteractiveHtml(rawHtml);
+  if (hasUnexpectedCjkForLanguage(processedHtml, language)) {
+    log.warn(`Interactive content language mismatch for: ${outline.title}`);
+    return null;
+  }
   log.info(`Post-processed HTML (${processedHtml.length} chars) for: ${outline.title}`);
 
   return {
@@ -2823,9 +2859,10 @@ export async function generateSceneActions(
   coursePersonalization?: CoursePersonalizationContext,
 ): Promise<Action[]> {
   const agentsText = formatAgentsForPrompt(agents);
+  const lang = outline.language || 'zh-CN';
   const personalizationText = formatCoursePersonalizationForPrompt(
     coursePersonalization,
-    outline.language || 'zh-CN',
+    lang,
   );
   const mergedCourseContext = [buildCourseContext(ctx), personalizationText]
     .filter(Boolean)
@@ -2836,10 +2873,11 @@ export async function generateSceneActions(
     const elementsText = formatElementsForPrompt(content.elements);
     const workedExampleContext = formatWorkedExampleForPrompt(
       outline.workedExampleConfig,
-      outline.language || 'zh-CN',
+      lang,
     );
 
     const prompts = buildPrompt(PROMPT_IDS.SLIDE_ACTIONS, {
+      language: lang,
       title: outline.title,
       keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
       description: outline.description,
@@ -2858,6 +2896,10 @@ export async function generateSceneActions(
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
+      if (hasUnexpectedCjkForLanguage(actions, lang)) {
+        log.warn(`Slide actions language mismatch for: ${outline.title}`);
+        return generateDefaultSlideActions(outline, content.elements);
+      }
       // Validate and fill in Action IDs
       return processActions(actions, content.elements, agents);
     }
@@ -2870,6 +2912,7 @@ export async function generateSceneActions(
     const questionsText = formatQuestionsForPrompt(content.questions);
 
     const prompts = buildPrompt(PROMPT_IDS.QUIZ_ACTIONS, {
+      language: lang,
       title: outline.title,
       keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
       description: outline.description,
@@ -2886,6 +2929,10 @@ export async function generateSceneActions(
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
+      if (hasUnexpectedCjkForLanguage(actions, lang)) {
+        log.warn(`Quiz actions language mismatch for: ${outline.title}`);
+        return generateDefaultQuizActions(outline);
+      }
       return processActions(actions, [], agents);
     }
 
@@ -2896,6 +2943,7 @@ export async function generateSceneActions(
     const config = outline.interactiveConfig;
     const agentsText = formatAgentsForPrompt(agents);
     const prompts = buildPrompt(PROMPT_IDS.INTERACTIVE_ACTIONS, {
+      language: lang,
       title: outline.title,
       keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
       description: outline.description,
@@ -2913,6 +2961,10 @@ export async function generateSceneActions(
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
+      if (hasUnexpectedCjkForLanguage(actions, lang)) {
+        log.warn(`Interactive actions language mismatch for: ${outline.title}`);
+        return generateDefaultInteractiveActions(outline);
+      }
       return processActions(actions, [], agents);
     }
 
@@ -2923,6 +2975,7 @@ export async function generateSceneActions(
     const pblConfig = outline.pblConfig;
     const agentsText = formatAgentsForPrompt(agents);
     const prompts = buildPrompt(PROMPT_IDS.PBL_ACTIONS, {
+      language: lang,
       title: outline.title,
       keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
       description: outline.description,
@@ -2980,13 +3033,17 @@ export function buildFallbackSceneActions(
 /**
  * Generate default PBL Actions (fallback)
  */
-function generateDefaultPBLActions(_outline: SceneOutline): Action[] {
+function generateDefaultPBLActions(outline: SceneOutline): Action[] {
+  const lang = outline.language || 'zh-CN';
   return [
     {
       id: `action_${nanoid(8)}`,
       type: 'speech',
-      title: 'PBL 项目介绍',
-      text: '现在让我们开始一个项目式学习活动。请选择你的角色，查看任务看板，开始协作完成项目。',
+      title: lang === 'zh-CN' ? 'PBL 项目介绍' : 'PBL project introduction',
+      text:
+        lang === 'zh-CN'
+          ? '现在让我们开始一个项目式学习活动。请选择你的角色，查看任务看板，开始协作完成项目。'
+          : 'Let us begin a project-based learning activity. Choose your role, review the task board, and start collaborating on the project.',
     },
   ];
 }
@@ -3137,6 +3194,7 @@ function generateDefaultSlideActions(outline: SceneOutline, elements: PPTElement
   }
 
   const actions: Action[] = [];
+  const lang = outline.language || 'zh-CN';
 
   // Add spotlight for text elements
   const textElements = elements.filter((el) => el.type === 'text');
@@ -3144,19 +3202,21 @@ function generateDefaultSlideActions(outline: SceneOutline, elements: PPTElement
     actions.push({
       id: `action_${nanoid(8)}`,
       type: 'spotlight',
-      title: '聚焦重点',
+      title: lang === 'zh-CN' ? '聚焦重点' : 'Focus key point',
       elementId: textElements[0].id,
     });
   }
 
   // Add opening speech based on key points
   const speechText = outline.keyPoints?.length
-    ? outline.keyPoints.join('。') + '。'
+    ? lang === 'zh-CN'
+      ? outline.keyPoints.join('。') + '。'
+      : `${outline.keyPoints.join('. ')}.`
     : outline.description || outline.title;
   actions.push({
     id: `action_${nanoid(8)}`,
     type: 'speech',
-    title: '场景讲解',
+    title: lang === 'zh-CN' ? '场景讲解' : 'Scene explanation',
     text: speechText,
   });
 
@@ -3166,13 +3226,17 @@ function generateDefaultSlideActions(outline: SceneOutline, elements: PPTElement
 /**
  * Generate default quiz Actions (fallback)
  */
-function generateDefaultQuizActions(_outline: SceneOutline): Action[] {
+function generateDefaultQuizActions(outline: SceneOutline): Action[] {
+  const lang = outline.language || 'zh-CN';
   return [
     {
       id: `action_${nanoid(8)}`,
       type: 'speech',
-      title: '测验引导',
-      text: '现在让我们来做一个小测验，检验一下学习成果。',
+      title: lang === 'zh-CN' ? '测验引导' : 'Quiz introduction',
+      text:
+        lang === 'zh-CN'
+          ? '现在让我们来做一个小测验，检验一下学习成果。'
+          : 'Let us do a short quiz to check what we have learned.',
     },
   ];
 }
@@ -3180,13 +3244,17 @@ function generateDefaultQuizActions(_outline: SceneOutline): Action[] {
 /**
  * Generate default interactive Actions (fallback)
  */
-function generateDefaultInteractiveActions(_outline: SceneOutline): Action[] {
+function generateDefaultInteractiveActions(outline: SceneOutline): Action[] {
+  const lang = outline.language || 'zh-CN';
   return [
     {
       id: `action_${nanoid(8)}`,
       type: 'speech',
-      title: '交互引导',
-      text: '现在让我们通过交互式可视化来探索这个概念。请尝试操作页面中的元素，观察变化。',
+      title: lang === 'zh-CN' ? '交互引导' : 'Interactive introduction',
+      text:
+        lang === 'zh-CN'
+          ? '现在让我们通过交互式可视化来探索这个概念。请尝试操作页面中的元素，观察变化。'
+          : 'Let us explore this concept through an interactive visualization. Try manipulating the on-screen elements and observe what changes.',
     },
   ];
 }

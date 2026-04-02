@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Build teacher context from agents (if available)
-    const teacherContext = formatTeacherPersonaForPrompt(agents);
+    const teacherContext = formatTeacherPersonaForPrompt(agents, requirements.language);
     const userProfile =
       requirements.userNickname || requirements.userBio
         ? `## Student Profile\n\nStudent: ${requirements.userNickname || 'Unknown'}${requirements.userBio ? ` — ${requirements.userBio}` : ''}\n\nConsider this student's background when designing the course. Adapt difficulty, examples, and teaching approach accordingly.\n\n---`
@@ -400,7 +400,11 @@ export async function POST(req: NextRequest) {
                 messages: [
                   {
                     role: 'user' as const,
-                    content: buildVisionUserContent(prompts.user, visionImages),
+                    content: buildVisionUserContent(
+                      prompts.user,
+                      visionImages,
+                      requirements.language,
+                    ),
                   },
                 ],
                 maxOutputTokens: modelInfo?.outputWindow,

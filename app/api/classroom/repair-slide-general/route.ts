@@ -11,6 +11,7 @@ import {
   computeSegmentReuseRatio,
   estimateDocumentSignal,
   getDocumentComparableSegments,
+  repairOutputHasUnexpectedCjk,
   looksLikeCodeSnippet,
   normalizeCompactText,
   normalizeRepairConversation,
@@ -413,6 +414,9 @@ Requirements:
 - Do not remove important explanations, comparisons, tables, examples, hints, or takeaways. If unsure, keep them.
 - Prefer minimal edits to the existing blocks instead of rewriting the whole page.
 - Keep the original block order and roughly the same number of blocks whenever possible.
+- All visible teaching text in sceneTitle, assistantReply, and document blocks must be in English.
+- If the source document is in Chinese or mixed-language, preserve its meaning and structure but rewrite the final visible content into English.
+- Do not leave Chinese text in headings, bullets, tables, callouts, examples, captions, or summaries unless it is an unavoidable proper noun from the source material.
 - If the teacher asks for more explanation, clearer hierarchy, or better examples, make a visible content-level improvement rather than superficial rewording.
 - If the teacher hints that this slide really needs another page, still strengthen the current page first instead of ignoring the request.
 - Prefer general structure blocks such as heading, paragraph, bullet_list, table, callout, and example.
@@ -465,6 +469,9 @@ function buildUserPrompt(args: {
   return [
     `Language: ${args.language}`,
     `Current page title: ${args.sceneTitle}`,
+    args.language === 'en-US'
+      ? 'Important: the source document may currently be in Chinese. Preserve the meaning, but rewrite all final visible teaching content into English.'
+      : '重要：如果原页里夹杂其他语言，最终输出仍必须统一为中文。',
     args.repairInstructions?.trim()
       ? `Teacher instruction (highest priority): ${args.repairInstructions.trim()}`
       : 'Teacher instruction (highest priority): none',
@@ -559,8 +566,16 @@ export async function POST(req: NextRequest) {
         repairedDocument: document,
         intent: repairIntent,
       });
+      let languageMismatch = repairOutputHasUnexpectedCjk(
+        {
+          sceneTitle: parsed.sceneTitle,
+          assistantReply: parsed.assistantReply,
+          document,
+        },
+        language,
+      );
 
-      if (instructionIgnored) {
+      if (instructionIgnored || languageMismatch) {
         attempt = await runRepairAttempt({
           req,
           sceneTitle,
@@ -570,7 +585,9 @@ export async function POST(req: NextRequest) {
           repairInstructions: body.repairInstructions,
           repairConversation: body.repairConversation,
           retryReason:
-            language === 'zh-CN'
+            language === 'en-US' && languageMismatch
+              ? 'The previous attempt still contained Chinese text. Rewrite every visible title, heading, bullet, table cell, callout, example, and summary into English while preserving the original meaning.'
+              : language === 'zh-CN'
               ? '上一版几乎没有体现教师输入的修复要求，请显式补足解释、结构变化或示例支撑'
               : 'The previous attempt did not visibly follow the teacher instruction. Make the requested explanation, structure change, or example support explicit.',
           intent: repairIntent,
@@ -582,6 +599,14 @@ export async function POST(req: NextRequest) {
           repairedDocument: document,
           intent: repairIntent,
         });
+        languageMismatch = repairOutputHasUnexpectedCjk(
+          {
+            sceneTitle: parsed.sceneTitle,
+            assistantReply: parsed.assistantReply,
+            document,
+          },
+          language,
+        );
       }
 
       const sourceBlockCount = sourceDocument.blocks.length;
@@ -618,7 +643,8 @@ export async function POST(req: NextRequest) {
         placeholderCount > 0 ||
         (sourceSupportBlocks >= 2 &&
           repairedSupportBlocks < Math.max(2, sourceSupportBlocks - 1)) ||
-        instructionIgnored
+        instructionIgnored ||
+        languageMismatch
       ) {
         return apiError(
           'GENERATION_FAILED',
@@ -628,8 +654,12 @@ export async function POST(req: NextRequest) {
               ? repairIntent.hintsNeedAnotherPage
                 ? 'AI 本轮没有真正按你的要求补足内容；这类请求更像需要补页，已保留原页不做修改'
                 : 'AI 本轮没有真正按你的要求把这一页修到位，已保留原页不做修改'
+              : languageMismatch
+                ? 'AI 本轮输出仍混入了英文课堂不该出现的中文，已保留原页不做修改'
               : '修复结果疑似删掉了关键讲解内容，已保留原页不做修改'
-            : instructionIgnored
+            : languageMismatch
+              ? 'The repaired slide still contained Chinese text, so the original slide was kept'
+              : instructionIgnored
               ? repairIntent.hintsNeedAnotherPage
                 ? 'The request looked more like an add-a-page task, so the original slide was kept'
                 : 'The AI did not visibly follow your repair instruction, so the original slide was kept'

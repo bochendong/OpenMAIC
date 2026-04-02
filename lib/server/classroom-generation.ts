@@ -223,7 +223,7 @@ export async function generateClassroom(
   } else {
     agents = getDefaultAgents();
   }
-  const teacherContext = formatTeacherPersonaForPrompt(agents);
+  const teacherContext = formatTeacherPersonaForPrompt(agents, lang);
 
   await options.onProgress?.({
     step: 'researching',

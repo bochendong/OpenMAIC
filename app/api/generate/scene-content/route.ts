@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
               messages: [
                 {
                   role: 'user' as const,
-                  content: buildVisionUserContent(userPrompt, images),
+                  content: buildVisionUserContent(userPrompt, images, outline.language || 'zh-CN'),
                 },
               ],
               maxOutputTokens: modelInfo?.outputWindow,

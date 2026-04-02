@@ -8,7 +8,7 @@
  */
 
 // Types
-export type { PromptId, SnippetId, LoadedPrompt } from './types';
+export type { PromptId, SnippetId, LoadedPrompt, PromptLanguage } from './types';
 
 // Loader functions
 export {

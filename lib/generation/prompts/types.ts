@@ -17,6 +17,8 @@ export type PromptId =
   | 'interactive-actions'
   | 'pbl-actions';
 
+export type PromptLanguage = 'zh-CN' | 'en-US';
+
 /**
  * Snippet identifier
  */
@@ -27,6 +29,7 @@ export type SnippetId = 'json-output-rules' | 'element-types' | 'action-types';
  */
 export interface LoadedPrompt {
   id: PromptId;
+  language: PromptLanguage | 'generic';
   systemPrompt: string;
   userPromptTemplate: string;
 }

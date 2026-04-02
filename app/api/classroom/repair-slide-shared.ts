@@ -401,6 +401,17 @@ export function normalizeRepairConversation(
     .slice(-8);
 }
 
+const CJK_TEXT_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+export function repairOutputHasUnexpectedCjk(
+  value: unknown,
+  language: SlideRepairLanguage,
+): boolean {
+  if (language !== 'en-US') return false;
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return CJK_TEXT_REGEX.test(text);
+}
+
 export async function runSlideRepairAttempt(args: {
   req: NextRequest;
   system: string;
