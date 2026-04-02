@@ -534,6 +534,22 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
             removeGeneratingOutline(outline.id);
             store.getState().addScene(scene);
+            {
+              const nextState = store.getState();
+              log.info('[SceneGenerator] Scene committed to store', {
+                stageId: stage.id,
+                outlineId: outline.id,
+                outlineOrder: outline.order,
+                outlineTitle: outline.title,
+                displayedSceneCount: nextState.scenes.length,
+                displayedSceneOrders: nextState.scenes.map((item) => item.order),
+                pendingOutlineCount: nextState.generatingOutlines.length,
+                pageGenerationCompleted:
+                  nextState.outlines.length > 0 &&
+                  nextState.generatingOutlines.length === 0 &&
+                  nextState.scenes.length >= nextState.outlines.length,
+              });
+            }
             options.onSceneGenerated?.(scene, outline.order);
             previousSpeeches = actionsResult.previousSpeeches || [];
           } else {
@@ -552,6 +568,16 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         if (!abortRef.current && !pausedByFailureOrAbort) {
           store.getState().setGenerationStatus('completed');
           store.getState().setGeneratingOutlines([]);
+          {
+            const finalState = store.getState();
+            log.info('[SceneGenerator] Page generation completed', {
+              stageId: stage.id,
+              outlineCount: finalState.outlines.length,
+              displayedSceneCount: finalState.scenes.length,
+              displayedSceneOrders: finalState.scenes.map((scene) => scene.order),
+              pendingOutlineCount: finalState.generatingOutlines.length,
+            });
+          }
           options.onComplete?.();
         }
       } catch (err: unknown) {
@@ -678,6 +704,16 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
         removeGeneratingOutline();
         store.getState().addScene(actionsResult.scene);
+        {
+          const nextState = store.getState();
+          log.info('[SceneGenerator] Single outline retry committed scene', {
+            stageId: state.stage.id,
+            outlineId,
+            displayedSceneCount: nextState.scenes.length,
+            displayedSceneOrders: nextState.scenes.map((scene) => scene.order),
+            pendingOutlineCount: nextState.generatingOutlines.length,
+          });
+        }
 
         // Resume remaining generation if there are pending outlines
         if (store.getState().generatingOutlines.length > 0 && lastParamsRef.current) {

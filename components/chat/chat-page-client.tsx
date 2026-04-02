@@ -114,6 +114,9 @@ import {
   PDF_PAGE_SELECTION_MAX_BYTES,
   type PdfSourceSelection,
 } from '@/lib/pdf/page-selection';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('ChatPage');
 
 type NotebookChatMessage =
   | {
@@ -2658,6 +2661,13 @@ export function ChatPageClient() {
               workedExampleLevel: orchGen.workedExampleLevel ?? 'moderate',
             },
             onProgress: (progress) => {
+              log.info('[Orchestrator] Notebook generation progress', {
+                stage: progress.stage,
+                detail: progress.detail,
+                completed: 'completed' in progress ? progress.completed : undefined,
+                total: 'total' in progress ? progress.total : undefined,
+                notebookId: 'notebookId' in progress ? progress.notebookId : undefined,
+              });
               if (progress.stage === 'completed') {
                 return;
               }
@@ -2688,6 +2698,13 @@ export function ChatPageClient() {
               },
             ),
           );
+          log.info('[Orchestrator] Notebook generation task completed', {
+            notebookId: created.stage.id,
+            notebookName: created.stage.name,
+            outlineCount: created.outlines.length,
+            generatedSceneCount: created.scenes.length,
+            generatedSceneOrders: created.scenes.map((scene) => scene.order),
+          });
           if (courseId) {
             window.dispatchEvent(
               new CustomEvent('openmaic-notebook-list-updated', {

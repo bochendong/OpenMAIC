@@ -15,8 +15,23 @@ import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
+import type { SpeechAction } from '@/lib/types/action';
 
 const log = createLogger('Classroom');
+
+function summarizeSpeechProgress(scenes: Array<{ actions?: Array<{ type: string }> }>) {
+  const speechActions = scenes.flatMap(
+    (scene) =>
+      (scene.actions || []).filter(
+        (action): action is SpeechAction => action.type === 'speech',
+      ),
+  );
+  const speechReadyCount = speechActions.filter((action) => Boolean(action.audioUrl)).length;
+  return {
+    speechReadyCount,
+    speechMissingCount: Math.max(0, speechActions.length - speechReadyCount),
+  };
+}
 
 export default function ClassroomDetailPage() {
   const params = useParams();
@@ -24,6 +39,11 @@ export default function ClassroomDetailPage() {
 
   const { loadFromStorage } = useStageStore();
   const stage = useStageStore((s) => s.stage);
+  const scenes = useStageStore((s) => s.scenes);
+  const outlines = useStageStore((s) => s.outlines);
+  const generatingOutlines = useStageStore((s) => s.generatingOutlines);
+  const generationStatus = useStageStore((s) => s.generationStatus);
+  const currentSceneId = useStageStore((s) => s.currentSceneId);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +62,29 @@ export default function ClassroomDetailPage() {
     try {
       setLoadingSubtitle('正在从服务器加载笔记本与页面…');
       await loadFromStorage(classroomId);
+      {
+        const loadedState = useStageStore.getState();
+        const loadedOutlines = loadedState.outlines;
+        const loadedScenes = loadedState.scenes;
+        const loadedGeneratingOutlines = loadedState.generatingOutlines;
+        const { speechReadyCount, speechMissingCount } = summarizeSpeechProgress(loadedScenes);
+        log.info('[Classroom] Load summary after storage restore', {
+          classroomId,
+          stageId: loadedState.stage?.id ?? null,
+          outlineCount: loadedOutlines.length,
+          displayedSceneCount: loadedScenes.length,
+          displayedSceneOrders: loadedScenes.map((scene) => scene.order),
+          pendingOutlineCount: loadedGeneratingOutlines.length,
+          pageGenerationCompleted:
+            loadedOutlines.length > 0 &&
+            loadedGeneratingOutlines.length === 0 &&
+            loadedScenes.length >= loadedOutlines.length,
+          generationStatus: loadedState.generationStatus,
+          currentSceneId: loadedState.currentSceneId,
+          speechReadyCount,
+          speechMissingCount,
+        });
+      }
 
       // If IndexedDB had no data, try server-side storage (API-generated classrooms)
       if (!useStageStore.getState().stage) {
@@ -120,6 +163,39 @@ export default function ClassroomDetailPage() {
   }, [loading, classroomId]);
 
   useEffect(() => {
+    if (loading || error || !stage) return;
+    const { speechReadyCount, speechMissingCount } = summarizeSpeechProgress(scenes);
+    const pageGenerationCompleted =
+      outlines.length > 0 && generatingOutlines.length === 0 && scenes.length >= outlines.length;
+
+    log.info('[Classroom] Render state snapshot', {
+      classroomId,
+      stageId: stage.id,
+      stageName: stage.name,
+      outlineCount: outlines.length,
+      displayedSceneCount: scenes.length,
+      displayedSceneOrders: scenes.map((scene) => scene.order),
+      pendingOutlineCount: generatingOutlines.length,
+      pendingOutlineOrders: generatingOutlines.map((outline) => outline.order),
+      pageGenerationCompleted,
+      generationStatus,
+      currentSceneId,
+      speechReadyCount,
+      speechMissingCount,
+    });
+  }, [
+    classroomId,
+    currentSceneId,
+    error,
+    generationStatus,
+    generatingOutlines,
+    loading,
+    outlines,
+    scenes,
+    stage,
+  ]);
+
+  useEffect(() => {
     // Reset loading state on course switch to unmount Stage during transition,
     // preventing stale data from syncing back to the new course
     setLoading(true);
@@ -184,6 +260,14 @@ export default function ClassroomDetailPage() {
 
     if (hasPending && stage) {
       generationStartedRef.current = true;
+      log.info('[Classroom] Resuming remaining scene generation', {
+        classroomId,
+        stageId: stage.id,
+        outlineCount: outlines.length,
+        displayedSceneCount: scenes.length,
+        pendingOutlineCount: outlines.filter((o) => !completedOrders.has(o.order)).length,
+        pageGenerationCompleted: false,
+      });
 
       if (scenes.length === 0 && state.currentSceneId !== PENDING_SCENE_ID) {
         useStageStore.getState().setCurrentSceneId(PENDING_SCENE_ID);
@@ -218,11 +302,19 @@ export default function ClassroomDetailPage() {
       // Resume media generation for any tasks not yet in IndexedDB.
       // generateMediaForOutlines skips already-completed tasks automatically.
       generationStartedRef.current = true;
+      log.info('[Classroom] Page generation already complete; only media may remain', {
+        classroomId,
+        stageId: stage.id,
+        outlineCount: outlines.length,
+        displayedSceneCount: scenes.length,
+        pendingOutlineCount: 0,
+        pageGenerationCompleted: true,
+      });
       generateMediaForOutlines(outlines, stage.id).catch((err) => {
         log.warn('[Classroom] Media generation resume error:', err);
       });
     }
-  }, [loading, error, generateRemaining]);
+  }, [classroomId, loading, error, generateRemaining]);
 
   return (
     <ThemeProvider>
