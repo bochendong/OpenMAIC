@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +28,9 @@ import type {
   PPTLatexElement,
 } from '@/lib/types/slides';
 import { cn } from '@/lib/utils';
-import { ArrowUp, Loader2, X } from 'lucide-react';
+import { nanoid } from 'nanoid';
+import { ArrowUp, ImagePlus, Loader2, PlusSquare, Trash2, Upload, X } from 'lucide-react';
+import { toast } from 'sonner';
 
 function sectionTitle(title: string, description?: string) {
   return (
@@ -101,6 +103,127 @@ const COMMON_REWRITE_PROMPTS = [
   '把这一页重写得更像老师真正会上课展示的版本。',
 ] as const;
 
+const FONT_FAMILY_OPTIONS = [
+  'Microsoft YaHei',
+  'PingFang SC',
+  'Helvetica Neue',
+  'Arial',
+  'Georgia',
+  'Times New Roman',
+  'Menlo, Monaco, Consolas, monospace',
+] as const;
+
+const DEFAULT_TEXT_FONT = 'Microsoft YaHei';
+const DEFAULT_TEXT_FONT_SIZE = 24;
+const DEFAULT_TEXT_BOX_WIDTH = 360;
+const DEFAULT_TEXT_BOX_HEIGHT = 120;
+const DEFAULT_IMAGE_BOX_WIDTH = 360;
+const DEFAULT_IMAGE_BOX_HEIGHT = 220;
+
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
+function plainTextToParagraphHtml(text: string): string {
+  const lines = text.split('\n');
+  if (lines.length === 0) return '<p>&nbsp;</p>';
+  return lines.map((line) => `<p>${line ? escapeHtml(line) : '&nbsp;'}</p>`).join('');
+}
+
+function applyTypographyToHtml(
+  html: string,
+  typography: {
+    fontFamily?: string;
+    fontSizePx?: number;
+  },
+): string {
+  if (typeof document === 'undefined') return html;
+
+  const root = document.createElement('div');
+  root.innerHTML = html || '<p></p>';
+
+  const targets = root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre');
+  if (targets.length === 0) {
+    const paragraph = document.createElement('p');
+    paragraph.innerHTML = html || '&nbsp;';
+    root.innerHTML = '';
+    root.appendChild(paragraph);
+  }
+
+  root.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre').forEach((node) => {
+    const element = node as HTMLElement;
+    if (typography.fontFamily) {
+      element.style.fontFamily = typography.fontFamily;
+    }
+    if (typography.fontSizePx) {
+      element.style.fontSize = `${typography.fontSizePx}px`;
+    }
+  });
+
+  return root.innerHTML;
+}
+
+function extractFontSizeFromHtml(html: string, fallback = DEFAULT_TEXT_FONT_SIZE): number {
+  if (typeof document === 'undefined') return fallback;
+
+  const root = document.createElement('div');
+  root.innerHTML = html;
+  const firstTextBlock = root.querySelector('p, li, h1, h2, h3, h4, h5, h6, blockquote, pre');
+  const rawSize = firstTextBlock instanceof HTMLElement ? firstTextBlock.style.fontSize : '';
+  const parsed = Number.parseInt(rawSize || '', 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function fitSizeWithinBox(
+  naturalWidth: number,
+  naturalHeight: number,
+  maxWidth: number,
+  maxHeight: number,
+) {
+  if (naturalWidth <= 0 || naturalHeight <= 0) {
+    return { width: maxWidth, height: maxHeight };
+  }
+
+  const scale = Math.min(maxWidth / naturalWidth, maxHeight / naturalHeight, 1);
+  return {
+    width: Math.max(120, Math.round(naturalWidth * scale)),
+    height: Math.max(90, Math.round(naturalHeight * scale)),
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('读取图片失败'));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function measureImageSize(src: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const image = new window.Image();
+    image.onload = () => {
+      resolve({
+        width: image.naturalWidth || DEFAULT_IMAGE_BOX_WIDTH,
+        height: image.naturalHeight || DEFAULT_IMAGE_BOX_HEIGHT,
+      });
+    };
+    image.onerror = () => reject(new Error('无法加载图片，请检查地址或文件内容'));
+    image.src = src;
+  });
+}
+
 function colorInput(value: string | undefined, onChange: (next: string) => void) {
   return (
     <div className="space-y-2">
@@ -165,16 +288,25 @@ export function SlideElementInspector({
 }: SlideElementInspectorProps) {
   const elements = useSceneSelector<SlideContent, PPTElement[]>((content) => content.canvas.elements);
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
-  const { updateElement } = useCanvasOperations();
+  const viewportSize = useCanvasStore.use.viewportSize();
+  const viewportRatio = useCanvasStore.use.viewportRatio();
+  const { addElement, updateElement, deleteElement } = useCanvasOperations();
   const { addHistorySnapshot } = useHistorySnapshot();
   const repairInputRef = useRef<HTMLTextAreaElement | null>(null);
   const repairConversationRef = useRef<HTMLDivElement | null>(null);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [newTextContent, setNewTextContent] = useState('请输入文本');
+  const [newTextFontFamily, setNewTextFontFamily] = useState<string>(DEFAULT_TEXT_FONT);
+  const [newTextFontSize, setNewTextFontSize] = useState<number>(DEFAULT_TEXT_FONT_SIZE);
+  const [newImageUrl, setNewImageUrl] = useState('');
+  const [addingImage, setAddingImage] = useState(false);
 
   const selectedElements = useMemo(
     () => elements.filter((element) => activeElementIdList.includes(element.id)),
     [elements, activeElementIdList],
   );
   const selectedElement = selectedElements.length === 1 ? selectedElements[0] : null;
+  const hasSelection = selectedElements.length > 0;
 
   useEffect(() => {
     if (!repairInputFocusNonce) return;
@@ -207,6 +339,152 @@ export function SlideElementInspector({
       updateCurrentElement({ [prop]: next } as Partial<PPTElement>);
     },
     [updateCurrentElement],
+  );
+
+  const handleDeleteSelected = useCallback(() => {
+    if (!hasSelection) return;
+    deleteElement();
+  }, [deleteElement, hasSelection]);
+
+  const getNextInsertPosition = useCallback(
+    (width: number, height: number) => {
+      const viewportWidth = viewportSize;
+      const viewportHeight = viewportSize * viewportRatio;
+      const maxLeft = Math.max(0, viewportWidth - width);
+      const maxTop = Math.max(0, viewportHeight - height);
+
+      if (selectedElement) {
+        return {
+          left: Math.min(maxLeft, selectedElement.left + 24),
+          top: Math.min(maxTop, selectedElement.top + 24),
+        };
+      }
+
+      const offsetSeed = elements.length % 5;
+      return {
+        left: Math.max(0, Math.round((viewportWidth - width) / 2) + offsetSeed * 12),
+        top: Math.max(48, Math.round((viewportHeight - height) / 2) - 40 + offsetSeed * 12),
+      };
+    },
+    [elements.length, selectedElement, viewportRatio, viewportSize],
+  );
+
+  const getNextElementName = useCallback(
+    (type: PPTElement['type']) => {
+      const count = elements.filter((element) => element.type === type).length + 1;
+      return `${getElementTypeLabel(type)} ${count}`;
+    },
+    [elements],
+  );
+
+  const handleAddTextElement = useCallback(() => {
+    const trimmedContent = newTextContent.trim() || '请输入文本';
+    const fontSize = Number.isFinite(newTextFontSize) ? Math.max(12, newTextFontSize) : 24;
+    const contentHtml = applyTypographyToHtml(
+      plainTextToParagraphHtml(trimmedContent),
+      { fontSizePx: fontSize, fontFamily: newTextFontFamily },
+    );
+    const { left, top } = getNextInsertPosition(DEFAULT_TEXT_BOX_WIDTH, DEFAULT_TEXT_BOX_HEIGHT);
+
+    addElement({
+      id: `text_${nanoid(8)}`,
+      type: 'text',
+      name: getNextElementName('text'),
+      left,
+      top,
+      width: DEFAULT_TEXT_BOX_WIDTH,
+      height: DEFAULT_TEXT_BOX_HEIGHT,
+      rotate: 0,
+      content: contentHtml,
+      defaultFontName: newTextFontFamily,
+      defaultColor: '#0f172a',
+      textType: 'content',
+      fill: 'transparent',
+      lineHeight: 1.5,
+      paragraphSpace: 5,
+    });
+    void addHistorySnapshot();
+  }, [
+    addElement,
+    addHistorySnapshot,
+    getNextElementName,
+    getNextInsertPosition,
+    newTextContent,
+    newTextFontFamily,
+    newTextFontSize,
+  ]);
+
+  const insertImageElement = useCallback(
+    async (src: string) => {
+      setAddingImage(true);
+      try {
+        const viewportWidth = viewportSize;
+        const viewportHeight = viewportSize * viewportRatio;
+        const naturalSize = await measureImageSize(src);
+        const fittedSize = fitSizeWithinBox(
+          naturalSize.width,
+          naturalSize.height,
+          Math.min(DEFAULT_IMAGE_BOX_WIDTH, Math.round(viewportWidth * 0.48)),
+          Math.min(DEFAULT_IMAGE_BOX_HEIGHT, Math.round(viewportHeight * 0.42)),
+        );
+        const { left, top } = getNextInsertPosition(fittedSize.width, fittedSize.height);
+
+        addElement({
+          id: `image_${nanoid(8)}`,
+          type: 'image',
+          name: getNextElementName('image'),
+          left,
+          top,
+          width: fittedSize.width,
+          height: fittedSize.height,
+          rotate: 0,
+          fixedRatio: true,
+          src,
+          imageType: 'itemFigure',
+          radius: 16,
+        });
+        void addHistorySnapshot();
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '添加图片失败');
+      } finally {
+        setAddingImage(false);
+      }
+    },
+    [
+      addElement,
+      addHistorySnapshot,
+      getNextElementName,
+      getNextInsertPosition,
+      viewportRatio,
+      viewportSize,
+    ],
+  );
+
+  const handleAddImageFromUrl = useCallback(async () => {
+    const src = newImageUrl.trim();
+    if (!src) {
+      toast.error('请先输入图片地址');
+      return;
+    }
+    await insertImageElement(src);
+    setNewImageUrl('');
+  }, [insertImageElement, newImageUrl]);
+
+  const handleImageFileChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const src = await readFileAsDataUrl(file);
+        await insertImageElement(src);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '添加图片失败');
+      } finally {
+        event.target.value = '';
+      }
+    },
+    [insertImageElement],
   );
 
   const renderCommonGeometry = (element: PPTElement) => (
@@ -297,6 +575,45 @@ export function SlideElementInspector({
         />
       </div>
       <div className="space-y-1.5">
+        {fieldLabel('默认字体')}
+        <select
+          value={element.defaultFontName || DEFAULT_TEXT_FONT}
+          onChange={(e) =>
+            updateCurrentElement(
+              {
+                defaultFontName: e.target.value,
+                content: applyTypographyToHtml(element.content, { fontFamily: e.target.value }),
+              },
+              true,
+            )
+          }
+          className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+        >
+          {FONT_FAMILY_OPTIONS.map((fontFamily) => (
+            <option key={fontFamily} value={fontFamily}>
+              {fontFamily}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="space-y-1.5">
+        {fieldLabel('字号')}
+        <Input
+          type="number"
+          min={12}
+          max={96}
+          value={extractFontSizeFromHtml(element.content)}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (!Number.isFinite(next)) return;
+            updateCurrentElement({
+              content: applyTypographyToHtml(element.content, { fontSizePx: next }),
+            });
+          }}
+          onBlur={() => void addHistorySnapshot()}
+        />
+      </div>
+      <div className="space-y-1.5">
         {fieldLabel('默认文字颜色')}
         {colorInput(element.defaultColor, (next) => updateCurrentElement({ defaultColor: next }))}
       </div>
@@ -349,6 +666,53 @@ export function SlideElementInspector({
                     },
                   });
                   if (!ignore) void addHistorySnapshot();
+                }}
+                onBlur={() => void addHistorySnapshot()}
+              />
+            </div>
+            <div className="space-y-1.5">
+              {fieldLabel('默认字体')}
+              <select
+                value={text.defaultFontName || DEFAULT_TEXT_FONT}
+                onChange={(e) =>
+                  updateCurrentElement(
+                    {
+                      text: {
+                        ...text,
+                        defaultFontName: e.target.value,
+                        content: applyTypographyToHtml(text.content, {
+                          fontFamily: e.target.value,
+                        }),
+                      },
+                    },
+                    true,
+                  )
+                }
+                className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+              >
+                {FONT_FAMILY_OPTIONS.map((fontFamily) => (
+                  <option key={fontFamily} value={fontFamily}>
+                    {fontFamily}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              {fieldLabel('字号')}
+              <Input
+                type="number"
+                min={12}
+                max={96}
+                value={extractFontSizeFromHtml(text.content)}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (!Number.isFinite(next)) return;
+                  updateCurrentElement({
+                    text: {
+                      ...text,
+                      content: applyTypographyToHtml(text.content, { fontSizePx: next }),
+                    },
+                  });
                 }}
                 onBlur={() => void addHistorySnapshot()}
               />
@@ -823,6 +1187,104 @@ export function SlideElementInspector({
 
             <TabsContent value="manual" className="mt-4 space-y-6">
               <section className="space-y-4">
+                {sectionTitle('快速添加组件', '可以直接插入文本或图片，插入后会自动选中，方便继续编辑。')}
+                <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+                  <div className="grid gap-4">
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+                        <PlusSquare className="size-4" />
+                        添加文本
+                      </div>
+                      <Textarea
+                        value={newTextContent}
+                        onChange={(e) => setNewTextContent(e.target.value)}
+                        className="min-h-[88px]"
+                        placeholder="输入新文本组件的默认内容"
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          {fieldLabel('字体')}
+                          <select
+                            value={newTextFontFamily}
+                            onChange={(e) => setNewTextFontFamily(e.target.value)}
+                            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 text-sm shadow-sm dark:border-white/10 dark:bg-white/[0.04]"
+                          >
+                            {FONT_FAMILY_OPTIONS.map((fontFamily) => (
+                              <option key={fontFamily} value={fontFamily}>
+                                {fontFamily}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-1.5">
+                          {fieldLabel('字号')}
+                          <Input
+                            type="number"
+                            min={12}
+                            max={96}
+                            value={newTextFontSize}
+                            onChange={(e) => {
+                              const next = Number(e.target.value);
+                              if (!Number.isFinite(next)) return;
+                              setNewTextFontSize(next);
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <Button type="button" variant="outline" onClick={handleAddTextElement}>
+                        <PlusSquare className="size-4" />
+                        添加文本组件
+                      </Button>
+                    </div>
+
+                    <div className="h-px bg-slate-200/80 dark:bg-white/10" />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+                        <ImagePlus className="size-4" />
+                        添加图片
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => imageFileInputRef.current?.click()}
+                          disabled={addingImage}
+                        >
+                          <Upload className="size-4" />
+                          {addingImage ? '处理中…' : '上传本地图片'}
+                        </Button>
+                        <input
+                          ref={imageFileInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleImageFileChange}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        {fieldLabel('图片地址')}
+                        <Input
+                          value={newImageUrl}
+                          onChange={(e) => setNewImageUrl(e.target.value)}
+                          placeholder="https://example.com/image.png"
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleAddImageFromUrl()}
+                        disabled={addingImage}
+                      >
+                        <ImagePlus className="size-4" />
+                        {addingImage ? '处理中…' : '通过地址添加图片'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-4">
                 {selectedElement ? (
                   <>
                     <div className="space-y-1">
@@ -836,9 +1298,19 @@ export function SlideElementInspector({
                         <Badge variant="outline" className="text-[10px]">
                           {getElementTypeLabel(selectedElement.type)}
                         </Badge>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleDeleteSelected}
+                          className="ml-auto"
+                        >
+                          <Trash2 className="size-4" />
+                          删除组件
+                        </Button>
                       </div>
                       <p className="text-xs text-slate-500 dark:text-slate-400">
-                        当前选中了 1 个组件。内容修改会直接同步到左侧页面。
+                        当前选中了 1 个组件。内容修改会直接同步到左侧页面，按 `Delete` 也可以直接删除。
                       </p>
                     </div>
 
@@ -850,8 +1322,14 @@ export function SlideElementInspector({
                     {renderElementEditor(selectedElement)}
                   </>
                 ) : selectedElements.length > 1 ? (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                    当前选中了 {selectedElements.length} 个组件。右侧暂时先支持单个组件的内容与属性编辑，请在左侧画布里单选一个元素。
+                  <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                    <p>
+                      当前选中了 {selectedElements.length} 个组件。右侧暂时先支持单个组件的内容与属性编辑，请在左侧画布里单选一个元素。
+                    </p>
+                    <Button type="button" variant="destructive" size="sm" onClick={handleDeleteSelected}>
+                      <Trash2 className="size-4" />
+                      删除所选组件
+                    </Button>
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">

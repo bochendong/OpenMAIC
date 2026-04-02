@@ -1,4 +1,5 @@
 import katex from 'katex';
+import { getDirectUnicodeMathSymbol, normalizeLatexSource } from '@/lib/latex-utils';
 
 function escapeHtml(text: string): string {
   return text
@@ -10,10 +11,6 @@ function escapeHtml(text: string): string {
 
 function normalizeDelimiterEscapes(text: string): string {
   return text.replace(/\\\\(?=[()[\]])/g, '\\');
-}
-
-function normalizeMathSource(text: string): string {
-  return text.replace(/\\\\/g, '\\').trim();
 }
 
 function looksLikeMathText(text: string): boolean {
@@ -77,8 +74,14 @@ function repairSplitMathAcrossParagraphs(html: string): string {
 }
 
 function renderMathFragment(raw: string, displayMode: boolean): string {
-  const latex = normalizeMathSource(raw);
+  const latex = normalizeLatexSource(raw);
   if (!latex) return '';
+
+  const directSymbol = getDirectUnicodeMathSymbol(latex);
+  if (directSymbol) {
+    if (!displayMode) return directSymbol;
+    return `<span style="display:block;text-align:center;margin:0.2em 0;">${directSymbol}</span>`;
+  }
 
   const rendered = katex.renderToString(latex, {
     throwOnError: false,

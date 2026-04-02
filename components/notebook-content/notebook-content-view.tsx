@@ -2,7 +2,9 @@
 
 import katex from 'katex';
 import { memo } from 'react';
+import type { BundledLanguage } from 'shiki';
 import { cn } from '@/lib/utils';
+import { getDirectUnicodeMathSymbol, normalizeLatexSource } from '@/lib/latex-utils';
 import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-block';
 import type { NotebookContentDocument } from '@/lib/notebook-content';
 import { chemistryTextToHtml } from '@/lib/notebook-content';
@@ -14,12 +16,16 @@ interface NotebookContentViewProps {
 }
 
 function FormulaBlock({ latex, display = true }: { latex: string; display?: boolean }) {
-  const html = katex.renderToString(latex, {
-    displayMode: display,
-    throwOnError: false,
-    output: 'html',
-    strict: 'ignore',
-  });
+  const normalizedLatex = normalizeLatexSource(latex);
+  const directSymbol = getDirectUnicodeMathSymbol(normalizedLatex);
+  const html =
+    directSymbol ??
+    katex.renderToString(normalizedLatex, {
+      displayMode: display,
+      throwOnError: false,
+      output: 'html',
+      strict: 'ignore',
+    });
   return <div className="[&_.katex-display]:my-1" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
@@ -119,61 +125,68 @@ export const NotebookContentView = memo(function NotebookContentView({
               </div>
             );
           case 'code_block':
-            return (
-              <div key={index} className="space-y-2">
-                {block.caption ? (
-                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
-                ) : null}
-                <CodeBlock code={block.code} language={(block.language || 'text') as any}>
-                  <CodeBlockCopyButton />
-                </CodeBlock>
-              </div>
-            );
-          case 'code_walkthrough':
-            return (
-              <div
-                key={index}
-                className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
-              >
-                {block.title ? (
-                  <p className="text-sm font-semibold text-foreground">{block.title}</p>
-                ) : null}
-                {block.caption ? (
-                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
-                ) : null}
-                <CodeBlock code={block.code} language={(block.language || 'text') as any}>
-                  <CodeBlockCopyButton />
-                </CodeBlock>
-                <div className="space-y-2">
-                  {block.steps.map((step, stepIdx) => (
-                    <div
-                      key={stepIdx}
-                      className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {document.language === 'en-US'
-                          ? `Step ${stepIdx + 1}`
-                          : `步骤 ${stepIdx + 1}`}
-                        {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                        {step.explanation}
-                      </p>
-                    </div>
-                  ))}
+            {
+              const codeLanguage = (block.language || 'text') as BundledLanguage;
+              return (
+                <div key={index} className="space-y-2">
+                  {block.caption ? (
+                    <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                  ) : null}
+                  <CodeBlock code={block.code} language={codeLanguage}>
+                    <CodeBlockCopyButton />
+                  </CodeBlock>
                 </div>
-                {block.output ? (
+              );
+            }
+          case 'code_walkthrough':
+            {
+              const codeLanguage = (block.language || 'text') as BundledLanguage;
+              const outputLanguage = 'text' as BundledLanguage;
+              return (
+                <div
+                  key={index}
+                  className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
+                >
+                  {block.title ? (
+                    <p className="text-sm font-semibold text-foreground">{block.title}</p>
+                  ) : null}
+                  {block.caption ? (
+                    <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                  ) : null}
+                  <CodeBlock code={block.code} language={codeLanguage}>
+                    <CodeBlockCopyButton />
+                  </CodeBlock>
                   <div className="space-y-2">
-                    <p className="text-xs font-medium text-muted-foreground">
-                      {document.language === 'en-US' ? 'Output' : '输出'}
-                    </p>
-                    <CodeBlock code={block.output} language={'plaintext' as any}>
-                      <CodeBlockCopyButton />
-                    </CodeBlock>
+                    {block.steps.map((step, stepIdx) => (
+                      <div
+                        key={stepIdx}
+                        className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          {document.language === 'en-US'
+                            ? `Step ${stepIdx + 1}`
+                            : `步骤 ${stepIdx + 1}`}
+                          {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
+                          {step.explanation}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ) : null}
-              </div>
-            );
+                  {block.output ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        {document.language === 'en-US' ? 'Output' : '输出'}
+                      </p>
+                      <CodeBlock code={block.output} language={outputLanguage}>
+                        <CodeBlockCopyButton />
+                      </CodeBlock>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            }
           case 'table': {
             const headers =
               block.headers && block.headers.length > 0

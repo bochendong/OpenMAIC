@@ -9,6 +9,7 @@ import type {
   Slide,
   TableCell,
 } from '@/lib/types/slides';
+import { getDirectUnicodeMathSymbol, normalizeLatexSource } from '@/lib/latex-utils';
 import type {
   NotebookContentBlock,
   NotebookContentDocument,
@@ -115,15 +116,18 @@ function renderInlineLatexToHtml(text: string): string {
     const fullMatch = match[0];
     const start = match.index ?? 0;
     const end = start + fullMatch.length;
-    const expression = match[2] ?? match[3] ?? match[4] ?? '';
+    const expression = normalizeLatexSource(match[2] ?? match[3] ?? match[4] ?? '');
 
     result += escapeHtml(text.slice(lastIndex, start));
-    result += katex.renderToString(expression.trim(), {
-      displayMode: false,
-      throwOnError: false,
-      output: 'html',
-      strict: 'ignore',
-    });
+    const directSymbol = getDirectUnicodeMathSymbol(expression);
+    result +=
+      directSymbol ??
+      katex.renderToString(expression, {
+        displayMode: false,
+        throwOnError: false,
+        output: 'html',
+        strict: 'ignore',
+      });
     lastIndex = end;
   }
 
@@ -254,6 +258,9 @@ function createLatexElement(args: {
   height: number;
   align?: PPTLatexElement['align'];
 }): PPTLatexElement {
+  const latex = normalizeLatexSource(args.latex);
+  const directSymbol = getDirectUnicodeMathSymbol(latex);
+
   return {
     id: `latex_${nanoid(8)}`,
     type: 'latex',
@@ -262,13 +269,15 @@ function createLatexElement(args: {
     width: args.width,
     height: args.height,
     rotate: 0,
-    latex: args.latex,
-    html: katex.renderToString(args.latex, {
-      displayMode: true,
-      throwOnError: false,
-      output: 'html',
-      strict: 'ignore',
-    }),
+    latex,
+    html:
+      directSymbol ??
+      katex.renderToString(latex, {
+        displayMode: true,
+        throwOnError: false,
+        output: 'html',
+        strict: 'ignore',
+      }),
     align: args.align || 'left',
   };
 }

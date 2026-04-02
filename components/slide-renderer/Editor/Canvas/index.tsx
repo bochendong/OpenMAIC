@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
+import { KEYS } from '@/configs/hotkey';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSceneSelector } from '@/lib/contexts/scene-context';
 import { useKeyboardStore } from '@/lib/store/keyboard';
@@ -76,6 +77,8 @@ export function Canvas(_props: CanvasProps) {
   const hiddenElementIdList = useCanvasStore.use.hiddenElementIdList();
   const creatingElement = useCanvasStore.use.creatingElement();
   const creatingCustomShape = useCanvasStore.use.creatingCustomShape();
+  const clipingImageElementId = useCanvasStore.use.clipingImageElementId();
+  const disableHotkeys = useCanvasStore.use.disableHotkeys();
   const showRuler = useCanvasStore.use.showRuler();
   const gridLineSize = useCanvasStore.use.gridLineSize();
   const setActiveElementIdList = useCanvasStore.use.setActiveElementIdList();
@@ -171,7 +174,40 @@ export function Canvas(_props: CanvasProps) {
     setLinkDialogVisible(true);
   };
 
-  const { pasteElement, selectAllElements, deleteAllElements } = useCanvasOperations();
+  const { pasteElement, selectAllElements, deleteAllElements, deleteElement } = useCanvasOperations();
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = event.key.toUpperCase();
+      const isDeleteKey = key === KEYS.DELETE || key === KEYS.BACKSPACE;
+
+      if (!isDeleteKey) return;
+      if (disableHotkeys || clipingImageElementId || !activeElementIdList.length) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName;
+        if (
+          tagName === 'INPUT' ||
+          tagName === 'TEXTAREA' ||
+          tagName === 'SELECT' ||
+          target.isContentEditable ||
+          target.closest('[contenteditable="true"]')
+        ) {
+          return;
+        }
+      }
+
+      event.preventDefault();
+      deleteElement();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [activeElementIdList.length, clipingImageElementId, deleteElement, disableHotkeys]);
 
   const contextmenus = (): ContextmenuItem[] => {
     return [
