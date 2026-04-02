@@ -896,13 +896,18 @@ function GenerationPreviewContent() {
             }
             action.audioUrl = `data:audio/${ttsData.format};base64,${ttsData.base64}`;
           } catch (err) {
+            if (err instanceof DOMException && err.name === 'AbortError') {
+              throw err;
+            }
             log.warn(`[TTS] Failed for ${audioId}:`, err);
             ttsFailCount++;
           }
         }
 
         if (ttsFailCount > 0 && speechActions.length > 0) {
-          throw new Error(t('generation.speechFailed'));
+          log.warn(
+            `[GenerationPreview] TTS failed for ${ttsFailCount}/${speechActions.length} speech segments, but the slide will still be shown`,
+          );
         }
       }
 

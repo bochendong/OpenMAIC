@@ -254,7 +254,7 @@ export async function generateAndStoreTTS(
 async function generateTTSForScene(
   scene: Scene,
   signal?: AbortSignal,
-): Promise<{ success: boolean; failedCount: number; error?: string }> {
+): Promise<{ success: boolean; failedCount: number; error?: string; aborted?: boolean }> {
   const providerId = useSettingsStore.getState().ttsProviderId;
   scene.actions = splitLongSpeechActions(scene.actions || [], providerId);
   const speechActions = scene.actions.filter(
@@ -278,6 +278,14 @@ async function generateTTSForScene(
       if (visemes?.length) action.visemes = visemes;
       if (mouthCues?.length) action.mouthCues = mouthCues;
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return {
+          success: false,
+          failedCount,
+          error: error.message,
+          aborted: true,
+        };
+      }
       failedCount++;
       lastError = error instanceof Error ? error.message : `TTS failed for action ${action.id}`;
       log.warn('TTS generation failed:', {
@@ -503,16 +511,18 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
             // TTS generation — failure means the whole scene fails
             if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
               const ttsResult = await generateTTSForScene(scene, signal);
-              if (!ttsResult.success) {
-                if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
-                  pausedByFailureOrAbort = true;
-                  break;
-                }
-                store.getState().addFailedOutline(outline);
-                options.onSceneFailed?.(outline, ttsResult.error || 'TTS generation failed');
+              if (ttsResult.aborted || abortRef.current || store.getState().generationEpoch !== startEpoch) {
                 store.getState().setGenerationStatus('paused');
                 pausedByFailureOrAbort = true;
                 break;
+              }
+              if (!ttsResult.success) {
+                log.warn('[SceneGenerator] TTS generation failed, but the scene will still be kept', {
+                  outlineId: outline.id,
+                  outlineTitle: outline.title,
+                  failedCount: ttsResult.failedCount,
+                  error: ttsResult.error,
+                });
               }
             }
 
@@ -650,10 +660,20 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         const settings = useSettingsStore.getState();
         if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
           const ttsResult = await generateTTSForScene(actionsResult.scene, signal);
-          if (!ttsResult.success) {
-            store.getState().addFailedOutline(outline);
+          if (ttsResult.aborted) {
             return;
           }
+          if (!ttsResult.success) {
+            log.warn('[SceneGenerator] TTS generation failed during single-scene retry, but the scene will still be kept', {
+              outlineId,
+              failedCount: ttsResult.failedCount,
+              error: ttsResult.error,
+            });
+          }
+        }
+
+        if (signal.aborted) {
+          return;
         }
 
         removeGeneratingOutline();

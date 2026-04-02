@@ -59,6 +59,20 @@ function writeDraftSnapshotImmediately(args: {
   }
 }
 
+function writeDraftSnapshotForState(
+  stage: Stage | null,
+  scenes: Scene[],
+  currentSceneId: string | null,
+) {
+  if (!stage?.id) return;
+  writeDraftSnapshotImmediately({
+    stageId: stage.id,
+    stage,
+    scenes,
+    currentSceneId,
+  });
+}
+
 type ToolbarState = 'design' | 'ai';
 
 interface StageState {
@@ -162,9 +176,11 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   setScenes: (scenes) => {
     set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     // Auto-select first scene if no current scene
-    if (!get().currentSceneId && scenes.length > 0) {
-      set({ currentSceneId: scenes[0].id });
+    const nextCurrentSceneId = !get().currentSceneId && scenes.length > 0 ? scenes[0].id : get().currentSceneId;
+    if (nextCurrentSceneId !== get().currentSceneId) {
+      set({ currentSceneId: nextCurrentSceneId });
     }
+    writeDraftSnapshotForState(get().stage, scenes, nextCurrentSceneId);
     debouncedSave();
   },
 
@@ -189,6 +205,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       storageSaveError: null,
       ...(shouldSwitch ? { currentSceneId: scene.id } : {}),
     });
+    writeDraftSnapshotForState(currentStage, scenes, shouldSwitch ? scene.id : get().currentSceneId);
     debouncedSave();
   },
 
@@ -197,6 +214,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       scene.id === sceneId ? applySceneUpdatesWithSpeechTtsInvalidation(scene, updates) : scene,
     );
     set({ scenes, storageSaveState: 'saving', storageSaveError: null });
+    writeDraftSnapshotForState(get().stage, scenes, get().currentSceneId);
     debouncedSave();
   },
 
@@ -206,6 +224,8 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       storageSaveState: 'saving',
       storageSaveError: null,
     }));
+    const state = get();
+    writeDraftSnapshotForState(state.stage, state.scenes, state.currentSceneId);
     debouncedSave();
   },
 
@@ -223,19 +243,24 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
         storageSaveError: null,
         currentSceneId: scenes[newIndex]?.id || null,
       });
+      writeDraftSnapshotForState(get().stage, scenes, scenes[newIndex]?.id || null);
     } else {
       set({ scenes, storageSaveState: 'saving', storageSaveError: null });
+      writeDraftSnapshotForState(get().stage, scenes, get().currentSceneId);
     }
     debouncedSave();
   },
 
   setCurrentSceneId: (sceneId) => {
     set({ currentSceneId: sceneId });
+    writeDraftSnapshotForState(get().stage, get().scenes, sceneId);
     debouncedSave();
   },
 
   setChats: (chats) => {
     set({ chats, storageSaveState: 'saving', storageSaveError: null });
+    const state = get();
+    writeDraftSnapshotForState(state.stage, state.scenes, state.currentSceneId);
     debouncedSave();
   },
 
