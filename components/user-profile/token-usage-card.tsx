@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/lib/store/auth';
 import { backendJson } from '@/lib/utils/backend-api';
+import { formatCreditsLabel, formatUsdLabel } from '@/lib/utils/credits';
+import { TokenUsageSpendChart } from './token-usage-spend-chart';
 
 const USAGE_RECORDS_PAGE_SIZE = 8;
 
@@ -20,6 +22,8 @@ type UsageRecordRow = {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  estimatedCostUsd: number | null;
+  estimatedCostCredits: number | null;
   createdAt: string;
 };
 
@@ -31,6 +35,26 @@ type ProfileUsageResponse = {
     totalInputTokens: number;
     totalOutputTokens: number;
     totalTokens: number;
+    estimatedCostUsd: number;
+    estimatedCostCredits: number;
+  };
+  spendChart: {
+    periodLabel: string;
+    startDate: string;
+    endDate: string;
+    dates: Array<{
+      date: string;
+      label: string;
+    }>;
+    series: Array<{
+      modelString: string;
+      estimatedCostUsd: number;
+      estimatedCostCredits: number;
+      cumulativeEstimatedCostUsd: number[];
+      cumulativeEstimatedCostCredits: number[];
+    }>;
+    totalEstimatedCostUsd: number;
+    totalEstimatedCostCredits: number;
   };
   modelBreakdown: Array<{
     modelString: string;
@@ -38,6 +62,8 @@ type ProfileUsageResponse = {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    estimatedCostUsd: number | null;
+    estimatedCostCredits: number | null;
   }>;
   usageRecords: UsageRecordRow[];
   /** 全量最新一条（与明细表当前页无关） */
@@ -65,12 +91,23 @@ function formatDateTime(date: string) {
   });
 }
 
+function formatPercent(value: number) {
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
 export function TokenUsageCard() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const [usage, setUsage] = useState<ProfileUsageResponse | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
   const [recordsPage, setRecordsPage] = useState(1);
+  const modelRows = [...(usage?.modelBreakdown ?? [])].sort((a, b) => {
+    const costDiff = (b.estimatedCostUsd ?? 0) - (a.estimatedCostUsd ?? 0);
+    if (costDiff !== 0) return costDiff;
+    if (b.totalTokens !== a.totalTokens) return b.totalTokens - a.totalTokens;
+    return b.requestCount - a.requestCount;
+  });
+  const totalEstimatedCostUsd = usage?.summary.estimatedCostUsd ?? 0;
 
   const loadUsage = useCallback(async (page: number) => {
     setUsageLoading(true);
@@ -99,7 +136,9 @@ export function TokenUsageCard() {
       <div className="flex items-center justify-between gap-3 border-b border-border/60 pb-4">
         <div>
           <h2 className="text-base font-semibold text-foreground">Token 用量</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">按当前账号统计模型调用与 token 变化</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            按当前账号统计模型调用、token 变化与实际扣费估算，已含 50% 平台加价
+          </p>
         </div>
         <Button
           type="button"
@@ -151,6 +190,18 @@ export function TokenUsageCard() {
             <div className="text-[11px] text-muted-foreground">输出 Tokens</div>
             <div className="mt-1 text-lg font-semibold">{formatNumber(usage?.summary.totalOutputTokens ?? 0)}</div>
           </div>
+          <div className="rounded-xl border bg-background/60 p-3">
+            <div className="text-[11px] text-muted-foreground">预估扣费美元</div>
+            <div className="mt-1 text-lg font-semibold">
+              {formatUsdLabel(usage?.summary.estimatedCostUsd ?? 0)}
+            </div>
+          </div>
+          <div className="rounded-xl border bg-background/60 p-3">
+            <div className="text-[11px] text-muted-foreground">对应积分</div>
+            <div className="mt-1 text-lg font-semibold">
+              {formatCreditsLabel(usage?.summary.estimatedCostCredits ?? 0)}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border bg-background/60 p-3">
@@ -163,12 +214,16 @@ export function TokenUsageCard() {
           </p>
         </div>
 
+        <TokenUsageSpendChart data={usage?.spendChart} />
+
         <Separator />
 
         <div className="space-y-2">
           <div>
-            <p className="text-sm font-semibold text-foreground">模型分布</p>
-            <p className="text-xs text-muted-foreground">按模型汇总你所有调用的 token 和次数</p>
+            <p className="text-sm font-semibold text-foreground">按模型花费明细</p>
+            <p className="text-xs text-muted-foreground">
+              现在会按模型展示调用次数、token、美元和积分，方便直接看出哪种模型最花钱
+            </p>
           </div>
           <div className="overflow-x-auto rounded-xl border">
             <table className="min-w-full text-left text-xs">
@@ -176,20 +231,54 @@ export function TokenUsageCard() {
                 <tr>
                   <th className="px-3 py-2 font-medium">模型</th>
                   <th className="px-3 py-2 font-medium">次数</th>
+                  <th className="px-3 py-2 font-medium">输入</th>
+                  <th className="px-3 py-2 font-medium">输出</th>
                   <th className="px-3 py-2 font-medium">总 Tokens</th>
+                  <th className="px-3 py-2 font-medium">花费占比</th>
+                  <th className="px-3 py-2 font-medium">美元</th>
+                  <th className="px-3 py-2 font-medium">积分</th>
                 </tr>
               </thead>
               <tbody>
-                {(usage?.modelBreakdown ?? []).slice(0, 8).map((row) => (
+                {modelRows.map((row) => {
+                  const share =
+                    totalEstimatedCostUsd > 0 && row.estimatedCostUsd != null
+                      ? (row.estimatedCostUsd / totalEstimatedCostUsd) * 100
+                      : 0;
+                  return (
                   <tr key={row.modelString} className="border-t">
                     <td className="px-3 py-2 font-mono">{row.modelString}</td>
                     <td className="px-3 py-2">{formatNumber(row.requestCount)}</td>
+                    <td className="px-3 py-2">{formatNumber(row.inputTokens)}</td>
+                    <td className="px-3 py-2">{formatNumber(row.outputTokens)}</td>
                     <td className="px-3 py-2 font-medium">{formatNumber(row.totalTokens)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <div className="flex min-w-[8rem] items-center gap-2">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-emerald-500/80"
+                            style={{ width: `${Math.max(share, share > 0 ? 6 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="tabular-nums text-[11px] text-muted-foreground">
+                          {formatPercent(share)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap font-medium">
+                      {row.estimatedCostUsd != null ? formatUsdLabel(row.estimatedCostUsd) : '—'}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.estimatedCostCredits != null
+                        ? formatCreditsLabel(row.estimatedCostCredits)
+                        : '—'}
+                    </td>
                   </tr>
-                ))}
-                {(usage?.modelBreakdown?.length ?? 0) === 0 ? (
+                  );
+                })}
+                {modelRows.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={3}>
+                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={8}>
                       暂无模型用量记录
                     </td>
                   </tr>
@@ -252,6 +341,8 @@ export function TokenUsageCard() {
                   <th className="px-3 py-2 font-medium">输入</th>
                   <th className="px-3 py-2 font-medium">输出</th>
                   <th className="px-3 py-2 font-medium">总 Tokens</th>
+                  <th className="px-3 py-2 font-medium">美元</th>
+                  <th className="px-3 py-2 font-medium">积分</th>
                 </tr>
               </thead>
               <tbody>
@@ -268,11 +359,19 @@ export function TokenUsageCard() {
                     <td className="px-3 py-2">{formatNumber(row.inputTokens)}</td>
                     <td className="px-3 py-2">{formatNumber(row.outputTokens)}</td>
                     <td className="px-3 py-2 font-medium">{formatNumber(row.totalTokens)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.estimatedCostUsd != null ? formatUsdLabel(row.estimatedCostUsd) : '—'}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.estimatedCostCredits != null
+                        ? formatCreditsLabel(row.estimatedCostCredits)
+                        : '—'}
+                    </td>
                   </tr>
                 ))}
                 {(usage?.usageRecords?.length ?? 0) === 0 ? (
                   <tr>
-                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={6}>
+                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={8}>
                       暂无使用记录
                     </td>
                   </tr>

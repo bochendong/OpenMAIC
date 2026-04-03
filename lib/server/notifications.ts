@@ -1,5 +1,6 @@
 import { CreditTransactionKind, type PrismaClient, type Prisma } from '@prisma/client';
 import type { AppNotification } from '@/lib/notifications/types';
+import { formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
 
 type NotificationDbClient = PrismaClient | Prisma.TransactionClient;
 const TOKEN_USAGE_GROUP_WINDOW_MS = 3 * 60 * 1000;
@@ -28,7 +29,8 @@ type TokenUsageGroup = {
 };
 
 function formatDeltaLabel(delta: number): string {
-  return `${delta > 0 ? '+' : ''}${delta} credits`;
+  const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
+  return `${sign}${formatCreditsUsdCompactLabel(Math.abs(delta))}`;
 }
 
 function buildNotificationTitle(row: CreditNotificationRow): string {
@@ -53,27 +55,27 @@ function buildNotificationTitle(row: CreditNotificationRow): string {
 }
 
 function buildNotificationBody(row: CreditNotificationRow): string {
-  const balanceText = `当前余额 ${row.balanceAfter} credits`;
+  const balanceText = `当前余额 ${formatCreditsUsdLabel(row.balanceAfter)}`;
 
   switch (row.kind) {
     case CreditTransactionKind.COURSE_PURCHASE:
-      return `你购买课程时扣除了 ${Math.abs(row.delta)} credits，${balanceText}。`;
+      return `你购买课程时扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
     case CreditTransactionKind.NOTEBOOK_PURCHASE:
-      return `你购买笔记本时扣除了 ${Math.abs(row.delta)} credits，${balanceText}。`;
+      return `你购买笔记本时扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
     case CreditTransactionKind.CREATOR_COURSE_SALE:
-      return `你的课程售出后到账 ${row.delta} credits，${balanceText}。`;
+      return `你的课程售出后到账 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
     case CreditTransactionKind.CREATOR_NOTEBOOK_SALE:
-      return `你的笔记本售出后到账 ${row.delta} credits，${balanceText}。`;
+      return `你的笔记本售出后到账 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
     case CreditTransactionKind.TOKEN_USAGE:
-      return `本次模型调用扣除了 ${Math.abs(row.delta)} credits，${balanceText}。`;
+      return `本次模型调用扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'admin_grant') {
-        return `管理员已向你发放 ${row.delta} credits，${balanceText}。`;
+        return `管理员已向你发放 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
       }
       if (row.referenceType === 'credits_backfill') {
-        return `系统已补发 ${row.delta} credits，${balanceText}。`;
+        return `系统已补发 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
       }
-      return `账户已收到 ${row.delta} credits，${balanceText}。`;
+      return `账户已收到 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
     default:
       return row.description?.trim() || balanceText;
   }
@@ -168,10 +170,12 @@ function mapTokenUsageGroupToNotification(group: TokenUsageGroup): AppNotificati
     id: `token-usage-group:${newestRow.id}`,
     kind: 'credit_spent',
     title: `${group.context.label}共扣费`,
-    body: `本次${group.context.label}触发了 ${usageCount} 次模型调用，共扣除 ${Math.abs(totalDelta)} credits，当前余额 ${newestRow.balanceAfter} credits。`,
+    body: `本次${group.context.label}触发了 ${usageCount} 次模型调用，共扣除 ${formatCreditsUsdLabel(
+      Math.abs(totalDelta),
+    )}，当前余额 ${formatCreditsUsdLabel(newestRow.balanceAfter)}。`,
     tone: 'negative',
     presentation: 'banner',
-    amountLabel: `-${Math.abs(totalDelta)} credits`,
+    amountLabel: `-${formatCreditsUsdCompactLabel(Math.abs(totalDelta))}`,
     delta: totalDelta,
     balanceAfter: newestRow.balanceAfter,
     sourceKind: 'TOKEN_USAGE_GROUP',

@@ -21,7 +21,7 @@ import { resolveCourseAvatarDisplayUrl } from '@/lib/constants/course-avatars';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useNotificationStore } from '@/lib/store/notifications';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
-import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
+import { creditsFromPriceCents, formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
 
 type StoreNotebook = {
   id: string;
@@ -161,7 +161,7 @@ export default function StoreCourseDetailPage() {
   }, [currentCourseId]);
 
   const priceLabel = useMemo(() => {
-    return formatCreditsLabel(creditsFromPriceCents(data?.course.coursePriceCents ?? 0));
+    return formatCreditsUsdCompactLabel(creditsFromPriceCents(data?.course.coursePriceCents ?? 0));
   }, [data]);
 
   const totalScenes = useMemo(
@@ -405,7 +405,7 @@ export default function StoreCourseDetailPage() {
                           <div className="mt-3 flex flex-wrap gap-2">
                             <span className="store-chip text-xs">{`${notebook._count.scenes} 页`}</span>
                             <span className="store-chip text-xs">
-                              {`单本价格 ${formatCreditsLabel(creditsFromPriceCents(notebook.notebookPriceCents))}`}
+                              {`单本价格 ${formatCreditsUsdLabel(creditsFromPriceCents(notebook.notebookPriceCents))}`}
                             </span>
                             {notebook.tags.slice(0, 3).map((tag) => (
                               <span key={tag} className="store-chip text-xs">

@@ -57,6 +57,7 @@ async function persistUsage(
   usage: {
     inputTokens?: number;
     outputTokens?: number;
+    cachedInputTokens?: number;
   },
 ): Promise<void> {
   const requestContext = getRequestContext();
@@ -81,6 +82,7 @@ async function persistUsage(
     modelString: `${providerId}:${modelId}`,
     inputTokens,
     outputTokens,
+    cachedInputTokens: usage.cachedInputTokens ?? 0,
     totalTokens,
   });
 }

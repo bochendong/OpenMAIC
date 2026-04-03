@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
+import { creditsFromPriceCents, formatCreditsUsdCompactLabel } from '@/lib/utils/credits';
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
@@ -286,7 +286,7 @@ export default function MyCoursesPage() {
                         courseCode: course.courseCode?.trim() || undefined,
                       }}
                       countUnit="个笔记本"
-                      priceLabel={formatCreditsLabel(
+                      priceLabel={formatCreditsUsdCompactLabel(
                         creditsFromPriceCents(course.coursePriceCents),
                       )}
                       actionLabel="进入课程"

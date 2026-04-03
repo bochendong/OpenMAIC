@@ -19,7 +19,7 @@ import {
   listCommunityStoreCourses,
   listCourses,
 } from '@/lib/utils/course-storage';
-import { creditsFromPriceCents, formatCreditsLabel } from '@/lib/utils/credits';
+import { creditsFromPriceCents, formatCreditsUsdCompactLabel } from '@/lib/utils/credits';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
@@ -351,7 +351,7 @@ export default function CourseStorePage() {
                     courseCode: featuredCourse.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={formatCreditsLabel(
+                  priceLabel={formatCreditsUsdCompactLabel(
                     creditsFromPriceCents(featuredCourse.coursePriceCents),
                   )}
                   ratingLabel={`★ ${(featuredCourse.averageRating ?? 0).toFixed(1)} · ${featuredCourse.reviewCount ?? 0} 条`}
@@ -393,7 +393,7 @@ export default function CourseStorePage() {
                         <span className="store-chip text-xs">{purposeLabel(item.purpose)}</span>
                         <span className="store-chip text-xs">{item.notebookCount} 个笔记本</span>
                         <span className="store-chip text-xs">
-                          {formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
+                          {formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
                         </span>
                       </div>
                       <button
@@ -473,7 +473,7 @@ export default function CourseStorePage() {
                     courseCode: item.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
+                  priceLabel={formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
                   ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                   actionLabel="查看详情"
                   onAction={() => router.push(`/store/courses/${item.id}`)}
@@ -537,7 +537,7 @@ export default function CourseStorePage() {
                         courseCode: item.courseCode?.trim() || undefined,
                       }}
                       countUnit="个笔记本"
-                      priceLabel={formatCreditsLabel(creditsFromPriceCents(item.coursePriceCents))}
+                      priceLabel={formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
                       ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                       actionLabel="查看详情"
                       onAction={() => router.push(`/store/courses/${item.id}`)}

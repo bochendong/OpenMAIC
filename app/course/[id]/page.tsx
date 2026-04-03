@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   creditsFromPriceCents,
-  formatCreditsLabel,
+  formatCreditsUsdCompactLabel,
   priceCentsFromCredits,
 } from '@/lib/utils/credits';
 
@@ -179,7 +179,7 @@ export default function CourseDetailPage() {
       let notebookPriceCents = notebook.notebookPriceCents ?? 0;
       if (!notebook.listedInNotebookStore) {
         const nextPrice = window.prompt(
-          '设置该笔记本价格（单位：credits，0 表示免费）',
+          '设置该笔记本价格（单位：credits，0 表示免费；100 credits = 1 USD）',
           String(creditsFromPriceCents(notebookPriceCents)),
         );
         if (nextPrice === null) return;
@@ -252,7 +252,6 @@ export default function CourseDetailPage() {
             <section className="mb-6 apple-glass rounded-[28px] p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex min-w-0 flex-1 items-center gap-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- public 静态资源 */}
                   <img
                     src={resolveCourseAvatarDisplayUrl(course.id, course.avatarUrl)}
                     alt=""
@@ -351,7 +350,7 @@ export default function CourseDetailPage() {
                     slide={thumbnails[nb.id]}
                     subtitle={formatDate(nb.updatedAt)}
                     secondaryLabel=""
-                    priceLabel={formatCreditsLabel(
+                    priceLabel={formatCreditsUsdCompactLabel(
                       creditsFromPriceCents(nb.notebookPriceCents),
                     )}
                     actionLabel="打开笔记本"

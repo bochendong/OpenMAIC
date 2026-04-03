@@ -6,15 +6,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
+import { formatCreditsLabel, formatUsdLabel } from '@/lib/utils/credits';
 import type { SiteProviderStatusResponse, SiteProviderAdminRow } from '@/lib/types/admin-site-providers';
 import { PROVIDERS } from '@/lib/ai/providers';
 
 type LLMUsageResponse = {
   summary: {
-    totalCalls: number;
+    totalRequests: number;
     totalInputTokens: number;
     totalOutputTokens: number;
     totalTokens: number;
+    estimatedCostUsd: number;
+    estimatedCostCredits: number;
   };
   rows: Array<{
     id: string;
@@ -26,6 +29,8 @@ type LLMUsageResponse = {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    estimatedCostUsd: number | null;
+    estimatedCostCredits: number | null;
     createdAt: string;
   }>;
 };
@@ -89,7 +94,7 @@ export function AdminLLMSection() {
   }, [loadAll]);
 
   const llmRows = useMemo(() => mergeWithRegistry(providerPayload?.llm), [providerPayload?.llm]);
-  const usageRows = usage?.rows || [];
+  const usageRows = useMemo(() => usage?.rows ?? [], [usage?.rows]);
   const usageTotalPages = Math.max(1, Math.ceil(usageRows.length / PAGE_SIZE));
   const usagePagedRows = useMemo(() => {
     const start = (usagePage - 1) * PAGE_SIZE;
@@ -214,12 +219,14 @@ export function AdminLLMSection() {
             <BarChart3 className="h-4 w-4" />
             用量汇总
           </CardTitle>
-          <CardDescription>Token 数据可用于后续按用户计费。</CardDescription>
+          <CardDescription>按 OpenAI GPT 公开价上浮 50% 估算用户侧扣费，方便对账和观察毛利空间。</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-lg border bg-background/70 p-3">
             <div className="text-xs text-muted-foreground">调用次数</div>
-            <div className="mt-1 text-xl font-semibold">{formatNumber(usage?.summary.totalCalls || 0)}</div>
+            <div className="mt-1 text-xl font-semibold">
+              {formatNumber(usage?.summary.totalRequests || 0)}
+            </div>
           </div>
           <div className="rounded-lg border bg-background/70 p-3">
             <div className="text-xs text-muted-foreground">输入 Tokens</div>
@@ -236,6 +243,18 @@ export function AdminLLMSection() {
           <div className="rounded-lg border bg-background/70 p-3">
             <div className="text-xs text-muted-foreground">总 Tokens</div>
             <div className="mt-1 text-xl font-semibold">{formatNumber(usage?.summary.totalTokens || 0)}</div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">预估用户扣费</div>
+            <div className="mt-1 text-xl font-semibold">
+              {formatUsdLabel(usage?.summary.estimatedCostUsd || 0)}
+            </div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-xs text-muted-foreground">折合积分</div>
+            <div className="mt-1 text-xl font-semibold">
+              {formatCreditsLabel(usage?.summary.estimatedCostCredits || 0)}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -257,6 +276,7 @@ export function AdminLLMSection() {
                   <th className="px-3 py-2 font-medium">输入</th>
                   <th className="px-3 py-2 font-medium">输出</th>
                   <th className="px-3 py-2 font-medium">总计</th>
+                  <th className="px-3 py-2 font-medium">预估扣费</th>
                 </tr>
               </thead>
               <tbody>
@@ -274,11 +294,14 @@ export function AdminLLMSection() {
                     <td className="px-3 py-2">{formatNumber(row.inputTokens)}</td>
                     <td className="px-3 py-2">{formatNumber(row.outputTokens)}</td>
                     <td className="px-3 py-2 font-medium">{formatNumber(row.totalTokens)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {row.estimatedCostUsd != null ? formatUsdLabel(row.estimatedCostUsd) : '—'}
+                    </td>
                   </tr>
                 ))}
                 {usageRows.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-6 text-center text-muted-foreground" colSpan={7}>
+                    <td className="px-3 py-6 text-center text-muted-foreground" colSpan={8}>
                       暂无用量数据。
                     </td>
                   </tr>

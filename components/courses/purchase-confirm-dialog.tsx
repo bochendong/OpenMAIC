@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
 import { cn } from '@/lib/utils';
-import { formatCreditsLabel } from '@/lib/utils/credits';
+import { formatCreditsUsdLabel } from '@/lib/utils/credits';
 
 interface PurchaseConfirmDialogProps {
   open: boolean;
@@ -109,7 +109,7 @@ export function PurchaseConfirmDialog({
                 {loadingBalance
                   ? '读取中…'
                   : creditsBalance != null
-                    ? formatCreditsLabel(creditsBalance)
+                    ? formatCreditsUsdLabel(creditsBalance)
                     : '暂时无法读取'}
               </span>
             </div>
@@ -123,7 +123,7 @@ export function PurchaseConfirmDialog({
                     : 'text-emerald-600 dark:text-emerald-300',
                 )}
               >
-                {creditsCost > 0 ? `-${formatCreditsLabel(creditsCost)}` : '0 credits'}
+                {creditsCost > 0 ? `-${formatCreditsUsdLabel(creditsCost)}` : '0 credits'}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 border-t border-slate-200/70 py-2 text-sm dark:border-white/10">
@@ -139,7 +139,7 @@ export function PurchaseConfirmDialog({
                 {loadingBalance
                   ? '计算中…'
                   : nextBalance != null
-                    ? formatCreditsLabel(Math.max(0, nextBalance))
+                    ? formatCreditsUsdLabel(Math.max(0, nextBalance))
                     : '购买后更新'}
               </span>
             </div>

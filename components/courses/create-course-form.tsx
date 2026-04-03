@@ -534,7 +534,8 @@ export function CreateCourseForm({
             <span className="shrink-0 text-sm text-slate-500 dark:text-slate-400">积分</span>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            设为 0 表示免费。课程价格用于整门课购买；发布课程会连带发布其下笔记本。
+            设为 0 表示免费。现在按 100 credits = 1 USD 换算，所以 500 credits 就是 5 美元。
+            课程价格用于整门课购买；发布课程会连带发布其下笔记本。
           </p>
         </div>
       ) : null}

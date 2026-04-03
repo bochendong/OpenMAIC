@@ -10,8 +10,9 @@ import type {
 } from '@/lib/types/notebook-message';
 import { searchWithTavily, formatSearchResultsAsContext } from '@/lib/web-search/tavily';
 import { resolveWebSearchApiKey } from '@/lib/server/provider-config';
+import { assertUserHasCredits, chargeCreditsForWebSearch } from '@/lib/server/credits';
 import type { CoursePurpose } from '@/lib/utils/database';
-import { runWithRequestContext } from '@/lib/server/request-context';
+import { getRequestContext, runWithRequestContext } from '@/lib/server/request-context';
 import {
   buildNotebookContentDocumentFromInsert,
   buildNotebookContentDocumentFromText,
@@ -176,9 +177,16 @@ export async function POST(req: NextRequest) {
           const apiKey = resolveWebSearchApiKey(body.options.webSearchApiKey);
           if (apiKey) {
             const q = `${body.course?.name || body.notebook.name} ${body.message} prerequisite syllabus`;
+            await assertUserHasCredits(getRequestContext()?.userId);
             const ws = await searchWithTavily({ query: q, apiKey });
             webSearchContext = formatSearchResultsAsContext(ws);
             webSearchUsed = true;
+            await chargeCreditsForWebSearch({
+              userId: getRequestContext()?.userId,
+              route: '/api/notebooks/send-message',
+              query: q,
+              source: 'notebook-prerequisite-search',
+            });
           }
         } catch (e) {
           log.warn('Prerequisite web search failed:', e);

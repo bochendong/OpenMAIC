@@ -7,6 +7,7 @@ import { useAuthStore } from '@/lib/store/auth';
 import { useNotificationStore } from '@/lib/store/notifications';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { formatCreditsUsdLabel } from '@/lib/utils/credits';
 
 function formatNotificationTime(value: string): string {
   const date = new Date(value);
@@ -175,7 +176,7 @@ export default function NotificationsPage() {
                           {item.sourceLabel}
                         </span>
                         <span className="rounded-full bg-black/5 px-2.5 py-1 text-xs text-slate-600 dark:bg-white/8 dark:text-slate-300">
-                          余额 {item.balanceAfter} credits
+                          余额 {formatCreditsUsdLabel(item.balanceAfter)}
                         </span>
                         {isUnread ? (
                           <Button

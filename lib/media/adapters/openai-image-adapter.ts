@@ -107,6 +107,17 @@ export async function generateWithOpenAiImage(
 
   const data = await response.json();
   const imageData = data.data?.[0];
+  const usage = data.usage
+    ? {
+        providerId: config.providerId,
+        modelId: model,
+        inputTokens: Number(data.usage.input_tokens) || 0,
+        outputTokens: Number(data.usage.output_tokens) || 0,
+        totalTokens: Number(data.usage.total_tokens) || 0,
+        textInputTokens: Number(data.usage.input_tokens_details?.text_tokens) || 0,
+        imageInputTokens: Number(data.usage.input_tokens_details?.image_tokens) || 0,
+      }
+    : undefined;
   if (!imageData) {
     throw new Error('OpenAI returned empty image response');
   }
@@ -116,6 +127,7 @@ export async function generateWithOpenAiImage(
       base64: imageData.b64_json,
       width,
       height,
+      usage,
     };
   }
 
@@ -124,6 +136,7 @@ export async function generateWithOpenAiImage(
       url: imageData.url,
       width,
       height,
+      usage,
     };
   }
 

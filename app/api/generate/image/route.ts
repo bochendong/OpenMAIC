@@ -21,6 +21,8 @@ import { resolveImageApiKey, resolveImageBaseUrl } from '@/lib/server/provider-c
 import type { ImageProviderId, ImageGenerationOptions } from '@/lib/media/types';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { assertUserHasCredits, chargeCreditsForImageGeneration } from '@/lib/server/credits';
+import { getRequestContext, runWithRequestContext } from '@/lib/server/request-context';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 
 const log = createLogger('ImageGeneration API');
@@ -28,61 +30,78 @@ const log = createLogger('ImageGeneration API');
 export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = (await request.json()) as ImageGenerationOptions;
+  return runWithRequestContext(request, '/api/generate/image', async () => {
+    try {
+      const body = (await request.json()) as ImageGenerationOptions;
 
-    if (!body.prompt) {
-      return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing prompt');
-    }
-
-    const providerId = (request.headers.get('x-image-provider') || 'seedream') as ImageProviderId;
-    const clientApiKey = request.headers.get('x-api-key') || undefined;
-    const clientBaseUrl = request.headers.get('x-base-url') || undefined;
-    const clientModel = request.headers.get('x-image-model') || undefined;
-
-    if (clientBaseUrl && process.env.NODE_ENV === 'production') {
-      const ssrfError = validateUrlForSSRF(clientBaseUrl);
-      if (ssrfError) {
-        return apiError('INVALID_URL', 403, ssrfError);
+      if (!body.prompt) {
+        return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing prompt');
       }
-    }
 
-    const apiKey = clientBaseUrl
-      ? clientApiKey || ''
-      : resolveImageApiKey(providerId, clientApiKey);
-    if (!apiKey) {
-      return apiError(
-        'MISSING_API_KEY',
-        401,
-        `No API key configured for image provider: ${providerId}`,
+      const providerId = (request.headers.get('x-image-provider') || 'seedream') as ImageProviderId;
+      const clientApiKey = request.headers.get('x-api-key') || undefined;
+      const clientBaseUrl = request.headers.get('x-base-url') || undefined;
+      const clientModel = request.headers.get('x-image-model') || undefined;
+
+      if (clientBaseUrl && process.env.NODE_ENV === 'production') {
+        const ssrfError = validateUrlForSSRF(clientBaseUrl);
+        if (ssrfError) {
+          return apiError('INVALID_URL', 403, ssrfError);
+        }
+      }
+
+      const apiKey = clientBaseUrl
+        ? clientApiKey || ''
+        : resolveImageApiKey(providerId, clientApiKey);
+      if (!apiKey) {
+        return apiError(
+          'MISSING_API_KEY',
+          401,
+          `No API key configured for image provider: ${providerId}`,
+        );
+      }
+
+      const baseUrl = clientBaseUrl ? clientBaseUrl : resolveImageBaseUrl(providerId, clientBaseUrl);
+
+      // Resolve dimensions from aspect ratio if not explicitly set
+      if (!body.width && !body.height && body.aspectRatio) {
+        const dims = aspectRatioToDimensions(body.aspectRatio);
+        body.width = dims.width;
+        body.height = dims.height;
+      }
+
+      log.info(
+        `Generating image: provider=${providerId}, model=${clientModel || 'default'}, ` +
+          `prompt="${body.prompt.slice(0, 80)}...", size=${body.width ?? 'auto'}x${body.height ?? 'auto'}`,
       );
+
+      if (providerId === 'openai-image') {
+        await assertUserHasCredits(getRequestContext()?.userId);
+      }
+
+      const result = await generateImage({ providerId, apiKey, baseUrl, model: clientModel }, body);
+
+      if (providerId === 'openai-image') {
+        await chargeCreditsForImageGeneration({
+          userId: getRequestContext()?.userId,
+          providerId,
+          modelId: result.usage?.modelId || clientModel || 'gpt-image-1.5',
+          route: '/api/generate/image',
+          prompt: body.prompt,
+          usage: result.usage,
+        });
+      }
+
+      return apiSuccess({ result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Detect content safety filter rejections (e.g. Seedream OutputImageSensitiveContentDetected)
+      if (message.includes('SensitiveContent') || message.includes('sensitive information')) {
+        log.warn(`Image blocked by content safety filter: ${message}`);
+        return apiError('CONTENT_SENSITIVE', 400, message);
+      }
+      log.error('Image generation error:', error);
+      return apiError('INTERNAL_ERROR', 500, message);
     }
-
-    const baseUrl = clientBaseUrl ? clientBaseUrl : resolveImageBaseUrl(providerId, clientBaseUrl);
-
-    // Resolve dimensions from aspect ratio if not explicitly set
-    if (!body.width && !body.height && body.aspectRatio) {
-      const dims = aspectRatioToDimensions(body.aspectRatio);
-      body.width = dims.width;
-      body.height = dims.height;
-    }
-
-    log.info(
-      `Generating image: provider=${providerId}, model=${clientModel || 'default'}, ` +
-        `prompt="${body.prompt.slice(0, 80)}...", size=${body.width ?? 'auto'}x${body.height ?? 'auto'}`,
-    );
-
-    const result = await generateImage({ providerId, apiKey, baseUrl, model: clientModel }, body);
-
-    return apiSuccess({ result });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // Detect content safety filter rejections (e.g. Seedream OutputImageSensitiveContentDetected)
-    if (message.includes('SensitiveContent') || message.includes('sensitive information')) {
-      log.warn(`Image blocked by content safety filter: ${message}`);
-      return apiError('CONTENT_SENSITIVE', 400, message);
-    }
-    log.error('Image generation error:', error);
-    return apiError('INTERNAL_ERROR', 500, message);
-  }
+  });
 }

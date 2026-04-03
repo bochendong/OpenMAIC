@@ -11,6 +11,7 @@ import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { cn } from '@/lib/utils';
 import { backendJson } from '@/lib/utils/backend-api';
+import { formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
@@ -240,7 +241,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                         className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50/80 px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15"
                       >
                         <Coins className="size-3.5" />
-                        <span>{creditsBalance} credits</span>
+                        <span>{formatCreditsUsdCompactLabel(creditsBalance)}</span>
                       </Link>
                     ) : null}
                   </div>
@@ -280,7 +281,9 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                           <Coins className="size-3.5" />
                         </Link>
                       </TooltipTrigger>
-                      <TooltipContent side="right">{creditsBalance} credits · 去充值</TooltipContent>
+                      <TooltipContent side="right">
+                        {formatCreditsUsdLabel(creditsBalance)} · 去充值
+                      </TooltipContent>
                     </Tooltip>
                   ) : null}
                 </div>

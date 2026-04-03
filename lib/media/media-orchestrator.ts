@@ -1,3 +1,5 @@
+'use client';
+
 /**
  * Media Generation Orchestrator
  *
@@ -11,6 +13,7 @@ import { useSettingsStore } from '@/lib/store/settings';
 import type { SceneOutline } from '@/lib/types/generation';
 import type { MediaGenerationRequest } from '@/lib/media/types';
 import { createLogger } from '@/lib/logger';
+import { backendFetch } from '@/lib/utils/backend-api';
 
 const log = createLogger('MediaOrchestrator');
 
@@ -107,17 +110,14 @@ async function generateSingleMedia(
   try {
     let resultUrl: string;
     let posterUrl: string | undefined;
-    let mimeType: string;
 
     if (req.type === 'image') {
       const result = await callImageApi(req, abortSignal);
       resultUrl = result.url;
-      mimeType = 'image/png';
     } else {
       const result = await callVideoApi(req, abortSignal);
       resultUrl = result.url;
       posterUrl = result.poster;
-      mimeType = 'video/mp4';
     }
 
     if (abortSignal?.aborted) return;
@@ -149,7 +149,7 @@ async function callImageApi(
   const settings = useSettingsStore.getState();
   const providerConfig = settings.imageProvidersConfig?.[settings.imageProviderId];
 
-  const response = await fetch('/api/generate/image', {
+  const response = await backendFetch('/api/generate/image', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

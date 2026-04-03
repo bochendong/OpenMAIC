@@ -171,6 +171,16 @@ export interface ImageGenerationResult {
   width: number;
   /** Height of the generated image in pixels */
   height: number;
+  /** Optional provider usage metadata when available */
+  usage?: {
+    providerId?: string;
+    modelId?: string;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    textInputTokens?: number;
+    imageInputTokens?: number;
+  };
 }
 
 // ============================================================================

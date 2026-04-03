@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw } from 'lucide-rea
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
+import { formatCreditsUsdLabel, formatUsdLabel, usdFromCredits } from '@/lib/utils/credits';
 
 const TRANSACTION_PAGE_SIZE = 8;
 
@@ -106,6 +107,9 @@ export function CreditsCard() {
             {data?.balance ?? 0}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">credits</div>
+          <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+            {formatUsdLabel(usdFromCredits(data?.balance ?? 0))}
+          </div>
         </div>
 
         <div className="space-y-2">
@@ -172,9 +176,9 @@ export function CreditsCard() {
                       </div>
                     </td>
                     <td className={`px-3 py-2 font-medium ${row.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {row.delta >= 0 ? `+${row.delta}` : row.delta}
+                      {row.delta >= 0 ? `+${formatCreditsUsdLabel(row.delta)}` : `-${formatCreditsUsdLabel(Math.abs(row.delta))}`}
                     </td>
-                    <td className="px-3 py-2">{row.balanceAfter}</td>
+                    <td className="px-3 py-2">{formatCreditsUsdLabel(row.balanceAfter)}</td>
                   </tr>
                 ))}
                 {(data?.recentTransactions.length ?? 0) === 0 ? (

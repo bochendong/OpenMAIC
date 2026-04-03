@@ -416,7 +416,7 @@ async function maybeRunWebSearch(args: {
   const apiKey =
     settings.webSearchProvidersConfig?.[settings.webSearchProviderId]?.apiKey || undefined;
 
-  const res = await fetch('/api/web-search', {
+  const res = await backendFetch('/api/web-search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: args.requirement, apiKey }),

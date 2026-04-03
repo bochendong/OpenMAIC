@@ -15,6 +15,7 @@ export interface LLMUsagePayload {
   modelString: string;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  cachedInputTokens?: number | null;
   totalTokens?: number | null;
 }
 
@@ -69,6 +70,11 @@ export async function recordLLMUsage(payload: LLMUsagePayload): Promise<void> {
 
     await chargeCreditsForTokenUsage({
       userId: payload.userId,
+      providerId: payload.providerId,
+      modelId: payload.modelId,
+      inputTokens: payload.inputTokens,
+      outputTokens: payload.outputTokens,
+      cachedInputTokens: payload.cachedInputTokens,
       totalTokens,
       route: payload.route,
       source: payload.source,

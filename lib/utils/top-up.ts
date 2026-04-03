@@ -1,24 +1,16 @@
+import { CREDITS_PER_USD } from '@/lib/utils/credits';
+
 export type TopUpCurrency = 'USD' | 'CAD' | 'CNY';
 
 export type TopUpPack = {
   id: string;
   title: string;
   highlight?: string;
-  baseCredits: number;
-  bonusCredits: number;
-  prices: Record<TopUpCurrency, number>;
+  credits: number;
+  blurb: string;
 };
 
-/**
- * 建议锚点：
- * - 30 章课件生成成本约 2 USD
- * - 为了覆盖模型波动、支付手续费和退款空间，建议零售价大约 4 USD
- * - 因此按 1 USD ~= 60 credits 设计，30 章约消耗 240 credits
- */
-export const RECOMMENDED_CREDITS_PER_USD = 60;
-export const TARGET_30_CHAPTER_SLIDES_COST_USD = 4;
-export const TARGET_30_CHAPTER_SLIDES_CREDITS =
-  RECOMMENDED_CREDITS_PER_USD * TARGET_30_CHAPTER_SLIDES_COST_USD;
+export const TOP_UP_CREDITS_PER_USD = CREDITS_PER_USD;
 
 /** 2026-03 附近的粗略换算，仅用于展示充值建议页，不用于真实结算。 */
 export const APPROX_USD_TO_CAD = 1.36;
@@ -28,42 +20,35 @@ export const TOP_UP_PACKS: TopUpPack[] = [
   {
     id: 'starter',
     title: '启程包',
-    baseCredits: 300,
-    bonusCredits: 0,
-    prices: { USD: 4.99, CAD: 6.99, CNY: 30 },
+    credits: 500,
+    blurb: '适合先把流程跑通，等于 5 美元额度。',
   },
   {
-    id: 'adventurer',
-    title: '进阶包',
-    highlight: '+10%',
-    baseCredits: 600,
-    bonusCredits: 60,
-    /** CNY 不宜按汇率简单取整：¥68 时 660/68 低于启程包 300/30，显得高档位更亏 */
-    prices: { USD: 9.99, CAD: 13.99, CNY: 65 },
+    id: 'standard',
+    title: '标准包',
+    credits: 1000,
+    blurb: '适合稳定日常使用，等于 10 美元额度。',
   },
   {
     id: 'pro',
     title: '专业包',
-    highlight: '+15%',
-    baseCredits: 1200,
-    bonusCredits: 180,
-    prices: { USD: 19.99, CAD: 27.99, CNY: 128 },
+    highlight: '常用',
+    credits: 2500,
+    blurb: '适合持续做课和反复修改，等于 25 美元额度。',
   },
   {
     id: 'studio',
     title: '工作室包',
-    highlight: '+25%',
-    baseCredits: 3000,
-    bonusCredits: 750,
-    prices: { USD: 49.99, CAD: 69.99, CNY: 328 },
+    highlight: '团队',
+    credits: 5000,
+    blurb: '适合多人协作或高频生成，等于 50 美元额度。',
   },
   {
-    id: 'guild',
-    title: '公会包',
-    highlight: '+30%',
-    baseCredits: 6000,
-    bonusCredits: 1800,
-    prices: { USD: 99.99, CAD: 139.99, CNY: 648 },
+    id: 'scale',
+    title: '扩展包',
+    highlight: '高频',
+    credits: 10000,
+    blurb: '适合长周期高频使用，等于 100 美元额度。',
   },
 ];
 
@@ -77,12 +62,26 @@ export function formatTopUpPrice(currency: TopUpCurrency, amount: number): strin
   return CURRENCY_FORMATTERS[currency].format(amount);
 }
 
+export function getApproxLocalizedPrice(currency: TopUpCurrency, usdAmount: number): number {
+  return currency === 'CAD'
+    ? usdAmount * APPROX_USD_TO_CAD
+    : currency === 'CNY'
+      ? usdAmount * APPROX_USD_TO_CNY
+      : usdAmount;
+}
+
 export function formatApproxLocalizedPrice(currency: TopUpCurrency, usdAmount: number): string {
+  const localizedAmount = getApproxLocalizedPrice(currency, usdAmount);
+  return formatTopUpPrice(currency, localizedAmount);
+}
+
+export function usdPriceFromCredits(credits: number): number {
+  return credits / TOP_UP_CREDITS_PER_USD;
+}
+
+export function formatTopUpPackPrice(currency: TopUpCurrency, credits: number): string {
+  const usdAmount = usdPriceFromCredits(credits);
   const localizedAmount =
-    currency === 'CAD'
-      ? usdAmount * APPROX_USD_TO_CAD
-      : currency === 'CNY'
-        ? usdAmount * APPROX_USD_TO_CNY
-        : usdAmount;
+    currency === 'USD' ? usdAmount : getApproxLocalizedPrice(currency, usdAmount);
   return formatTopUpPrice(currency, localizedAmount);
 }

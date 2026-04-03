@@ -6,11 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { backendJson } from '@/lib/utils/backend-api';
+import { formatCreditsUsdLabel, formatUsdLabel, usdFromCredits } from '@/lib/utils/credits';
 import {
   APPROX_USD_TO_CAD,
   APPROX_USD_TO_CNY,
-  formatTopUpPrice,
+  formatTopUpPackPrice,
   TOP_UP_PACKS,
+  TOP_UP_CREDITS_PER_USD,
   type TopUpCurrency,
 } from '@/lib/utils/top-up';
 
@@ -70,12 +72,13 @@ export default function TopUpPage() {
               </h1>
               <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[#5b6270] dark:text-slate-300">
                 积分会在你用 AI 的时候慢慢消耗：跟它聊天追问、生成或改一版课件、整理讲义和练习，都会算在内。
-                每个人节奏不一样，你可以先靠送的体验积分试一试；觉得顺手了，再在这里选一档合适的就好。
+                现在积分和真实美元强绑定，按 <span className="font-medium text-[#1d1d1f] dark:text-slate-100">{`${TOP_UP_CREDITS_PER_USD} credits = ${formatUsdLabel(1)}`}</span>{' '}
+                来算；模型消耗则按 GPT 公开价上浮 50% 扣分，所以平台会保留服务毛利。
               </p>
               <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#5b6270] dark:text-slate-400">
                 <span className="font-medium text-[#1d1d1f] dark:text-slate-200">500 积分大概啥概念？</span>
-                很多人一开始会拿到差不多这个数，大约够你：多聊一阵子（比如上百轮量级的日常追问）、改几份短文档或讲义，
-                或者先试水一小套多章节的课件——具体仍以你每次操作消耗为准，但一般够把用法摸熟。
+                500 credits 现在就是 {formatUsdLabel(usdFromCredits(500))}。如果你主要在用 GPT-5.4 mini / nano
+                做日常对话、改讲义、微调课件，通常足够把主要流程跑熟一遍；更重的长文本或高质量输出会消耗更快。
               </p>
               <div className="mt-4 flex flex-wrap gap-3 text-xs">
                 <div className="rounded-full border border-sky-200/70 bg-sky-50/80 px-3 py-1.5 font-medium text-sky-800 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-100">
@@ -100,6 +103,11 @@ export default function TopUpPage() {
                   {loadingBalance ? <Loader2 className="size-8 animate-spin" /> : (balance ?? '--')}
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">credits</div>
+                {!loadingBalance && balance != null ? (
+                  <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+                    约 {formatUsdLabel(usdFromCredits(balance))}
+                  </div>
+                ) : null}
               </Card>
             </div>
           </div>
@@ -111,7 +119,7 @@ export default function TopUpPage() {
               <div>
                 <h2 className="text-xl font-semibold text-foreground">充值档位</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  参考原神式分档思路：档位越高，赠送比例越高。
+                  所有档位都按固定汇率换算，不再做“多充多送”。
                 </p>
               </div>
 
@@ -128,8 +136,10 @@ export default function TopUpPage() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {TOP_UP_PACKS.map((pack) => {
-                const totalCredits = pack.baseCredits + pack.bonusCredits;
-                const creditsPerUnit = totalCredits / pack.prices[currency];
+                const totalCredits = pack.credits;
+                const displayPrice = formatTopUpPackPrice(currency, totalCredits);
+                const usdPrice = usdFromCredits(totalCredits);
+                const creditsPerUnit = totalCredits / usdPrice;
                 const featured = pack.id === 'pro' || pack.id === 'studio';
                 return (
                   <div
@@ -144,36 +154,29 @@ export default function TopUpPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-foreground">{pack.title}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          基础 {pack.baseCredits} credits
-                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">{pack.blurb}</p>
                       </div>
                       {pack.highlight ? (
                         <div className="rounded-full bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white">
-                          多送 {pack.highlight}
+                          {pack.highlight}
                         </div>
                       ) : null}
                     </div>
 
                     <div className="mt-5 text-3xl font-semibold tracking-[-0.05em] text-foreground">
-                      {formatTopUpPrice(currency, pack.prices[currency])}
+                      {displayPrice}
                     </div>
+                    <div className="mt-1 text-xs text-muted-foreground">约 {formatUsdLabel(usdPrice)}</div>
                     <div className="mt-2 flex items-baseline gap-2">
                       <span className="text-lg font-semibold text-amber-600 dark:text-amber-300">
                         到账 {totalCredits}
                       </span>
                       <span className="text-xs text-muted-foreground">credits</span>
                     </div>
-                    {pack.bonusCredits > 0 ? (
-                      <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-300">
-                        含赠送 {pack.bonusCredits} credits
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-muted-foreground">适合首次试用或临时补量</p>
-                    )}
+                    <p className="mt-1 text-xs text-muted-foreground">{formatCreditsUsdLabel(totalCredits)}</p>
 
                     <div className="mt-4 rounded-2xl bg-black/[0.03] px-3 py-2 text-xs text-muted-foreground dark:bg-white/[0.04]">
-                      每 {currency} 约得 {creditsPerUnit.toFixed(1)} credits
+                      每 {formatUsdLabel(1)} 固定对应 {creditsPerUnit.toFixed(0)} credits
                     </div>
 
                     <Button
