@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type OrchestratorOutlineLength = 'compact' | 'standard' | 'extended';
+export type OrchestratorOutlineLength = 'minimal' | 'compact' | 'standard' | 'extended';
 
 /** 老师带做的完整例题 / 走读序列（多页 slide）的大致数量档；`none` 为不安排完整例题走读 */
 export type OrchestratorWorkedExampleLevel = 'none' | 'light' | 'moderate' | 'heavy';

@@ -222,7 +222,7 @@ export const settingsZhCN = {
     ttsDescription: 'TTS (Text-to-Speech) - 将文字转换为语音',
     asrDescription: 'ASR (Automatic Speech Recognition) - 将语音转换为文字',
     enableTTS: '启用语音合成',
-    ttsEnabledDescription: '开启后，课程生成时将自动合成语音',
+    ttsEnabledDescription: '开启后，播放页面时会按需合成语音，也可手动批量合成全部语音',
     enableASR: '启用语音识别',
     asrEnabledDescription: '开启后，学生可使用麦克风进行语音输入',
     ttsProvider: 'TTS 提供商',
@@ -842,7 +842,8 @@ export const settingsEnUS = {
     ttsDescription: 'TTS (Text-to-Speech) - Convert text to speech',
     asrDescription: 'ASR (Automatic Speech Recognition) - Convert speech to text',
     enableTTS: 'Enable Text-to-Speech',
-    ttsEnabledDescription: 'When enabled, speech audio will be generated during course creation',
+    ttsEnabledDescription:
+      'When enabled, playback synthesizes missing speech on demand, and you can also batch-generate all speech manually',
     enableASR: 'Enable Speech Recognition',
     asrEnabledDescription: 'When enabled, students can use microphone for voice input',
     ttsProvider: 'TTS Provider',

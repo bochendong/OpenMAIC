@@ -30,6 +30,7 @@ const CONTENT_WIDTH = 872;
 const CONTENT_BOTTOM = 522;
 const CARD_INSET_X = 18;
 const CARD_INSET_Y = 12;
+const CJK_TEXT_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 type ContentCardTone = {
   fill: string;
   border: string;
@@ -168,6 +169,171 @@ function estimateParagraphStackHeight(
     lineHeightPx + 12,
     totalLines * lineHeightPx + Math.max(0, normalized.length - 1) * paragraphSpacePx + 18,
   );
+}
+
+function estimateCharsPerLine(text: string, widthPx: number, fontSizePx: number): number {
+  const unitWidth = CJK_TEXT_REGEX.test(text) ? fontSizePx * 0.96 : fontSizePx * 0.56;
+  return Math.max(12, Math.floor(widthPx / Math.max(unitWidth, 1)));
+}
+
+function wrapLineByWidth(text: string, maxChars: number): string[] {
+  const normalized = text.trim();
+  if (!normalized) return [];
+  if (normalized.length <= maxChars) return [normalized];
+
+  const hasWhitespace = /\s/.test(normalized);
+  if (!hasWhitespace) {
+    const chunks: string[] = [];
+    let remaining = normalized;
+    while (remaining.length > maxChars) {
+      chunks.push(remaining.slice(0, maxChars));
+      remaining = remaining.slice(maxChars);
+    }
+    if (remaining) chunks.push(remaining);
+    return chunks;
+  }
+
+  const tokens = normalized.split(/(\s+)/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    const trimmed = current.trim();
+    if (trimmed) lines.push(trimmed);
+    current = '';
+  };
+
+  for (const token of tokens) {
+    if (!token.trim()) {
+      current += token;
+      continue;
+    }
+
+    const candidate = current ? `${current}${token}` : token;
+    if (candidate.trim().length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+
+    if (current.trim()) {
+      pushCurrent();
+    }
+
+    if (token.length <= maxChars) {
+      current = token;
+      continue;
+    }
+
+    let remaining = token;
+    while (remaining.length > maxChars) {
+      lines.push(remaining.slice(0, maxChars));
+      remaining = remaining.slice(maxChars);
+    }
+    current = remaining;
+  }
+
+  pushCurrent();
+  return lines;
+}
+
+function wrapTextToLines(text: string, maxChars: number): string[] {
+  const paragraphs = text
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const lines = paragraphs.flatMap((paragraph) => wrapLineByWidth(paragraph, maxChars));
+  return lines.length > 0 ? lines : [''];
+}
+
+function ellipsizeLine(text: string, maxChars: number): string {
+  const normalized = text.trim();
+  if (normalized.length <= maxChars) return normalized;
+  return `${normalized.slice(0, Math.max(1, maxChars - 1)).trimEnd()}…`;
+}
+
+function clampWrappedLines(lines: string[], maxLines: number, maxChars: number): string[] {
+  if (lines.length <= maxLines) return lines;
+  const kept = lines.slice(0, maxLines);
+  const tail = [kept[maxLines - 1], ...lines.slice(maxLines)].join(' ');
+  kept[maxLines - 1] = ellipsizeLine(tail, maxChars);
+  return kept;
+}
+
+function fitParagraphBlockToHeight(args: {
+  text: string;
+  widthPx: number;
+  fontSizePx: number;
+  lineHeightPx: number;
+  maxHeightPx: number;
+  color: string;
+}): { html: string; height: number } {
+  const maxChars = estimateCharsPerLine(args.text, args.widthPx, args.fontSizePx);
+  const wrapped = wrapTextToLines(args.text, maxChars);
+  const maxLines = Math.max(1, Math.floor((args.maxHeightPx - 18) / args.lineHeightPx));
+  const fittedLines = clampWrappedLines(wrapped, maxLines, maxChars);
+  const height = Math.max(
+    args.lineHeightPx + 12,
+    fittedLines.length * args.lineHeightPx + 18,
+  );
+
+  return {
+    html: fittedLines
+      .map(
+        (line) =>
+          `<p style="font-size:${args.fontSizePx}px;color:${args.color};line-height:${args.lineHeightPx}px;">${renderInlineLatexToHtml(line)}</p>`,
+      )
+      .join(''),
+    height,
+  };
+}
+
+function fitBulletListBlockToHeight(args: {
+  items: string[];
+  widthPx: number;
+  fontSizePx: number;
+  lineHeightPx: number;
+  maxHeightPx: number;
+  color: string;
+  bulletColor: string;
+  paragraphGapPx?: number;
+}): { html: string; height: number } {
+  const paragraphGapPx = args.paragraphGapPx ?? 5;
+  const htmlParts: string[] = [];
+  let usedHeight = 18;
+
+  for (const item of args.items) {
+    const maxChars = estimateCharsPerLine(item, args.widthPx - 16, args.fontSizePx);
+    const wrapped = wrapTextToLines(item, maxChars);
+    const gap = htmlParts.length > 0 ? paragraphGapPx : 0;
+    const remainingHeight = args.maxHeightPx - usedHeight - gap;
+    const maxLines = Math.floor(remainingHeight / args.lineHeightPx);
+    if (maxLines <= 0) break;
+
+    const fittedLines = clampWrappedLines(wrapped, maxLines, maxChars);
+    const truncated = fittedLines.length < wrapped.length;
+    const lineHtml = fittedLines
+      .map((line, index) =>
+        index === 0
+          ? `<span style="color:${args.bulletColor};font-weight:700;">•</span> ${renderInlineLatexToHtml(line)}`
+          : `${'&nbsp;'.repeat(4)}${renderInlineLatexToHtml(line)}`,
+      )
+      .join('<br/>');
+
+    htmlParts.push(
+      `<p style="font-size:${args.fontSizePx}px;color:${args.color};line-height:${args.lineHeightPx}px;">${lineHtml}</p>`,
+    );
+    usedHeight += gap + fittedLines.length * args.lineHeightPx;
+
+    if (truncated) break;
+  }
+
+  const height = Math.max(args.lineHeightPx + 12, usedHeight);
+  return {
+    html: htmlParts.join(''),
+    height,
+  };
 }
 
 function createTextElement(args: {
@@ -488,7 +654,20 @@ export function renderNotebookContentDocumentToSlide(args: {
 
     if (block.type === 'paragraph') {
       const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
-      const contentHeight = estimateParagraphHeight(block.text, 34, 22);
+      const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
+      const maxContentHeight = Math.max(
+        28,
+        remainingHeight - CARD_INSET_Y * 2,
+      );
+      const paragraph = fitParagraphBlockToHeight({
+        text: block.text,
+        widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+        fontSizePx: 16,
+        lineHeightPx: 22,
+        maxHeightPx: maxContentHeight,
+        color: '#334155',
+      });
+      const contentHeight = paragraph.height;
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
@@ -497,13 +676,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           top: cursorTop + CARD_INSET_Y,
           width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
           height: contentHeight,
-          html: block.text
-            .split('\n')
-            .map(
-              (line) =>
-                `<p style="font-size:16px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`,
-            )
-            .join(''),
+          html: paragraph.html,
           color: '#334155',
           textType: 'content',
         }),
@@ -515,10 +688,21 @@ export function renderNotebookContentDocumentToSlide(args: {
 
     if (block.type === 'bullet_list') {
       const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
-      const contentHeight = Math.min(
-        180,
-        Math.max(56, estimateParagraphStackHeight(block.items, 34, 20)),
+      const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
+      const maxContentHeight = Math.max(
+        40,
+        remainingHeight - CARD_INSET_Y * 2,
       );
+      const bulletList = fitBulletListBlockToHeight({
+        items: block.items,
+        widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+        fontSizePx: 16,
+        lineHeightPx: 20,
+        maxHeightPx: maxContentHeight,
+        color: '#334155',
+        bulletColor: tone.accent,
+      });
+      const contentHeight = bulletList.height;
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(...createContentCardShell({ top: cursorTop, height: cardHeight, tone }));
       elements.push(
@@ -527,12 +711,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           top: cursorTop + CARD_INSET_Y,
           width: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
           height: contentHeight,
-          html: block.items
-            .map(
-              (item) =>
-                `<p style="font-size:16px;color:#334155;">• ${renderInlineLatexToHtml(item)}</p>`,
-            )
-            .join(''),
+          html: bulletList.html,
           color: '#334155',
           textType: 'content',
         }),

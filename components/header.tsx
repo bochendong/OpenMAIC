@@ -11,6 +11,7 @@ import {
   Volume2,
   Sparkles,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -25,6 +26,9 @@ import { useSettingsStore } from '@/lib/store/settings';
 import { getActiveVoiceDisplay } from '@/lib/audio/voice-display';
 import { getSceneSpeechTtsBanner } from '@/lib/audio/speech-audio-readiness';
 import { renderPlainTitleWithOptionalLatex } from '@/lib/render-html-with-latex';
+import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
+import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
+import type { SpeechAction } from '@/lib/types/action';
 
 interface HeaderProps {
   readonly currentSceneTitle: string;
@@ -59,6 +63,11 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   // Export
   const { exporting: isExporting, exportPPTX, exportResourcePack } = useExportPPTX();
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [isSynthesizingAllSpeech, setIsSynthesizingAllSpeech] = useState(false);
+  const [synthAllSpeechProgress, setSynthAllSpeechProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const scenes = useStageStore((s) => s.scenes);
   const currentSceneId = useStageStore((s) => s.currentSceneId);
@@ -73,6 +82,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     [outlines, completedOrders],
   );
 
+  // Export intentionally depends on slide/media readiness only.
+  // Speech synthesis is manual/on-demand and must never block downloads.
   const canExport =
     scenes.length > 0 &&
     pendingOutlines.length === 0 &&
@@ -96,6 +107,31 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
       }),
     [headerCurrentScene, ttsEnabled, ttsProviderId],
   );
+
+  const allSpeechStats = useMemo(() => {
+    let total = 0;
+    let ready = 0;
+
+    for (const scene of scenes) {
+      const speechActions =
+        splitLongSpeechActions(scene.actions || [], ttsProviderId).filter(
+          (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
+        ) ?? [];
+      total += speechActions.length;
+      ready += speechActions.filter((action) => Boolean(action.audioUrl)).length;
+    }
+
+    return {
+      total,
+      ready,
+      missing: Math.max(0, total - ready),
+    };
+  }, [scenes, ttsProviderId]);
+
+  const showSynthesizeAllSpeechButton =
+    ttsEnabled &&
+    ttsProviderId !== 'browser-native-tts' &&
+    (allSpeechStats.missing > 0 || isSynthesizingAllSpeech);
 
   const exportWaitMessage = (() => {
     if (failedOutlines.length > 0) return t('export.waitSceneGenerationFailed');
@@ -147,6 +183,102 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     () => renderPlainTitleWithOptionalLatex(currentSceneTitle || t('common.loading')),
     [currentSceneTitle, t],
   );
+
+  const synthAllSpeechStatusText =
+    synthAllSpeechProgress != null
+      ? locale === 'zh-CN'
+        ? `合成语音 ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total}`
+        : `Speech ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total}`
+      : t('stage.ttsSynthesizeAllButton');
+
+  const handleSynthesizeAllSpeech = useCallback(async () => {
+    if (isSynthesizingAllSpeech) return;
+
+    const settings = useSettingsStore.getState();
+    if (!settings.ttsEnabled) {
+      toast.info(
+        locale === 'zh-CN'
+          ? 'TTS 目前已关闭，开启后才能批量合成语音。'
+          : 'TTS is currently disabled. Enable it before batch-generating speech.',
+      );
+      return;
+    }
+    if (settings.ttsProviderId === 'browser-native-tts') {
+      toast.info(
+        locale === 'zh-CN'
+          ? '当前使用浏览器实时朗读，不需要批量预生成语音。'
+          : 'Browser-native speech does not need batch pre-generation.',
+      );
+      return;
+    }
+
+    const orderedScenes = [...useStageStore.getState().scenes].sort((a, b) => a.order - b.order);
+    const pendingScenes = orderedScenes
+      .map((scene) => {
+        const pendingCount = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId).filter(
+          (action): action is SpeechAction =>
+            action.type === 'speech' && Boolean(action.text?.trim()) && !action.audioUrl,
+        ).length;
+        return { scene, pendingCount };
+      })
+      .filter((item) => item.pendingCount > 0);
+
+    const total = pendingScenes.reduce((sum, item) => sum + item.pendingCount, 0);
+    if (total === 0) {
+      toast.success(
+        locale === 'zh-CN'
+          ? '当前所有已生成页面的语音都已就绪。'
+          : 'Speech is already ready for all generated slides.',
+      );
+      return;
+    }
+
+    setIsSynthesizingAllSpeech(true);
+    setSynthAllSpeechProgress({ done: 0, total });
+    const loadingId = toast.loading(
+      locale === 'zh-CN' ? `正在合成全部语音（0/${total}）…` : `Generating all speech (0/${total})…`,
+    );
+
+    let completed = 0;
+    try {
+      for (const { scene, pendingCount } of pendingScenes) {
+        const result = await ensureMissingSpeechAudioForScene(scene, undefined, (done) => {
+          const nextDone = completed + done;
+          setSynthAllSpeechProgress({ done: nextDone, total });
+          toast.loading(
+            locale === 'zh-CN'
+              ? `正在合成全部语音（${nextDone}/${total}）…`
+              : `Generating all speech (${nextDone}/${total})…`,
+            { id: loadingId },
+          );
+        });
+
+        if (!result.ok) {
+          throw new Error(result.error || 'Speech generation failed');
+        }
+
+        completed += pendingCount;
+        setSynthAllSpeechProgress({ done: completed, total });
+      }
+
+      toast.success(
+        locale === 'zh-CN'
+          ? `全部语音已合成完成（${total}/${total}）。`
+          : `All speech has been generated (${total}/${total}).`,
+        { id: loadingId },
+      );
+    } catch (error) {
+      toast.error(
+        locale === 'zh-CN'
+          ? `批量合成语音失败：${error instanceof Error ? error.message : '未知错误'}`
+          : `Failed to generate all speech: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        { id: loadingId },
+      );
+    } finally {
+      setIsSynthesizingAllSpeech(false);
+      setSynthAllSpeechProgress(null);
+    }
+  }, [isSynthesizingAllSpeech, locale]);
 
   const metaChipsRow = (
     <TooltipProvider delayDuration={250}>
@@ -226,6 +358,35 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
           >
             {t('stage.ttsSpeechOffBanner')}
           </span>
+        ) : null}
+
+        {showSynthesizeAllSpeechButton ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleSynthesizeAllSpeech}
+                disabled={isSynthesizingAllSpeech}
+                className={cn(
+                  'inline-flex max-w-[min(100%,280px)] items-center gap-1.5 rounded-lg px-2 py-1',
+                  'border border-sky-200/80 bg-sky-50/90 text-[11px] font-medium leading-tight',
+                  'text-sky-900 transition-colors hover:bg-sky-100/90',
+                  'disabled:cursor-wait disabled:opacity-80',
+                  'dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-100 dark:hover:bg-sky-950/55',
+                )}
+              >
+                {isSynthesizingAllSpeech ? (
+                  <Loader2 className="size-3 shrink-0 animate-spin" />
+                ) : (
+                  <Volume2 className="size-3 shrink-0" />
+                )}
+                <span className="min-w-0 truncate">{synthAllSpeechStatusText}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-sm text-xs">
+              {t('stage.ttsSynthesizeAllButtonTooltip')}
+            </TooltipContent>
+          </Tooltip>
         ) : null}
 
         <Tooltip>

@@ -149,6 +149,9 @@ export function OrchestratorGenerateOptionsPanel({ className }: { className?: st
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="minimal" textValue="极简">
+                极简（5 页以下）
+              </SelectItem>
               <SelectItem value="compact" textValue="简短">
                 简短（10 页以下）
               </SelectItem>

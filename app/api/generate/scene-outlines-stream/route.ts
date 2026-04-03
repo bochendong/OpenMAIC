@@ -57,11 +57,14 @@ function buildOrchestratorPreferencesBlock(
   const exampleLevel: OrchestratorWorkedExampleLevel = prefs.workedExampleLevel ?? 'moderate';
 
   const lengthZh: Record<OrchestratorOutlineLength, string> = {
+    minimal: '**篇幅**：极简——总场景数（与幻灯页数大致对应）宜在 **5 个以下**，只保留最核心的成课骨架。',
     compact: '**篇幅**：简短——总场景数（与幻灯页数大致对应）宜在 **10 个以下**，紧凑成课。',
     standard: '**篇幅**：中等——总场景数（与幻灯页数大致对应）宜在 **约 10–20 个** 范围内。',
     extended: '**篇幅**：深入——总场景数（与幻灯页数大致对应）宜 **超过 20 个**，可分阶段展开。',
   };
   const lengthEn: Record<OrchestratorOutlineLength, string> = {
+    minimal:
+      '**Length**: Minimal — target **under 5** scenes (roughly one scene per slide/page); keep only the essential teaching spine.',
     compact:
       '**Length**: Brief — target **under 10** scenes (roughly one scene per slide/page); keep it tight.',
     standard:

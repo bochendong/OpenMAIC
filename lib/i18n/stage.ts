@@ -21,6 +21,9 @@ export const stageZhCN = {
       '本页尚有讲解语音未生成；首次播放时会请求 TTS 并写入本地缓存与笔记本。',
     ttsSpeechBrowserBanner: '当前使用浏览器实时朗读，无需预生成语音文件。',
     ttsSpeechOffBanner: 'TTS 已关闭，播放为静音或仅文字节奏。',
+    ttsSynthesizeAllButton: '合成全部语音',
+    ttsSynthesizeAllButtonTooltip:
+      '只在点击后，为当前已生成页面批量合成讲解语音；下载不需要等待它完成。',
     openSceneList: '展开幻灯片列表',
     deletePage: '删除页面',
     deletePageConfirm: '确定删除「{title}」？删除后无法恢复。',
@@ -216,6 +219,9 @@ export const stageEnUS = {
       'Some speech lines for this slide are not generated yet. They will be synthesized on first play and saved to local cache.',
     ttsSpeechBrowserBanner: 'Browser speech is used — no pre-generated audio files.',
     ttsSpeechOffBanner: 'TTS is off; playback is silent or text-paced only.',
+    ttsSynthesizeAllButton: 'Generate all speech',
+    ttsSynthesizeAllButtonTooltip:
+      'Only runs when clicked: batch-synthesizes narration for generated slides and does not block download.',
     openSceneList: 'Show slide list',
     deletePage: 'Delete page',
     deletePageConfirm: 'Delete “{title}”? This cannot be undone.',

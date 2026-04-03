@@ -266,60 +266,6 @@ export async function generateAndStoreTTS(
   };
 }
 
-/** Generate TTS for all speech actions in a scene. Returns result. */
-async function generateTTSForScene(
-  scene: Scene,
-  signal?: AbortSignal,
-): Promise<{ success: boolean; failedCount: number; error?: string; aborted?: boolean }> {
-  const providerId = useSettingsStore.getState().ttsProviderId;
-  scene.actions = splitLongSpeechActions(scene.actions || [], providerId);
-  const speechActions = scene.actions.filter(
-    (a): a is SpeechAction => a.type === 'speech' && !!a.text,
-  );
-  if (speechActions.length === 0) return { success: true, failedCount: 0 };
-
-  let failedCount = 0;
-  let lastError: string | undefined;
-
-  for (const action of speechActions) {
-    const audioId = `tts_${action.id}`;
-    action.audioId = audioId;
-    try {
-      const { audioUrl, visemes, mouthCues } = await generateAndStoreTTS(
-        audioId,
-        action.text,
-        signal,
-      );
-      if (audioUrl) action.audioUrl = audioUrl;
-      if (visemes?.length) action.visemes = visemes;
-      if (mouthCues?.length) action.mouthCues = mouthCues;
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return {
-          success: false,
-          failedCount,
-          error: error.message,
-          aborted: true,
-        };
-      }
-      failedCount++;
-      lastError = error instanceof Error ? error.message : `TTS failed for action ${action.id}`;
-      log.warn('TTS generation failed:', {
-        providerId,
-        actionId: action.id,
-        textLength: action.text.length,
-        error: lastError,
-      });
-    }
-  }
-
-  return {
-    success: failedCount === 0,
-    failedCount,
-    error: lastError,
-  };
-}
-
 /**
  * Ensure every speech action on the current scene has audioUrl (non–browser-native TTS).
  * Mutates the scene's actions in place so PlaybackEngine keeps the same object references.
@@ -332,6 +278,12 @@ export async function ensureMissingSpeechAudioForScene(
   const settings = useSettingsStore.getState();
   if (!settings.ttsEnabled || settings.ttsProviderId === 'browser-native-tts') {
     return { ok: true };
+  }
+
+  const nextActions = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId);
+  if (nextActions !== scene.actions) {
+    scene.actions = nextActions;
+    useStageStore.getState().touchScenes();
   }
 
   const speechActions =
@@ -528,26 +480,6 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
           if (actionsResult.success && actionsResult.scene) {
             const scene = actionsResult.scene;
-            const settings = useSettingsStore.getState();
-
-            // TTS generation — failure means the whole scene fails
-            if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
-              const ttsResult = await generateTTSForScene(scene, signal);
-              if (ttsResult.aborted || abortRef.current || store.getState().generationEpoch !== startEpoch) {
-                store.getState().setGenerationStatus('paused');
-                pausedByFailureOrAbort = true;
-                break;
-              }
-              if (!ttsResult.success) {
-                log.warn('[SceneGenerator] TTS generation failed, but the scene will still be kept', {
-                  outlineId: outline.id,
-                  outlineTitle: outline.title,
-                  failedCount: ttsResult.failedCount,
-                  error: ttsResult.error,
-                });
-              }
-            }
-
             // Epoch changed — stage switched, discard this scene
             if (store.getState().generationEpoch !== startEpoch) {
               pausedByFailureOrAbort = true;
@@ -630,7 +562,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
   const isGenerating = useCallback(() => generatingRef.current, []);
 
-  /** Retry a single failed outline from scratch (content → actions → TTS). */
+  /** Retry a single failed outline from scratch (content → actions). */
   const retrySingleOutline = useCallback(
     async (outlineId: string) => {
       const state = store.getState();
@@ -708,22 +640,6 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         if (!actionsResult.success || !actionsResult.scene) {
           store.getState().addFailedOutline(outline);
           return;
-        }
-
-        // Step 3: TTS
-        const settings = useSettingsStore.getState();
-        if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
-          const ttsResult = await generateTTSForScene(actionsResult.scene, signal);
-          if (ttsResult.aborted) {
-            return;
-          }
-          if (!ttsResult.success) {
-            log.warn('[SceneGenerator] TTS generation failed during single-scene retry, but the scene will still be kept', {
-              outlineId,
-              failedCount: ttsResult.failedCount,
-              error: ttsResult.error,
-            });
-          }
         }
 
         if (signal.aborted) {

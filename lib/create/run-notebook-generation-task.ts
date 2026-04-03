@@ -515,6 +515,8 @@ function applyOutlineLanguage(
 
 function getMinimumSceneCount(length: OrchestratorOutlineLength): number {
   switch (length) {
+    case 'minimal':
+      return 4;
     case 'compact':
       return 6;
     case 'extended':
