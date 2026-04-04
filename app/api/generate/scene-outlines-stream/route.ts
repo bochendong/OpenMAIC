@@ -33,7 +33,7 @@ import type {
 } from '@/lib/types/generation';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
-import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { resolveModelFromHeadersForNotebookStage } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 import type { CoursePurpose } from '@/lib/utils/database';
 import type {
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
       model: languageModel,
       modelInfo,
       modelString,
-    } = await resolveModelFromHeaders(req, {
+    } = await resolveModelFromHeadersForNotebookStage(req, 'outlines', {
       allowOpenAIModelOverride: true,
     });
 

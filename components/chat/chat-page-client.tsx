@@ -2648,6 +2648,8 @@ export function ChatPageClient() {
             courseId: courseId || undefined,
             requirement: mergedPrompt,
             modelIdOverride: orchGen.modelIdOverride,
+            notebookStageModelOverrides: orchGen.notebookStageModelOverrides,
+            notebookModelMode: orchGen.notebookModelMode,
             language: orchGen.language,
             webSearch: orchGen.webSearch,
             userNickname: nickname.trim() || undefined,

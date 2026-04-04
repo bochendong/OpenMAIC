@@ -19,7 +19,7 @@ import type { CoursePersonalizationContext } from '@/lib/generation/generation-p
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { resolveModelFromHeadersForNotebookStage } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 
 const log = createLogger('Scene Content API');
@@ -86,9 +86,10 @@ export async function POST(req: NextRequest) {
     } as const;
 
     // ── Model resolution from request headers ──
-    const { model: languageModel, modelInfo, modelString } = await resolveModelFromHeaders(req, {
-      allowOpenAIModelOverride: true,
-    });
+    const { model: languageModel, modelInfo, modelString } =
+      await resolveModelFromHeadersForNotebookStage(req, 'content', {
+        allowOpenAIModelOverride: true,
+      });
 
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;

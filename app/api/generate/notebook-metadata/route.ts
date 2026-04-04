@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { resolveModelFromHeadersForNotebookStage } from '@/lib/server/resolve-model';
 import { runWithRequestContext } from '@/lib/server/request-context';
 
 const log = createLogger('Notebook Metadata API');
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'requirements.requirement is required');
     }
 
-    const { model, modelString } = await resolveModelFromHeaders(req, {
+    const { model, modelString } = await resolveModelFromHeadersForNotebookStage(req, 'metadata', {
       allowOpenAIModelOverride: true,
     });
     const pdfHint = pdfText ? pdfText.slice(0, 4000) : '';

@@ -7,6 +7,10 @@
 
 import type { NextRequest } from 'next/server';
 import { getModel, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
+import {
+  NOTEBOOK_GENERATION_MODEL_STAGE_HEADER_KEYS,
+  type NotebookGenerationModelStage,
+} from '@/lib/constants/notebook-generation-model-stages';
 import { getSystemLLMRuntimeConfig } from '@/lib/server/system-llm-config';
 
 export interface ResolvedModel extends ModelWithInfo {
@@ -75,4 +79,28 @@ export async function resolveModelFromHeaders(
     providerType: req.headers.get('x-provider-type') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
   }, options);
+}
+
+/**
+ * Notebook 创建专用：优先读 `x-notebook-model-{stage}`，否则回退 `x-model`，再回退系统默认。
+ */
+export async function resolveModelFromHeadersForNotebookStage(
+  req: NextRequest,
+  stage: NotebookGenerationModelStage,
+  options: ResolveModelOptions = {},
+): Promise<ResolvedModel> {
+  const headerName = NOTEBOOK_GENERATION_MODEL_STAGE_HEADER_KEYS[stage];
+  const stageModel = req.headers.get(headerName)?.trim();
+  const fallbackModel = req.headers.get('x-model')?.trim();
+  const modelString = stageModel || fallbackModel || undefined;
+  return resolveModel(
+    {
+      modelString,
+      apiKey: req.headers.get('x-api-key') || undefined,
+      baseUrl: req.headers.get('x-base-url') || undefined,
+      providerType: req.headers.get('x-provider-type') || undefined,
+      requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
+    },
+    options,
+  );
 }

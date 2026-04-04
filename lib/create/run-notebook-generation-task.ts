@@ -19,7 +19,17 @@ import {
   SAFE_GENERATION_REQUEST_BYTES,
 } from '@/lib/generation/request-payload-budget';
 import { loadImageMapping, storeImages } from '@/lib/utils/image-storage';
+import {
+  NOTEBOOK_MODEL_PRESET_FULL,
+  NOTEBOOK_MODEL_RECOMMENDED_BY_STAGE,
+  type NotebookGenerationModelMode,
+} from '@/lib/constants/notebook-generation-model-presets';
+import {
+  NOTEBOOK_GENERATION_MODEL_STAGE_HEADER_KEYS,
+  NOTEBOOK_GENERATION_MODEL_STAGES,
+} from '@/lib/constants/notebook-generation-model-stages';
 import type {
+  NotebookStageModelOverrides,
   OrchestratorOutlineLength,
   OrchestratorWorkedExampleLevel,
 } from '@/lib/store/orchestrator-notebook-generation';
@@ -76,6 +86,10 @@ export type NotebookGenerationTaskInput = {
   requirement: string;
   /** 仅覆盖本次 notebook 创建链路所用的 OpenAI 模型；null/undefined 时沿用当前设置 */
   modelIdOverride?: string | null;
+  /** 按创建步骤分别覆盖模型；未指定的步骤使用 `modelIdOverride`（再回退当前全局模型）；仅 `notebookModelMode === 'custom'` 时生效 */
+  notebookStageModelOverrides?: NotebookStageModelOverrides | null;
+  /** 默认 `recommended`：推荐 mini/主模型搭配；`max` 时全程 gpt-5.4 */
+  notebookModelMode?: NotebookGenerationModelMode;
   language?: 'zh-CN' | 'en-US';
   webSearch?: boolean;
   userNickname?: string;
@@ -107,6 +121,8 @@ export type NotebookGenerationTaskResult = {
 function getApiHeaders(overrides?: {
   imageGenerationEnabled?: boolean;
   modelIdOverride?: string | null;
+  notebookStageModelOverrides?: NotebookStageModelOverrides | null;
+  notebookModelMode?: NotebookGenerationModelMode;
 }): HeadersInit {
   const modelConfig = getCurrentModelConfig();
   const settings = useSettingsStore.getState();
@@ -116,10 +132,16 @@ function getApiHeaders(overrides?: {
     overrides?.imageGenerationEnabled !== undefined
       ? overrides.imageGenerationEnabled
       : (settings.imageGenerationEnabled ?? false);
-  const modelString = overrides?.modelIdOverride?.trim()
+  const mode = overrides?.notebookModelMode ?? 'recommended';
+
+  let modelString = overrides?.modelIdOverride?.trim()
     ? `openai:${overrides.modelIdOverride.trim()}`
     : modelConfig.modelString;
-  return {
+  if (mode === 'max') {
+    modelString = `openai:${NOTEBOOK_MODEL_PRESET_FULL}`;
+  }
+
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-model': modelString,
     'x-api-key': modelConfig.apiKey,
@@ -137,6 +159,25 @@ function getApiHeaders(overrides?: {
     'x-image-generation-enabled': String(imageGenEnabled),
     'x-video-generation-enabled': String(settings.videoGenerationEnabled ?? false),
   };
+
+  if (mode === 'recommended') {
+    for (const stage of NOTEBOOK_GENERATION_MODEL_STAGES) {
+      headers[NOTEBOOK_GENERATION_MODEL_STAGE_HEADER_KEYS[stage]] =
+        `openai:${NOTEBOOK_MODEL_RECOMMENDED_BY_STAGE[stage]}`;
+    }
+  } else if (mode === 'custom') {
+    const stageOv = overrides?.notebookStageModelOverrides;
+    if (stageOv) {
+      for (const stage of NOTEBOOK_GENERATION_MODEL_STAGES) {
+        const id = stageOv[stage]?.trim();
+        if (id) {
+          headers[NOTEBOOK_GENERATION_MODEL_STAGE_HEADER_KEYS[stage]] = `openai:${id}`;
+        }
+      }
+    }
+  }
+
+  return headers;
 }
 
 async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -1227,14 +1268,16 @@ export async function runNotebookGenerationTask(
         : (settings.imageGenerationEnabled ?? false),
     videoEnabled: settings.videoGenerationEnabled ?? false,
   };
-  const mediaForHeaders =
-    input.imageGenerationEnabledOverride !== undefined || input.modelIdOverride !== undefined
-      ? {
-          imageGenerationEnabled: input.imageGenerationEnabledOverride,
-          modelIdOverride: input.modelIdOverride,
-        }
-      : undefined;
-  const getHeaders = () => getApiHeaders(mediaForHeaders);
+  const getHeaders = () =>
+    getApiHeaders({
+      imageGenerationEnabled:
+        input.imageGenerationEnabledOverride !== undefined
+          ? input.imageGenerationEnabledOverride
+          : undefined,
+      modelIdOverride: input.modelIdOverride,
+      notebookStageModelOverrides: input.notebookStageModelOverrides ?? undefined,
+      notebookModelMode: input.notebookModelMode ?? 'recommended',
+    });
   input.onProgress?.({ stage: 'preparing', detail: '正在初始化创建任务…' });
 
   try {
