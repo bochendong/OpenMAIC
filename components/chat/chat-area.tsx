@@ -7,12 +7,13 @@ import {
   useCallback,
   useState,
   useMemo,
+  useEffect,
   type CSSProperties,
 } from 'react';
 import type { SessionType } from '@/lib/types/chat';
 import type { LectureNoteEntry } from '@/lib/types/chat';
 import type { DiscussionRequest } from '@/components/roundtable';
-import type { Action, SpeechAction, DiscussionAction } from '@/lib/types/action';
+import type { Action } from '@/lib/types/action';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useStageStore } from '@/lib/store';
@@ -22,6 +23,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { useChatSessions } from './use-chat-sessions';
 import { SessionList } from './session-list';
 import { LectureNotesView } from './lecture-notes-view';
+import {
+  buildSceneSidebarAskThread,
+  type SceneSidebarAskBubble,
+} from '@/lib/utils/scene-sidebar-ask-thread';
+import { buildLectureNotesFromScenes } from '@/lib/utils/build-lecture-notes-from-scenes';
 
 interface ChatAreaProps {
   className?: string;
@@ -39,6 +45,8 @@ interface ChatAreaProps {
   onMessageSend?: (message: string) => Promise<void> | void;
   onInputActivate?: () => Promise<void> | void;
   currentSceneId?: string | null;
+  /** 同步当前 QA/讨论气泡到左侧栏「提问」，与 AI 编辑侧栏对话区布局一致 */
+  onSceneSidebarAskThreadChange?: (thread: SceneSidebarAskBubble[]) => void;
 }
 
 export interface ChatAreaRef {
@@ -83,6 +91,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       onMessageSend,
       onInputActivate,
       currentSceneId,
+      onSceneSidebarAskThreadChange,
     },
     ref,
   ) => {
@@ -126,43 +135,21 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
     // Derive lecture notes directly from scenes — updates reactively as scenes stream in
     // Preserves action order so spotlight/laser badges appear inline between speech texts
     const lectureNotes: LectureNoteEntry[] = useMemo(
-      () =>
-        scenes
-          .filter((scene) => scene.actions && scene.actions.length > 0)
-          .map((scene) => ({
-            sceneId: scene.id,
-            sceneTitle: scene.title,
-            sceneOrder: scene.order,
-            items: scene
-              .actions!.filter(
-                (a) =>
-                  a.type === 'speech' ||
-                  a.type === 'spotlight' ||
-                  a.type === 'laser' ||
-                  a.type === 'play_video' ||
-                  a.type === 'discussion',
-              )
-              .map((a) => {
-                if (a.type === 'speech') {
-                  return {
-                    kind: 'speech' as const,
-                    text: (a as SpeechAction).text,
-                  };
-                }
-                return {
-                  kind: 'action' as const,
-                  type: a.type,
-                  label: a.type === 'discussion' ? (a as DiscussionAction).topic : undefined,
-                };
-              }),
-            completedAt: scene.updatedAt || scene.createdAt || 0,
-          }))
-          .sort((a, b) => a.sceneOrder - b.sceneOrder),
+      () => buildLectureNotesFromScenes(scenes),
       [scenes],
     );
 
     // Filter out lecture sessions for the Chat tab
     const chatSessions = useMemo(() => sessions.filter((s) => s.type !== 'lecture'), [sessions]);
+
+    const sceneSidebarAskThread = useMemo(
+      () => buildSceneSidebarAskThread(chatSessions, isStreaming),
+      [chatSessions, isStreaming],
+    );
+
+    useEffect(() => {
+      onSceneSidebarAskThreadChange?.(sceneSidebarAskThread);
+    }, [sceneSidebarAskThread, onSceneSidebarAskThreadChange]);
 
     // Whether there's an active discussion/QA session (for amber dot on Chat tab)
     const hasActiveChatSession = useMemo(

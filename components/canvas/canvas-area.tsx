@@ -12,6 +12,7 @@ import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
 import type { TalkingAvatarOverlayState } from '@/components/canvas/talking-avatar-overlay';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
+import type { SceneSidebarAskBubble } from '@/lib/utils/scene-sidebar-ask-thread';
 import { useI18n } from '@/lib/hooks/use-i18n';
 
 interface CanvasAreaProps extends CanvasToolbarProps {
@@ -26,6 +27,7 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly onRetryOutline?: (outlineId: string) => Promise<void>;
   readonly onSidebarAskActivate?: () => Promise<void> | void;
   readonly onSidebarAskSubmit?: (message: string) => Promise<void> | void;
+  readonly sceneSidebarAskThread?: SceneSidebarAskBubble[];
   /** 播放模式下在左侧栏显示「虚拟讲师」标签与形象时传入 */
   readonly sceneSidebarLive2d?: TalkingAvatarOverlayState;
   readonly playPauseDisabled?: boolean;
@@ -46,6 +48,7 @@ export function CanvasArea({
   onRetryOutline,
   onSidebarAskActivate,
   onSidebarAskSubmit,
+  sceneSidebarAskThread = [],
   chatCollapsed,
   onToggleSidebar,
   onToggleChat,
@@ -115,6 +118,7 @@ export function CanvasArea({
           onRetryOutline={onRetryOutline}
           onAskActivate={onSidebarAskActivate}
           onAskSubmit={onSidebarAskSubmit}
+          askThread={sceneSidebarAskThread}
           live2dPresenter={sceneSidebarLive2d}
           playbackEngineState={engineState}
         />

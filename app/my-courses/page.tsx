@@ -187,7 +187,7 @@ export default function MyCoursesPage() {
                 我的课程
               </h1>
               <p className="mt-3 text-[15px] leading-relaxed text-[#86868b] dark:text-[#a1a1a6]">
-                课程是容器；在课程下创建的生成内容会以「笔记本」形式展示，可随时继续学习。
+                每门课都是独立的学习空间：在课里生成的讲义与练习会整理成笔记本，随时打开都能从上次进度继续。
               </p>
             </motion.div>
             <motion.div

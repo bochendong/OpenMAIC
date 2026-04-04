@@ -30,7 +30,7 @@ import type {
 import { renderHtmlWithLatex } from '@/lib/render-html-with-latex';
 import { cn } from '@/lib/utils';
 import { nanoid } from 'nanoid';
-import { ArrowUp, ImagePlus, Loader2, PlusSquare, Trash2, Upload, X } from 'lucide-react';
+import { ImagePlus, Loader2, PlusSquare, SendHorizonal, Trash2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 function sectionTitle(title: string, description?: string) {
@@ -96,12 +96,6 @@ const COMMON_COLOR_SWATCHES = [
   '#f9a8d4',
   '#ddd6fe',
   '#c4b5fd',
-] as const;
-
-const COMMON_REWRITE_PROMPTS = [
-  '这一页太空了，重写成更完整的证明页。',
-  '保留主题，但换一种更清楚的讲法。',
-  '把这一页重写得更像老师真正会上课展示的版本。',
 ] as const;
 
 const FONT_FAMILY_OPTIONS = [
@@ -1229,109 +1223,97 @@ export function SlideElementInspector({
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-6 px-4 py-4">
-          {sidebarPanel === 'ai' ? (
-            <div className="space-y-3">
-              {sectionTitle(
-                'AI 重写对话',
-                '像聊天一样告诉 AI 为什么这页需要重写；它会按主生成流程重写当前页，并把你的要求带进去。',
+      {sidebarPanel === 'ai' ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-4 pb-2">
+            <div
+              ref={repairConversationRef}
+              className={cn(
+                'rounded-2xl border border-white/70 bg-white/75 p-3 dark:border-white/10 dark:bg-slate-950/30',
+                repairConversation.length > 0 ? 'space-y-3' : 'flex min-h-[200px] flex-col items-center justify-center px-4 py-8 text-center',
               )}
-              <div className="rounded-[24px] border border-sky-200/80 bg-[linear-gradient(180deg,rgba(240,249,255,0.95)_0%,rgba(255,255,255,0.92)_100%)] p-3 shadow-[0_18px_40px_rgba(56,189,248,0.12)] dark:border-sky-500/20 dark:bg-[linear-gradient(180deg,rgba(12,20,32,0.94)_0%,rgba(15,23,42,0.84)_100%)]">
-                <div
-                  ref={repairConversationRef}
-                  className="max-h-[360px] space-y-3 overflow-y-auto rounded-2xl border border-white/70 bg-white/75 p-3 dark:border-white/10 dark:bg-slate-950/30"
-                >
-                  {repairConversation.length === 0 ? (
-                    <div className="rounded-2xl border border-dashed border-sky-200 bg-sky-50/80 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-sky-500/20 dark:bg-sky-950/20 dark:text-slate-300">
-                      你可以直接说：
-                      <div className="mt-2 space-y-1 text-[13px] text-slate-500 dark:text-slate-400">
-                        <div>“这一页太空了，帮我重写得更完整一点”</div>
-                        <div>“保留主题，但讲法换得更像课堂证明页”</div>
-                        <div>“这一页不够像老师上课会展示的版本，重写一下结构”</div>
+            >
+              {repairConversation.length === 0 ? (
+                <p className="max-w-[260px] text-sm leading-6 text-slate-500 dark:text-slate-400">
+                  还没有对话。在下方输入你的修改想法并发送，或留空用默认流程重写当前页。
+                </p>
+              ) : (
+                repairConversation.map((message) => {
+                  const isAssistant = message.role === 'assistant';
+                  return (
+                    <div
+                      key={message.id}
+                      className={cn('flex', isAssistant ? 'justify-start' : 'justify-end')}
+                    >
+                      <div
+                        className={cn(
+                          'max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-6 shadow-sm',
+                          isAssistant
+                            ? message.status === 'error'
+                              ? 'border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100'
+                              : 'border border-sky-200 bg-white text-slate-700 dark:border-sky-500/20 dark:bg-slate-900/80 dark:text-slate-100'
+                            : 'bg-slate-900 text-white dark:bg-sky-500 dark:text-slate-950',
+                        )}
+                      >
+                        <div className="mb-1 flex items-center gap-2 text-[11px] font-medium opacity-70">
+                          <span>{isAssistant ? 'AI 重写' : '你'}</span>
+                          {message.status === 'pending' ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : null}
+                        </div>
+                        <p className="whitespace-pre-wrap break-words">{message.content}</p>
                       </div>
                     </div>
-                  ) : null}
-
-                  {repairConversation.map((message) => {
-                    const isAssistant = message.role === 'assistant';
-                    return (
-                      <div
-                        key={message.id}
-                        className={cn('flex', isAssistant ? 'justify-start' : 'justify-end')}
-                      >
-                        <div
-                          className={cn(
-                            'max-w-[85%] rounded-[20px] px-4 py-3 text-sm leading-6 shadow-sm',
-                            isAssistant
-                              ? message.status === 'error'
-                                ? 'border border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-100'
-                                : 'border border-sky-200 bg-white text-slate-700 dark:border-sky-500/20 dark:bg-slate-900/80 dark:text-slate-100'
-                              : 'bg-slate-900 text-white dark:bg-sky-500 dark:text-slate-950',
-                          )}
-                        >
-                          <div className="mb-1 flex items-center gap-2 text-[11px] font-medium opacity-70">
-                            <span>{isAssistant ? 'AI 重写' : '你'}</span>
-                            {message.status === 'pending' ? (
-                              <Loader2 className="size-3 animate-spin" />
-                            ) : null}
-                          </div>
-                          <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {COMMON_REWRITE_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => onRepairDraftChange(prompt)}
-                      className="rounded-full border border-sky-200 bg-white/80 px-3 py-1.5 text-[11px] font-medium text-slate-600 transition-colors hover:border-sky-300 hover:text-slate-900 dark:border-sky-500/20 dark:bg-slate-900/60 dark:text-slate-300 dark:hover:text-white"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-3 rounded-2xl border border-sky-200/80 bg-white/85 p-3 dark:border-sky-500/20 dark:bg-slate-950/40">
-                  <Textarea
-                    ref={repairInputRef}
-                    value={repairDraft}
-                    onChange={(e) => onRepairDraftChange(e.target.value)}
-                    onKeyDown={(e) => {
-                      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !repairPending) {
-                        e.preventDefault();
-                        onSendRepairMessage();
-                      }
-                    }}
-                    placeholder="像聊天一样发一句，例如：这页太空了，按更完整的证明页重写。"
-                    className="min-h-[108px] border-sky-200 bg-white/90 text-sm dark:border-sky-500/20 dark:bg-slate-950/40"
-                  />
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <p className="text-[11px] leading-5 text-slate-500 dark:text-slate-400">
-                      `Cmd/Ctrl + Enter` 发送。留空时，会按默认主生成流程重写当前页。
-                    </p>
-                    <Button
-                      type="button"
-                      onClick={onSendRepairMessage}
-                      disabled={repairPending}
-                      className="shrink-0 rounded-full px-4"
-                    >
-                      {repairPending ? (
-                        <Loader2 className="size-4 animate-spin" />
-                      ) : (
-                        <ArrowUp className="size-4" />
-                      )}
-                      {repairPending ? 'AI 正在重写' : '发送并重写'}
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                  );
+                })
+              )}
             </div>
-          ) : (
+          </div>
+
+          <div className="shrink-0 border-t border-slate-900/[0.08] bg-white/88 px-4 py-3 backdrop-blur-md dark:border-white/[0.08] dark:bg-[#0f1115]/90">
+            <div className="rounded-[20px] border border-slate-900/[0.08] bg-white/88 p-2 shadow-[0_10px_28px_rgba(15,23,42,0.07)] dark:border-white/[0.08] dark:bg-black/20 dark:shadow-[0_10px_30px_rgba(0,0,0,0.22)]">
+              <div className="flex items-end gap-2">
+                <Textarea
+                  ref={repairInputRef}
+                  value={repairDraft}
+                  onChange={(e) => onRepairDraftChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !repairPending) {
+                      e.preventDefault();
+                      onSendRepairMessage();
+                    }
+                  }}
+                  placeholder="像聊天一样发一句，例如：这页太空了，按更完整的证明页重写。"
+                  className="min-h-[108px] flex-1 resize-none border-0 bg-transparent px-2 py-2 text-sm shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent"
+                />
+                <button
+                  type="button"
+                  onClick={onSendRepairMessage}
+                  disabled={repairPending}
+                  className={cn(
+                    'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all duration-200',
+                    repairPending
+                      ? 'cursor-wait bg-slate-200/80 text-slate-400 dark:bg-white/[0.08] dark:text-white/30'
+                      : 'bg-[#007AFF] text-white shadow-[0_10px_24px_rgba(0,122,255,0.28)] hover:bg-[#0a84ff] dark:hover:bg-[#0a84ff]',
+                  )}
+                  aria-label={repairPending ? 'AI 正在重写' : '发送并重写'}
+                >
+                  {repairPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <SendHorizonal className="size-4" />
+                  )}
+                </button>
+              </div>
+              <p className="mt-2 px-2 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                `Cmd/Ctrl + Enter` 发送。留空时，会按默认主生成流程重写当前页。
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-6 px-4 py-4">
             <div className="space-y-4">
               {manualTab === 'add' ? (
                 <section className="space-y-4">
@@ -1512,9 +1494,9 @@ export function SlideElementInspector({
                 </section>
               ) : null}
             </div>
-          )}
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }

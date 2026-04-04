@@ -537,9 +537,9 @@ export const useSettingsStore = create<SettingsState>()(
         live2dPresenterModelId: DEFAULT_LIVE2D_PRESENTER_MODEL_ID,
         live2dPresenterVisible: true,
 
-        // Layout preferences（false = 场景列表侧栏展开）
+        // Layout preferences（false = 侧栏展开）
         sidebarCollapsed: false,
-        chatAreaCollapsed: true,
+        chatAreaCollapsed: false,
         chatAreaWidth: 320,
 
         // Audio settings (use defaults)

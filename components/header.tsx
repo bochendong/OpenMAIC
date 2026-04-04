@@ -16,6 +16,16 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useStageStore } from '@/lib/store';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useExportPPTX } from '@/lib/export/use-export-pptx';
@@ -56,6 +66,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     done: number;
     total: number;
   } | null>(null);
+  const [synthPickerOpen, setSynthPickerOpen] = useState(false);
+  const [selectedSynthSceneIds, setSelectedSynthSceneIds] = useState<Set<string>>(() => new Set());
   const exportRef = useRef<HTMLDivElement>(null);
   const scenes = useStageStore((s) => s.scenes);
   const currentSceneId = useStageStore((s) => s.currentSceneId);
@@ -140,6 +152,57 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     const pendingPages = pages.filter((p) => !p.fullyReady);
     return { totalPagesWithSpeech, readyPages, pendingPages, pages };
   }, [scenes, ttsProviderId, locale]);
+
+  /** 含讲解语音的场景列表（用于批量合成勾选）；含幻灯片页码与其它场景类型 */
+  const synthSceneRows = useMemo(() => {
+    const ordered = [...scenes].sort((a, b) => a.order - b.order);
+    let slideOrdinal = 0;
+    const rows: Array<{
+      sceneId: string;
+      primaryLabel: string;
+      secondaryTitle: string;
+      fullyReady: boolean;
+      pendingCount: number;
+      isSlide: boolean;
+    }> = [];
+    for (const scene of ordered) {
+      const speechActions =
+        splitLongSpeechActions(scene.actions || [], ttsProviderId).filter(
+          (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
+        ) ?? [];
+      if (speechActions.length === 0) continue;
+      const pendingCount = speechActions.filter((a) => !a.audioUrl).length;
+      const fullyReady = pendingCount === 0;
+      const isSlide = scene.type === 'slide';
+      if (isSlide) slideOrdinal += 1;
+      const rawTitle = scene.title?.trim() || '';
+      const typeLabel = (() => {
+        switch (scene.type) {
+          case 'slide':
+            return locale === 'zh-CN' ? `第 ${slideOrdinal} 页` : `Slide ${slideOrdinal}`;
+          case 'quiz':
+            return t('stage.sceneType.quiz');
+          case 'interactive':
+            return t('stage.sceneType.interactive');
+          case 'pbl':
+            return t('stage.sceneType.pbl');
+          default:
+            return scene.type;
+        }
+      })();
+      const primaryLabel = isSlide ? typeLabel : rawTitle || typeLabel;
+      const secondaryTitle = isSlide && rawTitle ? rawTitle : '';
+      rows.push({
+        sceneId: scene.id,
+        primaryLabel,
+        secondaryTitle,
+        fullyReady,
+        pendingCount,
+        isSlide,
+      });
+    }
+    return rows;
+  }, [scenes, ttsProviderId, locale, t]);
 
   const showSynthesizeAllSpeechButton =
     ttsEnabled &&
@@ -237,94 +300,125 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     return `${head}\n${pendingHead}\n${lines.join('\n')}${more}\n\n${baseHint}`;
   }, [allSpeechStats.ready, allSpeechStats.total, locale, speechPagesBreakdown, t]);
 
-  const handleSynthesizeAllSpeech = useCallback(async () => {
-    if (isSynthesizingAllSpeech) return;
-
-    const settings = useSettingsStore.getState();
-    if (!settings.ttsEnabled) {
-      toast.info(
-        locale === 'zh-CN'
-          ? 'TTS 目前已关闭，开启后才能批量合成语音。'
-          : 'TTS is currently disabled. Enable it before batch-generating speech.',
-      );
-      return;
-    }
-    if (settings.ttsProviderId === 'browser-native-tts') {
-      toast.info(
-        locale === 'zh-CN'
-          ? '当前使用浏览器实时朗读，不需要批量预生成语音。'
-          : 'Browser-native speech does not need batch pre-generation.',
-      );
-      return;
-    }
-
-    const orderedScenes = [...useStageStore.getState().scenes].sort((a, b) => a.order - b.order);
-    const pendingScenes = orderedScenes
-      .map((scene) => {
-        const pendingCount = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId).filter(
-          (action): action is SpeechAction =>
-            action.type === 'speech' && Boolean(action.text?.trim()) && !action.audioUrl,
-        ).length;
-        return { scene, pendingCount };
-      })
-      .filter((item) => item.pendingCount > 0);
-
-    const total = pendingScenes.reduce((sum, item) => sum + item.pendingCount, 0);
-    if (total === 0) {
-      toast.success(
-        locale === 'zh-CN'
-          ? '当前所有已生成页面的语音都已就绪。'
-          : 'Speech is already ready for all generated slides.',
-      );
-      return;
-    }
-
-    setIsSynthesizingAllSpeech(true);
-    setSynthAllSpeechProgress({ done: 0, total });
-    const loadingId = toast.loading(
-      locale === 'zh-CN' ? `正在合成全部语音（0/${total}）…` : `Generating all speech (0/${total})…`,
+  const openSynthPicker = useCallback(() => {
+    const next = new Set(
+      synthSceneRows.filter((r) => r.pendingCount > 0).map((r) => r.sceneId),
     );
+    setSelectedSynthSceneIds(next);
+    setSynthPickerOpen(true);
+  }, [synthSceneRows]);
 
-    let completed = 0;
-    try {
-      for (const { scene, pendingCount } of pendingScenes) {
-        const result = await ensureMissingSpeechAudioForScene(scene, undefined, (done) => {
-          const nextDone = completed + done;
-          setSynthAllSpeechProgress({ done: nextDone, total });
-          toast.loading(
-            locale === 'zh-CN'
-              ? `正在合成全部语音（${nextDone}/${total}）…`
-              : `Generating all speech (${nextDone}/${total})…`,
-            { id: loadingId },
-          );
-        });
+  const runSynthesizeSpeechForScenes = useCallback(
+    async (sceneIdFilter: Set<string>) => {
+      if (isSynthesizingAllSpeech) return;
 
-        if (!result.ok) {
-          throw new Error(result.error || 'Speech generation failed');
-        }
-
-        completed += pendingCount;
-        setSynthAllSpeechProgress({ done: completed, total });
+      const settings = useSettingsStore.getState();
+      if (!settings.ttsEnabled) {
+        toast.info(
+          locale === 'zh-CN'
+            ? 'TTS 目前已关闭，开启后才能批量合成语音。'
+            : 'TTS is currently disabled. Enable it before batch-generating speech.',
+        );
+        return;
+      }
+      if (settings.ttsProviderId === 'browser-native-tts') {
+        toast.info(
+          locale === 'zh-CN'
+            ? '当前使用浏览器实时朗读，不需要批量预生成语音。'
+            : 'Browser-native speech does not need batch pre-generation.',
+        );
+        return;
       }
 
-      toast.success(
-        locale === 'zh-CN'
-          ? `全部语音已合成完成（${total}/${total}）。`
-          : `All speech has been generated (${total}/${total}).`,
-        { id: loadingId },
+      const orderedScenes = [...useStageStore.getState().scenes].sort((a, b) => a.order - b.order);
+      const pendingScenes = orderedScenes
+        .map((scene) => {
+          const pendingCount = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId).filter(
+            (action): action is SpeechAction =>
+              action.type === 'speech' && Boolean(action.text?.trim()) && !action.audioUrl,
+          ).length;
+          return { scene, pendingCount };
+        })
+        .filter((item) => item.pendingCount > 0 && sceneIdFilter.has(item.scene.id));
+
+      const total = pendingScenes.reduce((sum, item) => sum + item.pendingCount, 0);
+      if (total === 0) {
+        toast.success(
+          locale === 'zh-CN'
+            ? '所选范围内没有待合成的语音。'
+            : 'No pending speech in the selected scenes.',
+        );
+        return;
+      }
+
+      setSynthPickerOpen(false);
+      setIsSynthesizingAllSpeech(true);
+      setSynthAllSpeechProgress({ done: 0, total });
+      const loadingId = toast.loading(
+        locale === 'zh-CN' ? `正在合成语音（0/${total}）…` : `Generating speech (0/${total})…`,
       );
-    } catch (error) {
-      toast.error(
-        locale === 'zh-CN'
-          ? `批量合成语音失败：${error instanceof Error ? error.message : '未知错误'}`
-          : `Failed to generate all speech: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        { id: loadingId },
-      );
-    } finally {
-      setIsSynthesizingAllSpeech(false);
-      setSynthAllSpeechProgress(null);
+
+      let completed = 0;
+      try {
+        for (const { scene, pendingCount } of pendingScenes) {
+          const result = await ensureMissingSpeechAudioForScene(scene, undefined, (done) => {
+            const nextDone = completed + done;
+            setSynthAllSpeechProgress({ done: nextDone, total });
+            toast.loading(
+              locale === 'zh-CN'
+                ? `正在合成语音（${nextDone}/${total}）…`
+                : `Generating speech (${nextDone}/${total})…`,
+              { id: loadingId },
+            );
+          });
+
+          if (!result.ok) {
+            throw new Error(result.error || 'Speech generation failed');
+          }
+
+          completed += pendingCount;
+          setSynthAllSpeechProgress({ done: completed, total });
+        }
+
+        toast.success(
+          locale === 'zh-CN'
+            ? `语音已合成完成（${total}/${total}）。`
+            : `Speech generation finished (${total}/${total}).`,
+          { id: loadingId },
+        );
+      } catch (error) {
+        toast.error(
+          locale === 'zh-CN'
+            ? `批量合成语音失败：${error instanceof Error ? error.message : '未知错误'}`
+            : `Failed to generate speech: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          { id: loadingId },
+        );
+      } finally {
+        setIsSynthesizingAllSpeech(false);
+        setSynthAllSpeechProgress(null);
+      }
+    },
+    [isSynthesizingAllSpeech, locale],
+  );
+
+  const handleSynthPickerConfirm = useCallback(() => {
+    if (selectedSynthSceneIds.size === 0) {
+      toast.info(t('stage.ttsSynthNoSelection'));
+      return;
     }
-  }, [isSynthesizingAllSpeech, locale]);
+    const anyPending = synthSceneRows.some(
+      (r) => selectedSynthSceneIds.has(r.sceneId) && r.pendingCount > 0,
+    );
+    if (!anyPending) {
+      toast.info(
+        locale === 'zh-CN'
+          ? '所选页面语音均已就绪。'
+          : 'Selected scenes already have all speech ready.',
+      );
+      return;
+    }
+    void runSynthesizeSpeechForScenes(selectedSynthSceneIds);
+  }, [locale, runSynthesizeSpeechForScenes, selectedSynthSceneIds, synthSceneRows, t]);
 
   const metaChipsRow = (
     <TooltipProvider delayDuration={250}>
@@ -386,7 +480,7 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={handleSynthesizeAllSpeech}
+                onClick={openSynthPicker}
                 disabled={isSynthesizingAllSpeech}
                 className={cn(
                   'inline-flex max-w-[min(100%,420px)] items-center gap-1.5 rounded-lg px-2 py-1',
@@ -515,6 +609,113 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
           </div>
         </div>
       </header>
+
+      <Dialog open={synthPickerOpen} onOpenChange={setSynthPickerOpen}>
+        <DialogContent className="max-h-[min(90dvh,640px)] max-w-lg gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <DialogHeader className="border-b border-border/60 px-5 py-4 text-left">
+            <DialogTitle className="text-base">{t('stage.ttsSynthSelectDialogTitle')}</DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed">
+              {t('stage.ttsSynthSelectDialogHint')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2 border-b border-border/40 px-5 py-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => {
+                setSelectedSynthSceneIds(
+                  new Set(synthSceneRows.filter((r) => r.pendingCount > 0).map((r) => r.sceneId)),
+                );
+              }}
+            >
+              {t('stage.ttsSynthSelectAllPending')}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setSelectedSynthSceneIds(new Set())}
+            >
+              {t('stage.ttsSynthClearSelection')}
+            </Button>
+          </div>
+          <div className="max-h-[min(52vh,420px)] overflow-y-auto px-3 py-2">
+            {synthSceneRows.length === 0 ? (
+              <p className="px-2 py-6 text-center text-sm text-muted-foreground">—</p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {synthSceneRows.map((row) => {
+                  const selectable = row.pendingCount > 0;
+                  const checked = selectedSynthSceneIds.has(row.sceneId);
+                  return (
+                    <li key={row.sceneId}>
+                      <label
+                        className={cn(
+                          'flex cursor-pointer items-start gap-3 rounded-lg px-2 py-2.5 transition-colors',
+                          selectable ? 'hover:bg-muted/50' : 'cursor-not-allowed opacity-60',
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={!selectable}
+                          onCheckedChange={(v) => {
+                            setSelectedSynthSceneIds((prev) => {
+                              const next = new Set(prev);
+                              if (v === true) next.add(row.sceneId);
+                              else next.delete(row.sceneId);
+                              return next;
+                            });
+                          }}
+                          className="mt-0.5"
+                          aria-label={row.primaryLabel}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="text-sm font-medium text-foreground">
+                              {row.primaryLabel}
+                            </span>
+                            <span
+                              className={cn(
+                                'shrink-0 text-[11px]',
+                                row.fullyReady
+                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                  : 'text-sky-700 dark:text-sky-300',
+                              )}
+                            >
+                              {row.fullyReady
+                                ? t('stage.ttsSynthRowReady')
+                                : t('stage.ttsSynthRowPending').replace(
+                                    '{n}',
+                                    String(row.pendingCount),
+                                  )}
+                            </span>
+                          </div>
+                          {row.secondaryTitle ? (
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                              {row.secondaryTitle}
+                            </p>
+                          ) : null}
+                        </div>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <DialogFooter className="border-t border-border/60 bg-muted/20 px-5 py-4">
+            <Button type="button" variant="outline" onClick={() => setSynthPickerOpen(false)}>
+              {t('stage.ttsSynthCancel')}
+            </Button>
+            <Button type="button" onClick={handleSynthPickerConfirm}>
+              {t('stage.ttsSynthConfirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

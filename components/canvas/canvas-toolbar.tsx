@@ -2,6 +2,7 @@
 
 import { LayoutList, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useI18n } from '@/lib/hooks/use-i18n';
 import { CanvasPlaybackPill } from '@/components/canvas/canvas-playback-pill';
 
 export interface CanvasToolbarProps {
@@ -60,6 +61,7 @@ export function CanvasToolbar({
   className,
   hidePlaybackPill,
 }: CanvasToolbarProps) {
+  const { t } = useI18n();
   return (
     <div className={cn('flex items-center', className)}>
       <div className="flex items-center gap-1 shrink-0 pl-1">
@@ -73,7 +75,8 @@ export function CanvasToolbar({
                 ? 'text-gray-400 dark:text-gray-500'
                 : 'text-gray-600 dark:text-gray-300',
             )}
-            aria-label="Toggle sidebar"
+            aria-label={t('stage.toolbarToggleSceneSidebar')}
+            title={t('stage.toolbarToggleSceneSidebar')}
           >
             <LayoutList className="w-3.5 h-3.5" />
           </button>
@@ -116,7 +119,8 @@ export function CanvasToolbar({
                 ? 'text-gray-400 dark:text-gray-500'
                 : 'text-gray-600 dark:text-gray-300',
             )}
-            aria-label="Toggle chat"
+            aria-label={t('stage.toolbarToggleNotesChat')}
+            title={t('stage.toolbarToggleNotesChat')}
           >
             <MessageSquare className="w-3.5 h-3.5" />
           </button>

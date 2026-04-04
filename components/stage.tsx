@@ -33,6 +33,7 @@ import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generato
 import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
+import type { SceneSidebarAskBubble } from '@/lib/utils/scene-sidebar-ask-thread';
 import {
   AlertDialog,
   AlertDialogDescription,
@@ -408,6 +409,7 @@ export function Stage({
   const [repairSidebarFocusNonce, setRepairSidebarFocusNonce] = useState(0);
   const [slideRepairPending, setSlideRepairPending] = useState(false);
   const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
+  const [sceneSidebarAskThread, setSceneSidebarAskThread] = useState<SceneSidebarAskBubble[]>([]);
   const currentSlideSceneId = currentScene?.type === 'slide' ? currentScene.id : null;
   const repairInstructions = useMemo(
     () => (currentSlideSceneId ? (repairDraftByScene[currentSlideSceneId] ?? '') : ''),
@@ -895,6 +897,10 @@ export function Stage({
     },
     [],
   );
+
+  const handleSceneSidebarAskThreadChange = useCallback((thread: SceneSidebarAskBubble[]) => {
+    setSceneSidebarAskThread(thread);
+  }, []);
 
   const handleSidebarInputActivate = useCallback(async () => {
     setChatAreaCollapsed(false);
@@ -1901,6 +1907,7 @@ export function Stage({
               onRetryOutline={onRetryOutline}
               onSidebarAskActivate={handleSidebarInputActivate}
               onSidebarAskSubmit={handleSidebarQuestionSend}
+              sceneSidebarAskThread={sceneSidebarAskThread}
               chatCollapsed={chatAreaCollapsed}
               onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
               onToggleChat={() => setChatAreaCollapsed(!chatAreaCollapsed)}
@@ -2053,6 +2060,7 @@ export function Stage({
         onStopSession={doSessionCleanup}
         onInputActivate={handleSidebarInputActivate}
         onMessageSend={handleSidebarQuestionSend}
+        onSceneSidebarAskThreadChange={handleSceneSidebarAskThreadChange}
       />
 
       {/* Scene switch confirmation dialog */}

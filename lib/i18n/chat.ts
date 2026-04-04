@@ -6,7 +6,9 @@ export const chatZhCN = {
     noMessages: '暂无消息',
     send: '发送',
     askPlaceholder: '在这里随时提问…',
-    askHint: 'Enter 发送，Shift+Enter 换行',
+    askHint: 'Enter 或 ⌘/Ctrl + Enter 发送，Shift + Enter 换行',
+    askThreadEmpty: '还没有提问。在下方输入问题并发送，AI 会结合当前课程内容回答。',
+    sidebarAskAiLabel: 'AI',
     notebookWritesDisabledHint:
       '检测到这次问题适合补充 slides；如需自动生成，请在「设置 → 系统设置」中开启「允许根据回答写入笔记本」。',
     ended: '已结束',
@@ -82,7 +84,10 @@ export const chatEnUS = {
     noMessages: 'No messages yet',
     send: 'Send',
     askPlaceholder: 'Ask a question at any time...',
-    askHint: 'Press Enter to send, Shift+Enter for a new line',
+    askHint: 'Enter or ⌘/Ctrl + Enter to send, Shift + Enter for a new line',
+    askThreadEmpty:
+      'No messages yet. Type a question below—the AI answers using the current lesson context.',
+    sidebarAskAiLabel: 'AI',
     notebookWritesDisabledHint:
       'This answer could benefit from slides. To auto-generate them, enable “Allow answer-based notebook writes” under Settings → System.',
     ended: 'ended',
