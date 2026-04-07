@@ -28,10 +28,12 @@ export function buildSceneSidebarAskThread(
   const sess = active ?? [...chatSessions].sort((a, b) => b.updatedAt - a.updatedAt)[0];
   if (!sess) return [];
 
-  return sess.messages
+  const messages = sess.messages ?? [];
+
+  return messages
     .map((m, idx) => {
       const content = flattenUIMessageText(m);
-      const isLast = idx === sess.messages.length - 1;
+      const isLast = idx === messages.length - 1;
       const pending =
         isStreaming && isLast && m.role === 'assistant' && content.trim() === '';
       return {

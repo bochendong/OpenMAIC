@@ -205,6 +205,17 @@ export async function saveStageData(
   }
 }
 
+/** 防止损坏的本地/服务端快照把 `scenes` 写成非数组，导致打开课堂页时 `scenes.map` 崩溃 */
+function normalizeStageStoreData(data: StageStoreData): StageStoreData {
+  const scenes = Array.isArray(data.scenes) ? data.scenes : [];
+  const chats = Array.isArray(data.chats) ? data.chats : [];
+  let currentSceneId = data.currentSceneId;
+  if (currentSceneId && !scenes.some((s) => s.id === currentSceneId)) {
+    currentSceneId = scenes[0]?.id ?? null;
+  }
+  return { ...data, scenes, chats, currentSceneId };
+}
+
 export async function loadStageData(stageId: string): Promise<StageStoreData | null> {
   const draftSnapshot = await readStageDraftSnapshot(stageId);
   try {
@@ -249,7 +260,8 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
     const remoteFreshness = Math.max(remoteData.stage.updatedAt, remoteSceneUpdatedAt);
 
     if (draftSnapshot?.remoteSynced === false) {
-      const draftSceneUpdatedAt = draftSnapshot.scenes.reduce(
+      const draftScenes = Array.isArray(draftSnapshot.scenes) ? draftSnapshot.scenes : [];
+      const draftSceneUpdatedAt = draftScenes.reduce(
         (latest, scene) => Math.max(latest, scene.updatedAt || 0),
         0,
       );
@@ -258,7 +270,7 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
         draftSnapshot.stage.updatedAt || 0,
         draftSceneUpdatedAt,
       );
-      const remoteHasMoreScenes = remoteData.scenes.length > draftSnapshot.scenes.length;
+      const remoteHasMoreScenes = remoteData.scenes.length > draftScenes.length;
       const remoteIsNewer = remoteFreshness > draftFreshness;
 
       if (remoteHasMoreScenes || remoteIsNewer) {
@@ -271,37 +283,38 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
           },
           true,
         );
-        return remoteData;
+        return normalizeStageStoreData(remoteData);
       }
 
-      return {
+      return normalizeStageStoreData({
         stage: draftSnapshot.stage,
-        scenes: draftSnapshot.scenes,
-        currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+        scenes: draftScenes,
+        currentSceneId: draftSnapshot.currentSceneId ?? draftScenes[0]?.id ?? null,
         chats,
-      };
+      });
     }
 
     if (draftSnapshot && draftSnapshot.savedAt >= remoteFreshness) {
-      return {
+      const draftScenes = Array.isArray(draftSnapshot.scenes) ? draftSnapshot.scenes : [];
+      return normalizeStageStoreData({
         stage: draftSnapshot.stage,
-        scenes: draftSnapshot.scenes,
-        currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+        scenes: draftScenes,
+        currentSceneId: draftSnapshot.currentSceneId ?? draftScenes[0]?.id ?? null,
         chats,
-      };
+      });
     }
 
-    return remoteData;
+    return normalizeStageStoreData(remoteData);
   } catch {
     if (!draftSnapshot) {
       return null;
     }
-    return {
+    return normalizeStageStoreData({
       stage: draftSnapshot.stage,
       scenes: draftSnapshot.scenes,
-      currentSceneId: draftSnapshot.currentSceneId ?? draftSnapshot.scenes[0]?.id ?? null,
+      currentSceneId: draftSnapshot.currentSceneId ?? null,
       chats: [],
-    };
+    });
   }
 }
 

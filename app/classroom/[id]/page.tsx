@@ -238,7 +238,8 @@ export default function ClassroomDetailPage() {
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
-              const { stage, scenes } = json.classroom;
+              const { stage, scenes: scenesFromApi } = json.classroom;
+              const scenes = Array.isArray(scenesFromApi) ? scenesFromApi : [];
               useStageStore.getState().setStage(stage);
               useStageStore.setState({
                 scenes,

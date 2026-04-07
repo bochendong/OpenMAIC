@@ -913,39 +913,52 @@ export function SlideElementInspector({
     </div>
   );
 
-  const renderTableEditor = (element: PPTTableElement) => (
-    <div className="space-y-3">
-      {sectionTitle('表格内容', '可以逐格改表格文本，适合修正标题、数字或术语。')}
-      <div className="space-y-2">
-        {element.data.map((row, rowIndex) => (
-          <div key={`row-${rowIndex}`} className="grid grid-cols-1 gap-2">
-            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-              第 {rowIndex + 1} 行
-            </div>
-            <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}>
-              {row.map((cell, colIndex) => (
-                <Input
-                  key={cell.id}
-                  value={cell.text}
-                  onChange={(e) => {
-                    const nextData = element.data.map((currentRow, currentRowIndex) =>
-                      currentRow.map((currentCell, currentColIndex) =>
-                        currentRowIndex === rowIndex && currentColIndex === colIndex
-                          ? { ...currentCell, text: e.target.value }
-                          : currentCell,
-                      ),
-                    );
-                    updateCurrentElement({ data: nextData });
+  const renderTableEditor = (element: PPTTableElement) => {
+    const tableData = element.data ?? [];
+    return (
+      <div className="space-y-3">
+        {sectionTitle('表格内容', '可以逐格改表格文本，适合修正标题、数字或术语。')}
+        <div className="space-y-2">
+          {tableData.length === 0 ? (
+            <p className="text-xs text-muted-foreground">表格暂无单元格数据（可能为旧数据或生成不完整）。</p>
+          ) : (
+            tableData.map((row, rowIndex) => (
+              <div key={`row-${rowIndex}`} className="grid grid-cols-1 gap-2">
+                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  第 {rowIndex + 1} 行
+                </div>
+                <div
+                  className="grid gap-2"
+                  style={{
+                    gridTemplateColumns: `repeat(${(row ?? []).length}, minmax(0, 1fr))`,
                   }}
-                  onBlur={() => void addHistorySnapshot()}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+                >
+                  {(row ?? []).map((cell, colIndex) => (
+                    <Input
+                      key={cell.id}
+                      value={cell.text}
+                      onChange={(e) => {
+                        const base = element.data ?? [];
+                        const nextData = base.map((currentRow, currentRowIndex) =>
+                          (currentRow ?? []).map((currentCell, currentColIndex) =>
+                            currentRowIndex === rowIndex && currentColIndex === colIndex
+                              ? { ...currentCell, text: e.target.value }
+                              : currentCell,
+                          ),
+                        );
+                        updateCurrentElement({ data: nextData });
+                      }}
+                      onBlur={() => void addHistorySnapshot()}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderChartEditor = (element: PPTChartElement) => (
     <div className="space-y-3">

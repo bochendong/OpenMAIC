@@ -51,7 +51,7 @@ export const useOrchestratorNotebookGenStore = create<OrchestratorNotebookGenSta
       setModelIdOverride: (modelIdOverride) => set({ modelIdOverride }),
       setNotebookStageModelOverride: (stage, modelId) =>
         set((s) => {
-          const next = { ...s.notebookStageModelOverrides };
+          const next = { ...(s.notebookStageModelOverrides ?? {}) };
           if (!modelId?.trim()) {
             delete next[stage];
           } else {

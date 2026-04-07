@@ -35,7 +35,7 @@ function semanticPart(e: PPTElement): unknown {
       };
     case 'table':
       return {
-        data: e.data.map((row) => row.map((c) => c.text)),
+        data: (e.data ?? []).map((row) => (row ?? []).map((c) => c.text)),
         colWidths: e.colWidths,
         theme: e.theme ?? null,
       };

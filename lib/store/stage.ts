@@ -343,17 +343,19 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
           : [];
 
       if (data) {
-        const pendingOutlines = outlines.filter((o) => !data.scenes.some((s) => s.order === o.order));
+        const loadedScenes = Array.isArray(data.scenes) ? data.scenes : [];
+        const loadedChats = Array.isArray(data.chats) ? data.chats : [];
+        const pendingOutlines = outlines.filter((o) => !loadedScenes.some((s) => s.order === o.order));
         const resolvedCurrentSceneId =
-          data.currentSceneId && data.scenes.some((scene) => scene.id === data.currentSceneId)
+          data.currentSceneId && loadedScenes.some((scene) => scene.id === data.currentSceneId)
             ? data.currentSceneId
-            : data.scenes[0]?.id ||
+            : loadedScenes[0]?.id ||
               (pendingOutlines.length > 0 ? PENDING_SCENE_ID : null);
         set({
           stage: data.stage,
-          scenes: data.scenes,
+          scenes: loadedScenes,
           currentSceneId: resolvedCurrentSceneId,
-          chats: data.chats,
+          chats: loadedChats,
           outlines,
           storageSaveState: 'idle',
           storageSaveScope: 'remote',

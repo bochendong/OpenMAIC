@@ -148,7 +148,8 @@ function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
         return [stripHtmlToText(element.text.content)];
       }
       if (element.type === 'table') {
-        return element.data.flat().map((cell) => cell.text);
+        const rows = element.data ?? [];
+        return rows.flat().map((cell) => cell.text);
       }
       return [];
     })

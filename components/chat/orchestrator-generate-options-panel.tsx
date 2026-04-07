@@ -110,7 +110,8 @@ export function OrchestratorGenerateOptionsPanel({ className }: { className?: st
 
   const currentModelId = useSettingsStore((s) => s.modelId);
   const openaiConfig = useSettingsStore((s) => s.providersConfig.openai);
-  const openaiModels = openaiConfig?.models ?? [];
+  const openaiModelsRaw = openaiConfig?.models;
+  const openaiModels = Array.isArray(openaiModelsRaw) ? openaiModelsRaw : [];
 
   const courseId = useCurrentCourseStore((s) => s.id);
 
