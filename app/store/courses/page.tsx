@@ -19,7 +19,7 @@ import {
   listCommunityStoreCourses,
   listCourses,
 } from '@/lib/utils/course-storage';
-import { creditsFromPriceCents, formatCreditsUsdCompactLabel } from '@/lib/utils/credits';
+import { formatPurchaseCreditsLabel, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
@@ -351,8 +351,8 @@ export default function CourseStorePage() {
                     courseCode: featuredCourse.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={formatCreditsUsdCompactLabel(
-                    creditsFromPriceCents(featuredCourse.coursePriceCents),
+                  priceLabel={formatPurchaseCreditsLabel(
+                    purchaseCreditsFromPriceCents(featuredCourse.coursePriceCents),
                   )}
                   ratingLabel={`★ ${(featuredCourse.averageRating ?? 0).toFixed(1)} · ${featuredCourse.reviewCount ?? 0} 条`}
                   secondaryActionLabel={
@@ -393,7 +393,9 @@ export default function CourseStorePage() {
                         <span className="store-chip text-xs">{purposeLabel(item.purpose)}</span>
                         <span className="store-chip text-xs">{item.notebookCount} 个笔记本</span>
                         <span className="store-chip text-xs">
-                          {formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
+                          {formatPurchaseCreditsLabel(
+                            purchaseCreditsFromPriceCents(item.coursePriceCents),
+                          )}
                         </span>
                       </div>
                       <button
@@ -473,7 +475,9 @@ export default function CourseStorePage() {
                     courseCode: item.courseCode?.trim() || undefined,
                   }}
                   countUnit="个笔记本"
-                  priceLabel={formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
+                  priceLabel={formatPurchaseCreditsLabel(
+                    purchaseCreditsFromPriceCents(item.coursePriceCents),
+                  )}
                   ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                   actionLabel="查看详情"
                   onAction={() => router.push(`/store/courses/${item.id}`)}
@@ -537,7 +541,9 @@ export default function CourseStorePage() {
                         courseCode: item.courseCode?.trim() || undefined,
                       }}
                       countUnit="个笔记本"
-                      priceLabel={formatCreditsUsdCompactLabel(creditsFromPriceCents(item.coursePriceCents))}
+                      priceLabel={formatPurchaseCreditsLabel(
+                        purchaseCreditsFromPriceCents(item.coursePriceCents),
+                      )}
                       ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                       actionLabel="查看详情"
                       onAction={() => router.push(`/store/courses/${item.id}`)}
@@ -654,13 +660,14 @@ export default function CourseStorePage() {
           }}
           itemTypeLabel="课程"
           itemName={pendingPurchaseCourse?.name ?? ''}
-          creditsCost={creditsFromPriceCents(pendingPurchaseCourse?.coursePriceCents ?? 0)}
+          creditsCost={purchaseCreditsFromPriceCents(pendingPurchaseCourse?.coursePriceCents ?? 0)}
+          accountType="PURCHASE"
           countSummary={
             pendingPurchaseCourse
               ? `将复制整门课程到你的个人空间，包含 ${pendingPurchaseCourse.notebookCount} 本笔记本。`
               : undefined
           }
-          note="确认后会立即扣除对应 credits，并把整门课程复制到你的课程库。"
+          note="确认后会立即扣除对应购买积分，并把整门课程复制到你的课程库。"
           busy={pendingPurchaseCourse ? addingId === `c:${pendingPurchaseCourse.id}` : false}
           confirmLabel="确认购买课程"
           onConfirm={() =>

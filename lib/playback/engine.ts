@@ -38,6 +38,7 @@ import { ActionEngine } from '@/lib/action/engine';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSettingsStore } from '@/lib/store/settings';
 import { createLogger } from '@/lib/logger';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 const log = createLogger('PlaybackEngine');
 
@@ -589,7 +590,7 @@ export class PlaybackEngine {
    * Uses cancel+re-speak for pause/resume (Firefox compatibility).
    */
   private playBrowserTTS(speechAction: SpeechAction): void {
-    this.browserTTSChunks = this.splitIntoChunks(speechAction.text);
+    this.browserTTSChunks = this.splitIntoChunks(verbalizeNarrationText(speechAction.text));
     this.browserTTSChunkIndex = 0;
     this.browserTTSPausedChunks = [];
     this.browserTTSActive = true;

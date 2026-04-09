@@ -1,8 +1,13 @@
 import { apiSuccess } from '@/lib/server/api-response';
 import { requireUserId } from '@/lib/server/api-auth';
 import { getOptionalPrisma } from '@/lib/server/prisma-safe';
-import { DEFAULT_USER_CREDITS } from '@/lib/utils/credits';
-import { ensureUserCreditsInitialized } from '@/lib/server/credits';
+import {
+  DEFAULT_USER_CASH_CREDITS,
+  DEFAULT_USER_COMPUTE_CREDITS,
+  DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
+  DEFAULT_USER_PURCHASE_CREDITS,
+} from '@/lib/utils/credits';
+import { ensureUserCreditsInitialized, getUserCreditBalances } from '@/lib/server/credits';
 
 const DEFAULT_PAGE_SIZE = 8;
 const MAX_PAGE_SIZE = 50;
@@ -24,7 +29,13 @@ export async function GET(request: Request) {
   if (!prisma) {
     return apiSuccess({
       databaseEnabled: false,
-      balance: DEFAULT_USER_CREDITS,
+      balance: DEFAULT_USER_CASH_CREDITS,
+      balances: {
+        cash: DEFAULT_USER_CASH_CREDITS,
+        compute: DEFAULT_USER_COMPUTE_CREDITS,
+        purchase: DEFAULT_USER_PURCHASE_CREDITS,
+        notebookGeneration: DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
+      },
       recentTransactions: [],
       pagination: {
         page: 1,
@@ -44,11 +55,8 @@ export async function GET(request: Request) {
   const safePage = Math.min(page, totalPages);
   const skip = (safePage - 1) * pageSize;
 
-  const [user, recentTransactions] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: auth.userId },
-      select: { creditsBalance: true },
-    }),
+  const [balances, recentTransactions] = await Promise.all([
+    getUserCreditBalances(prisma, auth.userId),
     prisma.creditTransaction.findMany({
       where: { userId: auth.userId },
       orderBy: { createdAt: 'desc' },
@@ -57,6 +65,7 @@ export async function GET(request: Request) {
       select: {
         id: true,
         kind: true,
+        accountType: true,
         delta: true,
         balanceAfter: true,
         description: true,
@@ -67,7 +76,13 @@ export async function GET(request: Request) {
 
   return apiSuccess({
     databaseEnabled: true,
-    balance: user?.creditsBalance ?? DEFAULT_USER_CREDITS,
+    balance: balances.creditsBalance,
+    balances: {
+      cash: balances.creditsBalance,
+      compute: balances.computeCreditsBalance,
+      purchase: balances.purchaseCreditsBalance,
+      notebookGeneration: balances.notebookGenerationBalance,
+    },
     recentTransactions: recentTransactions.map((row) => ({
       ...row,
       createdAt: row.createdAt.toISOString(),

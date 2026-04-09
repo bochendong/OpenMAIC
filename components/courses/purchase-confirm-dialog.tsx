@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
 import { cn } from '@/lib/utils';
-import { formatCreditsUsdLabel } from '@/lib/utils/credits';
+import { formatPurchaseCreditsLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
 
 interface PurchaseConfirmDialogProps {
   open: boolean;
@@ -23,6 +23,7 @@ interface PurchaseConfirmDialogProps {
   itemTypeLabel: '课程' | '笔记本';
   itemName: string;
   creditsCost: number;
+  accountType?: 'PURCHASE' | 'CASH';
   countSummary?: string;
   note?: string;
   busy?: boolean;
@@ -33,7 +34,15 @@ interface PurchaseConfirmDialogProps {
 type CreditsBalanceResponse = {
   success: true;
   balance: number;
+  balances: {
+    cash: number;
+    purchase: number;
+  };
 };
+
+function formatBalanceLabel(value: number, accountType: 'PURCHASE' | 'CASH') {
+  return accountType === 'PURCHASE' ? formatPurchaseCreditsLabel(value) : formatCreditsUsdLabel(value);
+}
 
 export function PurchaseConfirmDialog({
   open,
@@ -41,6 +50,7 @@ export function PurchaseConfirmDialog({
   itemTypeLabel,
   itemName,
   creditsCost,
+  accountType = 'PURCHASE',
   countSummary,
   note,
   busy = false,
@@ -58,7 +68,7 @@ export function PurchaseConfirmDialog({
     void backendJson<CreditsBalanceResponse>('/api/profile/credits?pageSize=1')
       .then((response) => {
         if (cancelled) return;
-        setCreditsBalance(response.balance);
+        setCreditsBalance(accountType === 'PURCHASE' ? response.balances.purchase : response.balance);
         setBalanceError(null);
       })
       .catch((error) => {
@@ -109,7 +119,7 @@ export function PurchaseConfirmDialog({
                 {loadingBalance
                   ? '读取中…'
                   : creditsBalance != null
-                    ? formatCreditsUsdLabel(creditsBalance)
+                    ? formatBalanceLabel(creditsBalance, accountType)
                     : '暂时无法读取'}
               </span>
             </div>
@@ -123,7 +133,7 @@ export function PurchaseConfirmDialog({
                     : 'text-emerald-600 dark:text-emerald-300',
                 )}
               >
-                {creditsCost > 0 ? `-${formatCreditsUsdLabel(creditsCost)}` : '0 credits'}
+                {creditsCost > 0 ? `-${formatBalanceLabel(creditsCost, accountType)}` : '0'}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3 border-t border-slate-200/70 py-2 text-sm dark:border-white/10">
@@ -139,7 +149,7 @@ export function PurchaseConfirmDialog({
                 {loadingBalance
                   ? '计算中…'
                   : nextBalance != null
-                    ? formatCreditsUsdLabel(Math.max(0, nextBalance))
+                    ? formatBalanceLabel(Math.max(0, nextBalance), accountType)
                     : '购买后更新'}
               </span>
             </div>
@@ -162,7 +172,7 @@ export function PurchaseConfirmDialog({
                 <AlertTriangle className="mt-0.5 size-5 shrink-0 text-rose-600 dark:text-rose-300" />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-rose-700 dark:text-rose-200">
-                    当前 credits 不足
+                    当前{accountType === 'PURCHASE' ? '购买积分' : '余额'}不足
                   </p>
                   <p className="mt-1 text-sm leading-6 text-rose-700/90 dark:text-rose-100/90">
                     请先充值后再购买，避免提交后被后端拒绝。

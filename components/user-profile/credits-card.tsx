@@ -5,7 +5,14 @@ import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw } from 'lucide-rea
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
-import { formatCreditsUsdLabel, formatUsdLabel, usdFromCredits } from '@/lib/utils/credits';
+import {
+  formatComputeCreditsLabel,
+  formatCreditsUsdLabel,
+  formatNotebookGenerationLabel,
+  formatPurchaseCreditsLabel,
+  formatUsdLabel,
+  usdFromCredits,
+} from '@/lib/utils/credits';
 
 const TRANSACTION_PAGE_SIZE = 8;
 
@@ -13,9 +20,16 @@ type CreditsResponse = {
   success: true;
   databaseEnabled: boolean;
   balance: number;
+  balances: {
+    cash: number;
+    compute: number;
+    purchase: number;
+    notebookGeneration: number;
+  };
   recentTransactions: Array<{
     id: string;
     kind: string;
+    accountType: 'CASH' | 'COMPUTE' | 'PURCHASE' | 'NOTEBOOK_GENERATION';
     delta: number;
     balanceAfter: number;
     description: string | null;
@@ -38,6 +52,35 @@ function formatDateTime(date: string) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatAccountLabel(accountType: CreditsResponse['recentTransactions'][number]['accountType']) {
+  switch (accountType) {
+    case 'COMPUTE':
+      return '算力积分';
+    case 'PURCHASE':
+      return '购买积分';
+    case 'NOTEBOOK_GENERATION':
+      return '笔记本生成额度';
+    default:
+      return '现金积分';
+  }
+}
+
+function formatAccountValue(
+  accountType: CreditsResponse['recentTransactions'][number]['accountType'],
+  value: number,
+) {
+  switch (accountType) {
+    case 'COMPUTE':
+      return formatComputeCreditsLabel(value);
+    case 'PURCHASE':
+      return formatPurchaseCreditsLabel(value);
+    case 'NOTEBOOK_GENERATION':
+      return formatNotebookGenerationLabel(value);
+    default:
+      return formatCreditsUsdLabel(value);
+  }
 }
 
 export function CreditsCard() {
@@ -98,17 +141,46 @@ export function CreditsCard() {
           </div>
         ) : null}
 
-        <div className="rounded-2xl border bg-background/60 p-4">
-          <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-            <Coins className="size-4" />
-            当前可用
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border bg-background/60 p-4">
+            <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
+              <Coins className="size-4" />
+              现金积分
+            </div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+              {data?.balances.cash ?? 0}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">credits</div>
+            <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+              {formatUsdLabel(usdFromCredits(data?.balances.cash ?? 0))}
+            </div>
           </div>
-          <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
-            {data?.balance ?? 0}
+          <div className="rounded-2xl border bg-background/60 p-4">
+            <div className="text-[11px] font-medium text-muted-foreground">算力积分</div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+              {data?.balances.compute ?? 0}
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+              约可继续进行 {data?.balances.compute ?? 0} 次轻量对话
+            </div>
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">credits</div>
-          <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-            {formatUsdLabel(usdFromCredits(data?.balance ?? 0))}
+          <div className="rounded-2xl border bg-background/60 p-4">
+            <div className="text-[11px] font-medium text-muted-foreground">购买积分</div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+              {data?.balances.purchase ?? 0}
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+              可用于购买课程或商城笔记本
+            </div>
+          </div>
+          <div className="rounded-2xl border bg-background/60 p-4">
+            <div className="text-[11px] font-medium text-muted-foreground">笔记本生成额度</div>
+            <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
+              {data?.balances.notebookGeneration ?? 0}
+            </div>
+            <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+              每次可生成 1 本约 10-20 页的新笔记本
+            </div>
           </div>
         </div>
 
@@ -160,6 +232,7 @@ export function CreditsCard() {
               <thead className="bg-muted/40 text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-medium">时间</th>
+                  <th className="px-3 py-2 font-medium">账户</th>
                   <th className="px-3 py-2 font-medium">类型</th>
                   <th className="px-3 py-2 font-medium">变动</th>
                   <th className="px-3 py-2 font-medium">余额</th>
@@ -169,6 +242,7 @@ export function CreditsCard() {
                 {(data?.recentTransactions ?? []).map((row) => (
                   <tr key={row.id} className="border-t">
                     <td className="px-3 py-2 whitespace-nowrap">{formatDateTime(row.createdAt)}</td>
+                    <td className="px-3 py-2">{formatAccountLabel(row.accountType)}</td>
                     <td className="px-3 py-2">
                       <div className="space-y-1">
                         <div className="font-medium text-foreground">{row.description || row.kind}</div>
@@ -176,14 +250,16 @@ export function CreditsCard() {
                       </div>
                     </td>
                     <td className={`px-3 py-2 font-medium ${row.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {row.delta >= 0 ? `+${formatCreditsUsdLabel(row.delta)}` : `-${formatCreditsUsdLabel(Math.abs(row.delta))}`}
+                      {row.delta >= 0
+                        ? `+${formatAccountValue(row.accountType, row.delta)}`
+                        : `-${formatAccountValue(row.accountType, Math.abs(row.delta))}`}
                     </td>
-                    <td className="px-3 py-2">{formatCreditsUsdLabel(row.balanceAfter)}</td>
+                    <td className="px-3 py-2">{formatAccountValue(row.accountType, row.balanceAfter)}</td>
                   </tr>
                 ))}
                 {(data?.recentTransactions.length ?? 0) === 0 ? (
                   <tr>
-                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={4}>
+                    <td className="px-3 py-5 text-center text-muted-foreground" colSpan={5}>
                       暂无积分流水
                     </td>
                   </tr>

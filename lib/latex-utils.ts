@@ -13,7 +13,6 @@ const DIRECT_UNICODE_MATH_SYMBOLS: Record<string, string> = {
   '\\leq': '≤',
   '\\Leftrightarrow': '⇔',
   '\\neq': '≠',
-  '\\notin': '∉',
   '\\nexists': '∄',
   '\\pm': '±',
   '\\Rightarrow': '⇒',

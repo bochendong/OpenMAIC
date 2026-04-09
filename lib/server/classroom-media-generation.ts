@@ -34,6 +34,7 @@ import type { ImageProviderId } from '@/lib/media/types';
 import type { VideoProviderId } from '@/lib/media/types';
 import type { TTSProviderId } from '@/lib/audio/types';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 const log = createLogger('ClassroomMedia');
 
@@ -239,11 +240,12 @@ export async function generateTTSForClassroom(
       if (action.type !== 'speech' || !(action as SpeechAction).text) continue;
       const speechAction = action as SpeechAction;
       const audioId = `tts_${action.id}`;
+      const spokenText = verbalizeNarrationText(speechAction.text);
 
       try {
         const result = await generateTTS(
           { providerId, apiKey, baseUrl: ttsBaseUrl, voice, speed: speechAction.speed },
-          speechAction.text,
+          spokenText,
         );
 
         const filename = `${audioId}.${format}`;

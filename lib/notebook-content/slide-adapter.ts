@@ -109,7 +109,8 @@ function escapeHtml(text: string): string {
 }
 
 function renderInlineLatexToHtml(text: string): string {
-  const pattern = /(\\\(([\s\S]+?)\\\)|\\\[((?:[\s\S])+?)\\\]|\$([\s\S]+?)\$)/g;
+  const pattern =
+    /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
   let result = '';
   let lastIndex = 0;
 
@@ -117,7 +118,7 @@ function renderInlineLatexToHtml(text: string): string {
     const fullMatch = match[0];
     const start = match.index ?? 0;
     const end = start + fullMatch.length;
-    const expression = normalizeLatexSource(match[2] ?? match[3] ?? match[4] ?? '');
+    const expression = normalizeLatexSource(match[2] ?? match[3] ?? match[4] ?? match[5] ?? '');
 
     result += escapeHtml(text.slice(lastIndex, start));
     const directSymbol = getDirectUnicodeMathSymbol(expression);

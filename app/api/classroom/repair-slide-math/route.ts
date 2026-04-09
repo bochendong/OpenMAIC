@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { parseNotebookContentDocument, type NotebookContentDocument } from '@/lib/notebook-content';
+import { normalizeLatexSource } from '@/lib/latex-utils';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { runWithRequestContext } from '@/lib/server/request-context';
@@ -30,9 +31,90 @@ type RepairIntent = {
   wantsExpansion: boolean;
   wantsStructureChange: boolean;
   wantsMinimalMathOnly: boolean;
+  wantsTargetedFormulaFix: boolean;
+  wantsPreserveSolution: boolean;
   hintsNeedAnotherPage: boolean;
   wantsExplicitDerivation: boolean;
 };
+
+const SOLUTION_SIGNAL_REGEX =
+  /题解|解答|证明|证明过程|推导|步骤|思路|答案|结论|分析|因此|所以|可得|得出|solution|proof|derivation|derive|steps?|answer|conclusion|analysis|therefore|thus|hence/i;
+
+const MINIMAL_MATH_ONLY_KEYWORDS = [
+  '只修公式',
+  '只修数学',
+  '只修 latex',
+  '只修latex',
+  '只修符号',
+  '不要改文案',
+  '保留原文',
+  '轻微修改',
+  '小修',
+  'math only',
+  'notation only',
+  'latex only',
+  'symbol only',
+  'do not rewrite',
+  'keep wording',
+];
+
+const TARGETED_FORMULA_FIX_KEYWORDS = [
+  '改公式',
+  '改一下公式',
+  '公式改一下',
+  '修公式',
+  '修下公式',
+  '修一下公式',
+  '修正公式',
+  '公式不对',
+  '公式有问题',
+  'latex 不对',
+  'latex不对',
+  '改 latex',
+  '改latex',
+  '改一下 latex',
+  '改一下latex',
+  '改符号',
+  '改一下符号',
+  '修符号',
+  '修一下符号',
+  'fix formula',
+  'fix the formula',
+  'fix formulas',
+  'fix notation',
+  'correct the formula',
+  'correct the equation',
+  'change the formula',
+  'update the formula',
+  'update the notation',
+];
+
+const PRESERVE_SOLUTION_KEYWORDS = [
+  '别改题解',
+  '不要改题解',
+  '不要删题解',
+  '保留题解',
+  '别删题解',
+  '不要动题解',
+  '保留步骤',
+  '不要删步骤',
+  '不要动步骤',
+  '保留答案',
+  '不要删答案',
+  '保留证明',
+  '不要删证明',
+  'keep solution',
+  'keep the solution',
+  'do not touch solution',
+  'dont touch solution',
+  'keep steps',
+  'keep the steps',
+  'do not remove steps',
+  'keep answer',
+  'keep the answer',
+  'keep proof',
+  'keep the proof',
+];
 
 function buildFallbackDocumentFromSlideContent(args: {
   sceneTitle: string;
@@ -126,12 +208,331 @@ function countReasoningBlocks(doc: NotebookContentDocument): number {
   }).length;
 }
 
+function getBlockTextFragments(block: NotebookContentDocument['blocks'][number]): string[] {
+  switch (block.type) {
+    case 'heading':
+      return [block.text];
+    case 'paragraph':
+      return [block.text];
+    case 'bullet_list':
+      return block.items;
+    case 'equation':
+      return [block.caption || '', block.latex];
+    case 'matrix':
+      return [block.label || '', block.caption || '', ...block.rows.flat()];
+    case 'derivation_steps':
+      return [block.title || '', ...block.steps.flatMap((step) => [step.expression, step.explanation || ''])];
+    case 'code_block':
+      return [block.caption || '', block.code];
+    case 'code_walkthrough':
+      return [
+        block.title || '',
+        block.caption || '',
+        block.code,
+        ...block.steps.flatMap((step) => [step.title || '', step.focus || '', step.explanation]),
+        block.output || '',
+      ];
+    case 'table':
+      return [block.caption || '', ...(block.headers || []), ...block.rows.flat()];
+    case 'callout':
+      return [block.title || '', block.text];
+    case 'example':
+      return [
+        block.title || '',
+        block.problem,
+        ...block.givens,
+        block.goal || '',
+        ...block.steps,
+        block.answer || '',
+        ...block.pitfalls,
+      ];
+    case 'chem_formula':
+      return [block.caption || '', block.formula];
+    case 'chem_equation':
+      return [block.caption || '', block.equation];
+    default:
+      return [];
+  }
+}
+
+function blockHasSolutionSignal(block: NotebookContentDocument['blocks'][number]): boolean {
+  if (block.type === 'example' || block.type === 'derivation_steps') return true;
+  return getBlockTextFragments(block).some((text) => SOLUTION_SIGNAL_REGEX.test(text));
+}
+
+function countSolutionSignalBlocks(doc: NotebookContentDocument): number {
+  return doc.blocks.filter(blockHasSolutionSignal).length;
+}
+
+function summarizeProtectedBlocks(
+  doc: NotebookContentDocument,
+  language: SlideRepairLanguage,
+): string[] {
+  return doc.blocks
+    .flatMap((block, index) => {
+      if (block.type === 'example') {
+        return [
+          language === 'en-US'
+            ? `block ${index + 1}: worked example with ${block.steps.length} steps${block.answer ? ' and an answer' : ''}`
+            : `第 ${index + 1} 块：例题块，含 ${block.steps.length} 个步骤${block.answer ? '，并保留答案' : ''}`,
+        ];
+      }
+
+      if (block.type === 'derivation_steps') {
+        return [
+          language === 'en-US'
+            ? `block ${index + 1}: derivation block with ${block.steps.length} steps`
+            : `第 ${index + 1} 块：推导块，含 ${block.steps.length} 个步骤`,
+        ];
+      }
+
+      if (!blockHasSolutionSignal(block)) return [];
+      return [
+        language === 'en-US'
+          ? `block ${index + 1}: ${block.type} block containing solution / proof content`
+          : `第 ${index + 1} 块：${block.type}，包含题解 / 证明类内容`,
+      ];
+    })
+    .slice(0, 10);
+}
+
+function normalizeInlineMathDelimiters(text: string): string {
+  return text
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_match, expression: string) => {
+      const normalized = normalizeLatexSource(expression);
+      return normalized.includes('\n') ? `\\[${normalized}\\]` : `\\(${normalized}\\)`;
+    })
+    .replace(/\$([^\n$]+?)\$/g, (_match, expression: string) => {
+      const normalized = normalizeLatexSource(expression);
+      return `\\(${normalized}\\)`;
+    });
+}
+
+function looksLikeBareStandaloneFormula(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed.length > 160) return false;
+  if (/[。！？!?]/.test(trimmed)) return false;
+
+  const compact = trimmed.replace(/\s+/g, '');
+  const hasMathSignal =
+    /\\[A-Za-z]+|[_^=<>+\-*/]|[∈∀∃⊂⊆⊃⊇→⇒≈≅≡≤≥]/.test(compact);
+  if (!hasMathSignal) return false;
+
+  const cjkCount = (trimmed.match(/[\u4e00-\u9fff]/g) || []).length;
+  const latinWords = trimmed.split(/\s+/).filter(Boolean).length;
+  return !(cjkCount > 10 && latinWords > 6);
+}
+
+function extractStandaloneFormulaLatex(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const wrappedPatterns = [
+    /^\$\$([\s\S]+?)\$\$$/,
+    /^\\\[([\s\S]+?)\\\]$/,
+    /^\\\(([\s\S]+?)\\\)$/,
+    /^\$([^\n$]+?)\$$/,
+  ];
+  for (const pattern of wrappedPatterns) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) return normalizeLatexSource(match[1]);
+  }
+
+  return looksLikeBareStandaloneFormula(trimmed) ? normalizeLatexSource(trimmed) : null;
+}
+
+function postProcessMathRepairDocument(document: NotebookContentDocument): NotebookContentDocument {
+  const blocks = document.blocks.flatMap<NotebookContentDocument['blocks'][number]>((block) => {
+    switch (block.type) {
+      case 'heading':
+        return [{ ...block, text: normalizeInlineMathDelimiters(block.text) }];
+      case 'paragraph': {
+        const text = normalizeInlineMathDelimiters(block.text);
+        const standaloneLatex = extractStandaloneFormulaLatex(text);
+        if (standaloneLatex) {
+          return [{ type: 'equation', latex: standaloneLatex, display: true }];
+        }
+        return [{ ...block, text }];
+      }
+      case 'bullet_list':
+        return [{ ...block, items: block.items.map(normalizeInlineMathDelimiters) }];
+      case 'equation':
+        return [{ ...block, latex: normalizeLatexSource(block.latex) }];
+      case 'derivation_steps':
+        return [
+          {
+            ...block,
+            title: block.title ? normalizeInlineMathDelimiters(block.title) : undefined,
+            steps: block.steps.map((step) => ({
+              ...step,
+              expression:
+                step.format === 'latex'
+                  ? normalizeLatexSource(step.expression)
+                  : normalizeInlineMathDelimiters(step.expression),
+              explanation: step.explanation
+                ? normalizeInlineMathDelimiters(step.explanation)
+                : undefined,
+            })),
+          },
+        ];
+      case 'table':
+        return [
+          {
+            ...block,
+            caption: block.caption ? normalizeInlineMathDelimiters(block.caption) : undefined,
+            headers: block.headers?.map(normalizeInlineMathDelimiters),
+            rows: block.rows.map((row) => row.map(normalizeInlineMathDelimiters)),
+          },
+        ];
+      case 'callout':
+        return [
+          {
+            ...block,
+            title: block.title ? normalizeInlineMathDelimiters(block.title) : undefined,
+            text: normalizeInlineMathDelimiters(block.text),
+          },
+        ];
+      case 'example':
+        return [
+          {
+            ...block,
+            title: block.title ? normalizeInlineMathDelimiters(block.title) : undefined,
+            problem: normalizeInlineMathDelimiters(block.problem),
+            givens: block.givens.map(normalizeInlineMathDelimiters),
+            goal: block.goal ? normalizeInlineMathDelimiters(block.goal) : undefined,
+            steps: block.steps.map(normalizeInlineMathDelimiters),
+            answer: block.answer ? normalizeInlineMathDelimiters(block.answer) : undefined,
+            pitfalls: block.pitfalls.map(normalizeInlineMathDelimiters),
+          },
+        ];
+      case 'chem_formula':
+      case 'chem_equation':
+      case 'matrix':
+      case 'code_block':
+      case 'code_walkthrough':
+      default:
+        return [block];
+    }
+  });
+
+  return {
+    ...document,
+    blocks,
+  };
+}
+
+function shouldKeepSourceBlock(
+  sourceBlock: NotebookContentDocument['blocks'][number],
+  repairedBlock: NotebookContentDocument['blocks'][number],
+): boolean {
+  if (sourceBlock.type !== repairedBlock.type) return true;
+
+  switch (sourceBlock.type) {
+    case 'heading': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        normalizeCompactText(matchedBlock.text).length <
+        Math.max(4, Math.floor(normalizeCompactText(sourceBlock.text).length * 0.5))
+      );
+    }
+    case 'paragraph': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        normalizeCompactText(sourceBlock.text).length >= 30 &&
+        normalizeCompactText(matchedBlock.text).length <
+          Math.max(12, Math.floor(normalizeCompactText(sourceBlock.text).length * 0.6))
+      );
+    }
+    case 'bullet_list': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        matchedBlock.items.length < Math.max(1, Math.floor(sourceBlock.items.length * 0.6)) ||
+        matchedBlock.items.join('').trim().length <
+          Math.max(12, Math.floor(sourceBlock.items.join('').trim().length * 0.55))
+      );
+    }
+    case 'table': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        matchedBlock.rows.length < Math.max(1, Math.floor(sourceBlock.rows.length * 0.6)) ||
+        Boolean(sourceBlock.headers?.length) !== Boolean(matchedBlock.headers?.length)
+      );
+    }
+    case 'callout': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        normalizeCompactText(sourceBlock.text).length >= 20 &&
+        normalizeCompactText(matchedBlock.text).length <
+          Math.max(10, Math.floor(normalizeCompactText(sourceBlock.text).length * 0.6))
+      );
+    }
+    case 'example': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return (
+        matchedBlock.steps.length < Math.max(1, Math.floor(sourceBlock.steps.length * 0.8)) ||
+        (sourceBlock.givens.length > 0 && matchedBlock.givens.length === 0) ||
+        Boolean(sourceBlock.answer?.trim()) !== Boolean(matchedBlock.answer?.trim())
+      );
+    }
+    case 'derivation_steps': {
+      const matchedBlock = repairedBlock as typeof sourceBlock;
+      return matchedBlock.steps.length < Math.max(1, Math.floor(sourceBlock.steps.length * 0.8));
+    }
+    default:
+      return false;
+  }
+}
+
+function reconcileConservativeMathRepair(args: {
+  sourceDocument: NotebookContentDocument;
+  repairedDocument: NotebookContentDocument;
+  intent: RepairIntent;
+}): NotebookContentDocument {
+  if (
+    !args.intent.wantsMinimalMathOnly &&
+    !args.intent.wantsTargetedFormulaFix &&
+    !args.intent.wantsPreserveSolution
+  ) {
+    return args.repairedDocument;
+  }
+
+  const usedIndices = new Set<number>();
+  const reconciledBlocks = args.sourceDocument.blocks.map((sourceBlock, sourceIndex) => {
+    let candidateIndex = -1;
+    if (
+      sourceIndex < args.repairedDocument.blocks.length &&
+      args.repairedDocument.blocks[sourceIndex]?.type === sourceBlock.type
+    ) {
+      candidateIndex = sourceIndex;
+    } else {
+      candidateIndex = args.repairedDocument.blocks.findIndex(
+        (block, index) => !usedIndices.has(index) && block.type === sourceBlock.type,
+      );
+    }
+
+    if (candidateIndex < 0) return sourceBlock;
+    usedIndices.add(candidateIndex);
+
+    const candidate = args.repairedDocument.blocks[candidateIndex];
+    return shouldKeepSourceBlock(sourceBlock, candidate) ? sourceBlock : candidate;
+  });
+
+  return {
+    ...args.repairedDocument,
+    title: args.repairedDocument.title || args.sourceDocument.title,
+    blocks: reconciledBlocks,
+  };
+}
+
 function inferRepairIntent(repairInstructions?: string): RepairIntent {
   const raw = repairInstructions?.trim() || '';
   const normalized = raw.toLowerCase();
 
   const includesAny = (keywords: string[]) =>
     keywords.some((keyword) => raw.includes(keyword) || normalized.includes(keyword));
+
+  const wantsTargetedFormulaFix = includesAny(TARGETED_FORMULA_FIX_KEYWORDS);
+  const wantsPreserveSolution = includesAny(PRESERVE_SOLUTION_KEYWORDS);
 
   return {
     hasInstructions: raw.length > 0,
@@ -175,23 +576,10 @@ function inferRepairIntent(repairInstructions?: string): RepairIntent {
       'derivation',
       'steps',
     ]),
-    wantsMinimalMathOnly: includesAny([
-      '只修公式',
-      '只修数学',
-      '只修 latex',
-      '只修latex',
-      '只修符号',
-      '不要改文案',
-      '保留原文',
-      '轻微修改',
-      '小修',
-      'math only',
-      'notation only',
-      'latex only',
-      'symbol only',
-      'do not rewrite',
-      'keep wording',
-    ]),
+    wantsMinimalMathOnly:
+      includesAny(MINIMAL_MATH_ONLY_KEYWORDS) || wantsTargetedFormulaFix || wantsPreserveSolution,
+    wantsTargetedFormulaFix,
+    wantsPreserveSolution,
     hintsNeedAnotherPage: includesAny([
       '加新的页',
       '加一页',
@@ -353,6 +741,7 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 - 不要删掉题解、步骤、结论、已知条件、易错点、答案或推导过程；如果拿不准，保留原内容。
 - 优先在原有内容上做最小修改，而不是重写整页。
 - 尽量保持原有 block 顺序与数量；除非某一块明显应该拆成“说明 + 公式”，否则不要合并或删减。
+- 如果教师只是让你“改公式 / 改符号 / 修 latex”，这就是一次保守修订任务：除非原文确实错误，否则题目、题解、步骤、答案、证明说明都必须原样保留，只修改公式本身和紧邻公式的必要措辞。
 - 如果原页是“例题 / 证明 / 推导”页，必须把关键推导链明确写出来，不能只保留题目、标题和空占位。
 - 不要输出空标题、空小节或占位块，例如“已知：”“证明：”“思路：”后面没有实质内容的结构。
 - 如果原页里有两个结论，优先按“结论 1 -> 推导 -> 结论 2 -> 推导”或“已知 -> 推导 -> 结论”的方式整理清楚。
@@ -365,6 +754,8 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
   - 连续推导用 {"type":"derivation_steps", ...}
 - 解释性语句、标题、小结保留为 heading / paragraph / bullet_list。
 - 如果原文里只是把数学表达硬塞在句子里，请拆成“说明文字 + 公式块”，不要继续把复杂公式塞进 paragraph。
+- paragraph / bullet_list / callout / example 里的行内公式，必须用 \\(...\\) 包起来；不要把裸 LaTeX 直接塞进普通文本里。
+- 如果一整行基本就是公式，不要把 $$...$$ 放进 paragraph；直接改成 equation block。
 - 不要输出 markdown，不要输出解释，不要输出代码块，只输出 JSON。
 
 数学修复示例：
@@ -410,6 +801,8 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
 - wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
+- wantsTargetedFormulaFix: ${intent.wantsTargetedFormulaFix ? 'yes' : 'no'}
+- wantsPreserveSolution: ${intent.wantsPreserveSolution ? 'yes' : 'no'}
 - hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
 - wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
   }
@@ -423,6 +816,7 @@ Requirements:
 - Do not remove solution steps, givens, conclusions, or answer content. If unsure, keep it.
 - Prefer minimal edits to the existing blocks instead of rewriting the page.
 - Keep the original block order and roughly the same number of blocks whenever possible.
+- If the teacher only asked to fix a formula / symbol / LaTeX notation, treat this as a conservative edit: keep the problem statement, solution, proof text, steps, and answer unless they are directly wrong.
 - All visible teaching text in sceneTitle, assistantReply, and document blocks must be in English.
 - If the source document is in Chinese or mixed-language, preserve the math meaning but rewrite the final visible teaching content into English.
 - Do not leave Chinese text in headings, bullets, callouts, captions, derivation explanations, or summaries unless it is an unavoidable proper noun from the source material.
@@ -434,6 +828,8 @@ Requirements:
 - Use equation blocks for standalone math, matrix blocks for standalone matrices, and derivation_steps for multi-line reasoning.
 - Keep prose as heading / paragraph / bullet_list.
 - If a sentence contains a heavy formula, split it into prose plus a formula block.
+- Inline math inside paragraph / bullet_list / callout / example text must use \\(...\\). Do not leave bare LaTeX inside ordinary prose.
+- If a line is basically just a formula, do not leave $$...$$ inside a paragraph. Turn it into an equation block.
 - Output JSON only. No markdown. No commentary. No code fences.
 
 Examples:
@@ -460,6 +856,8 @@ Current teacher intent:
 - wantsExpansion: ${intent.wantsExpansion ? 'yes' : 'no'}
 - wantsStructureChange: ${intent.wantsStructureChange ? 'yes' : 'no'}
 - wantsMinimalMathOnly: ${intent.wantsMinimalMathOnly ? 'yes' : 'no'}
+- wantsTargetedFormulaFix: ${intent.wantsTargetedFormulaFix ? 'yes' : 'no'}
+- wantsPreserveSolution: ${intent.wantsPreserveSolution ? 'yes' : 'no'}
 - hintsNeedAnotherPage: ${intent.hintsNeedAnotherPage ? 'yes' : 'no'}
 - wantsExplicitDerivation: ${intent.wantsExplicitDerivation ? 'yes' : 'no'}`;
 }
@@ -472,6 +870,7 @@ function buildUserPrompt(args: {
   repairInstructions?: string;
   repairConversation?: SlideRepairConversationTurn[];
   retryReason?: string;
+  intent: RepairIntent;
 }): string {
   const elementsSummary = summarizeElements(args.content.canvas.elements);
   const sourceDocument =
@@ -482,6 +881,7 @@ function buildUserPrompt(args: {
       content: args.content,
     });
   const repairConversation = normalizeRepairConversation(args.repairConversation);
+  const protectedBlocks = summarizeProtectedBlocks(sourceDocument, args.language);
 
   return [
     `Language: ${args.language}`,
@@ -493,6 +893,23 @@ function buildUserPrompt(args: {
       ? `Teacher instruction (highest priority): ${args.repairInstructions.trim()}`
       : 'Teacher instruction (highest priority): none',
     args.retryReason ? `Previous attempt was rejected because: ${args.retryReason}` : null,
+    '',
+    args.intent.wantsMinimalMathOnly
+      ? args.language === 'en-US'
+        ? 'This is a conservative math-fix task. Keep the same teaching content and only touch formulas, notation, or adjacent wording that must change.'
+        : '这次是保守修订任务。请保留原有教学内容，只修改公式、符号或必须跟着一起改的紧邻措辞。'
+      : null,
+    args.intent.wantsPreserveSolution
+      ? args.language === 'en-US'
+        ? 'Do not delete or compress the worked solution, proof text, answer, or reasoning steps.'
+        : '不要删改或压缩题解、证明说明、答案和推导步骤。'
+      : null,
+    protectedBlocks.length > 0
+      ? args.language === 'en-US'
+        ? 'Protected source content that must survive the repair:'
+        : '以下原始内容必须在修复后保留下来：'
+      : null,
+    protectedBlocks.length > 0 ? protectedBlocks.join('\n') : null,
     '',
     repairConversation.length > 0 ? 'Recent repair conversation:' : null,
     repairConversation.length > 0 ? JSON.stringify(repairConversation, null, 2) : null,
@@ -532,6 +949,7 @@ async function runRepairAttempt(args: {
     repairInstructions: args.repairInstructions,
     repairConversation: args.repairConversation,
     retryReason: args.retryReason,
+    intent: args.intent,
   });
 
   log.info(`Repairing slide math formatting${args.retryReason ? ' retry=1' : ''}`);
@@ -587,7 +1005,13 @@ export async function POST(req: NextRequest) {
       });
 
       let parsed = attempt.parsed;
-      let document = attempt.document;
+      let document = postProcessMathRepairDocument(
+        reconcileConservativeMathRepair({
+          sourceDocument,
+          repairedDocument: attempt.document,
+          intent: repairIntent,
+        }),
+      );
       let instructionIgnored = looksLikeInstructionWasIgnored({
         sourceDocument,
         repairedDocument: document,
@@ -620,7 +1044,13 @@ export async function POST(req: NextRequest) {
           intent: repairIntent,
         });
         parsed = attempt.parsed;
-        document = attempt.document;
+        document = postProcessMathRepairDocument(
+          reconcileConservativeMathRepair({
+            sourceDocument,
+            repairedDocument: attempt.document,
+            intent: repairIntent,
+          }),
+        );
         instructionIgnored = looksLikeInstructionWasIgnored({
           sourceDocument,
           repairedDocument: document,
@@ -654,11 +1084,15 @@ export async function POST(req: NextRequest) {
       ]);
       const sourceReasoningBlocks = countReasoningBlocks(sourceDocument);
       const repairedReasoningBlocks = countReasoningBlocks(document);
+      const sourceSolutionBlocks = countSolutionSignalBlocks(sourceDocument);
+      const repairedSolutionBlocks = countSolutionSignalBlocks(document);
 
       if (
         repairedBlockCount < Math.max(2, Math.ceil(sourceBlockCount * 0.6)) ||
         repairedSignal < Math.max(40, Math.floor(sourceSignal * 0.55)) ||
         placeholderCount > 0 ||
+        (sourceSolutionBlocks >= 1 &&
+          repairedSolutionBlocks < Math.max(1, sourceSolutionBlocks - 1)) ||
         (sourceReasoningBlocks >= 2 &&
           repairedReasoningBlocks < Math.max(2, sourceReasoningBlocks - 1)) ||
         instructionIgnored ||

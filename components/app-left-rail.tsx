@@ -12,7 +12,11 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { cn } from '@/lib/utils';
 import { backendJson } from '@/lib/utils/backend-api';
-import { formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
+import {
+  formatCreditsUsdCompactLabel,
+  formatNotebookGenerationLabel,
+  formatPurchaseCreditsLabel,
+} from '@/lib/utils/credits';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AppCoreNavList } from '@/components/app-core-nav-list';
@@ -89,7 +93,11 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat/');
 
   const [contactSearchQuery, setContactSearchQuery] = useState('');
-  const [creditsBalance, setCreditsBalance] = useState<number | null>(null);
+  const [balances, setBalances] = useState<{
+    cash: number;
+    purchase: number;
+    notebookGeneration: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!pathname) return;
@@ -107,13 +115,17 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
 
     void backendJson<{
       success: true;
-      balance: number;
+      balances: {
+        cash: number;
+        purchase: number;
+        notebookGeneration: number;
+      };
     }>('/api/profile/credits')
       .then((response) => {
-        if (!cancelled) setCreditsBalance(response.balance);
+        if (!cancelled) setBalances(response.balances);
       })
       .catch(() => {
-        if (!cancelled) setCreditsBalance(null);
+        if (!cancelled) setBalances(null);
       });
 
     return () => {
@@ -237,13 +249,14 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     >
                       {contextBadge}
                     </div>
-                    {creditsBalance != null ? (
+                    {balances != null ? (
                       <Link
                         href="/top-up"
                         className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50/80 px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15"
+                        title={`${formatPurchaseCreditsLabel(balances.purchase)} · ${formatNotebookGenerationLabel(balances.notebookGeneration)}`}
                       >
                         <Coins className="size-3.5" />
-                        <span>{formatCreditsUsdCompactLabel(creditsBalance)}</span>
+                        <span>{formatCreditsUsdCompactLabel(balances.cash)}</span>
                       </Link>
                     ) : null}
                   </div>
@@ -273,7 +286,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     </TooltipTrigger>
                     <TooltipContent side="right">{railTooltip}</TooltipContent>
                   </Tooltip>
-                  {creditsBalance != null ? (
+                  {balances != null ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Link
@@ -284,7 +297,9 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                         </Link>
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        {formatCreditsUsdLabel(creditsBalance)} · 去充值
+                        {`${formatCreditsUsdCompactLabel(balances.cash)} · ${formatPurchaseCreditsLabel(
+                          balances.purchase,
+                        )} · ${formatNotebookGenerationLabel(balances.notebookGeneration)}`}
                       </TooltipContent>
                     </Tooltip>
                   ) : null}

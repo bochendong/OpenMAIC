@@ -69,6 +69,7 @@ import {
   type CourseAgentListItem,
 } from '@/lib/utils/course-agents';
 import { runCourseSideChatLoop } from '@/lib/chat/run-course-side-chat-loop';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 import type { Scene } from '@/lib/types/stage';
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
@@ -461,7 +462,7 @@ function InlineLessonDeck({
       return;
     }
     const narration = getSceneNarration(scene);
-    const text = narration.text.slice(0, 1800);
+    const text = verbalizeNarrationText(narration.text.slice(0, 1800));
     if (!text.trim()) {
       setPlaying(false);
       return;

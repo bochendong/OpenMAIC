@@ -1,11 +1,14 @@
-import type { Prisma, PrismaClient } from '@prisma/client';
+import type { Prisma, PrismaClient, CreditAccountType } from '@prisma/client';
 import { CreditTransactionKind } from '@prisma/client';
 import { createLogger } from '@/lib/logger';
 import { getOptionalPrisma } from '@/lib/server/prisma-safe';
 import {
-  DEFAULT_USER_CREDITS,
-  creditsFromUsd,
+  DEFAULT_USER_CASH_CREDITS,
+  DEFAULT_USER_COMPUTE_CREDITS,
+  DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
+  DEFAULT_USER_PURCHASE_CREDITS,
   creditsFromTokenUsage,
+  creditsFromUsd,
   formatUsdLabel,
 } from '@/lib/utils/credits';
 import {
@@ -13,17 +16,75 @@ import {
   estimateOpenAITextUsageBaseCostUsd,
   estimateOpenAITextUsageRetailCostCredits,
   estimateOpenAITextUsageRetailCostUsd,
-  OPENAI_RETAIL_MARKUP_MULTIPLIER,
   estimateWebSearchRetailCostUsd,
+  OPENAI_RETAIL_MARKUP_MULTIPLIER,
 } from '@/lib/utils/openai-pricing';
 
 type CreditDbClient = PrismaClient | Prisma.TransactionClient;
 const log = createLogger('Credits');
 
+type BalanceField =
+  | 'creditsBalance'
+  | 'computeCreditsBalance'
+  | 'purchaseCreditsBalance'
+  | 'notebookGenerationBalance';
+
+type UserBalances = {
+  creditsBalance: number;
+  computeCreditsBalance: number;
+  purchaseCreditsBalance: number;
+  notebookGenerationBalance: number;
+};
+
+const ACCOUNT_BALANCE_FIELD: Record<CreditAccountType, BalanceField> = {
+  CASH: 'creditsBalance',
+  COMPUTE: 'computeCreditsBalance',
+  PURCHASE: 'purchaseCreditsBalance',
+  NOTEBOOK_GENERATION: 'notebookGenerationBalance',
+};
+
+const ACCOUNT_INIT_CONFIG: Array<{
+  accountType: CreditAccountType;
+  defaultAmount: number;
+  referenceType: string;
+  descriptionWhenGranted: string;
+  descriptionWhenEmpty: string;
+}> = [
+  {
+    accountType: 'CASH',
+    defaultAmount: DEFAULT_USER_CASH_CREDITS,
+    referenceType: 'welcome_init_cash',
+    descriptionWhenGranted: 'Initial cash credits',
+    descriptionWhenEmpty: 'Cash credits ledger initialized',
+  },
+  {
+    accountType: 'COMPUTE',
+    defaultAmount: DEFAULT_USER_COMPUTE_CREDITS,
+    referenceType: 'welcome_init_compute',
+    descriptionWhenGranted: 'Welcome compute credits',
+    descriptionWhenEmpty: 'Compute credits ledger initialized',
+  },
+  {
+    accountType: 'PURCHASE',
+    defaultAmount: DEFAULT_USER_PURCHASE_CREDITS,
+    referenceType: 'welcome_init_purchase',
+    descriptionWhenGranted: 'Welcome purchase credits',
+    descriptionWhenEmpty: 'Purchase credits ledger initialized',
+  },
+  {
+    accountType: 'NOTEBOOK_GENERATION',
+    defaultAmount: DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
+    referenceType: 'welcome_init_notebook_generation',
+    descriptionWhenGranted: 'Welcome notebook generation quota',
+    descriptionWhenEmpty: 'Notebook generation quota ledger initialized',
+  },
+];
+
 interface ApplyCreditDeltaArgs {
   userId: string;
   delta: number;
   kind: CreditTransactionKind;
+  accountType?: CreditAccountType;
   description?: string;
   referenceType?: string;
   referenceId?: string;
@@ -42,6 +103,45 @@ interface ChargeCreditsForUsdArgs {
   metadata?: Prisma.InputJsonObject;
 }
 
+function getBalanceField(accountType: CreditAccountType): BalanceField {
+  return ACCOUNT_BALANCE_FIELD[accountType];
+}
+
+function getBalance(user: UserBalances, accountType: CreditAccountType): number {
+  return user[getBalanceField(accountType)];
+}
+
+async function loadUserBalances(
+  db: CreditDbClient,
+  userId: string,
+): Promise<UserBalances | null> {
+  return db.user.findUnique({
+    where: { id: userId },
+    select: {
+      creditsBalance: true,
+      computeCreditsBalance: true,
+      purchaseCreditsBalance: true,
+      notebookGenerationBalance: true,
+    },
+  });
+}
+
+export async function getUserCreditBalances(
+  db: CreditDbClient,
+  userId: string,
+): Promise<UserBalances> {
+  await ensureUserCreditsInitialized(db, userId);
+  const user = await loadUserBalances(db, userId.trim());
+  return (
+    user ?? {
+      creditsBalance: 0,
+      computeCreditsBalance: 0,
+      purchaseCreditsBalance: 0,
+      notebookGenerationBalance: 0,
+    }
+  );
+}
+
 async function chargeCreditsForUsdCost(
   args: ChargeCreditsForUsdArgs,
 ): Promise<
@@ -54,9 +154,7 @@ async function chargeCreditsForUsdCost(
   | null
 > {
   const userId = args.userId?.trim();
-  if (!userId) {
-    return null;
-  }
+  if (!userId) return null;
 
   const usdCost =
     typeof args.usdCost === 'number' && !Number.isNaN(args.usdCost) ? Math.max(0, args.usdCost) : 0;
@@ -66,9 +164,7 @@ async function chargeCreditsForUsdCost(
     !Number.isNaN(args.requestedCreditsCostOverride)
       ? Math.max(0, Math.round(args.requestedCreditsCostOverride))
       : creditsFromUsd(usdCost, 'ceil');
-  if (requestedCreditsCost <= 0) {
-    return null;
-  }
+  if (requestedCreditsCost <= 0) return null;
 
   const prisma = getOptionalPrisma();
   if (!prisma) return null;
@@ -83,19 +179,19 @@ async function chargeCreditsForUsdCost(
     | null = null;
 
   await prisma.$transaction(async (tx) => {
-    const currentBalance = await ensureUserCreditsInitialized(tx, userId);
+    const balances = await getUserCreditBalances(tx, userId);
+    const currentBalance = balances.computeCreditsBalance;
     const chargedCredits = Math.min(currentBalance, requestedCreditsCost);
-    if (chargedCredits <= 0) {
-      return;
-    }
+    if (chargedCredits <= 0) return;
 
     await applyCreditDelta(tx, {
       userId,
       delta: -chargedCredits,
       kind: CreditTransactionKind.TOKEN_USAGE,
+      accountType: 'COMPUTE',
       description: hasUsdCost
-        ? `${args.descriptionPrefix}: ${chargedCredits} credits (${formatUsdLabel(usdCost)})`
-        : `${args.descriptionPrefix}: ${chargedCredits} credits`,
+        ? `${args.descriptionPrefix}: ${chargedCredits} compute credits (${formatUsdLabel(usdCost)})`
+        : `${args.descriptionPrefix}: ${chargedCredits} compute credits`,
       referenceType: args.referenceType,
       referenceId: args.referenceId?.trim() || undefined,
       metadata: {
@@ -124,40 +220,54 @@ export async function ensureUserCreditsInitialized(
   const normalizedUserId = userId.trim();
   if (!normalizedUserId) return 0;
 
-  const [user, existingTransactions] = await Promise.all([
-    db.user.findUnique({
-      where: { id: normalizedUserId },
-      select: { creditsBalance: true },
-    }),
-    db.creditTransaction.count({
-      where: { userId: normalizedUserId },
+  const [user, existingInitRows] = await Promise.all([
+    loadUserBalances(db, normalizedUserId),
+    db.creditTransaction.findMany({
+      where: {
+        userId: normalizedUserId,
+        referenceType: {
+          in: ACCOUNT_INIT_CONFIG.map((item) => item.referenceType),
+        },
+      },
+      select: { referenceType: true },
     }),
   ]);
 
   if (!user) return 0;
-  if (existingTransactions > 0) return user.creditsBalance;
 
-  const grant = user.creditsBalance > 0 ? 0 : DEFAULT_USER_CREDITS;
-  const nextBalance = user.creditsBalance + grant;
+  const existingInitRefs = new Set(existingInitRows.map((row) => row.referenceType || ''));
+  const nextBalances: UserBalances = { ...user };
 
-  if (grant > 0) {
-    await db.user.update({
-      where: { id: normalizedUserId },
-      data: { creditsBalance: nextBalance },
+  for (const item of ACCOUNT_INIT_CONFIG) {
+    if (existingInitRefs.has(item.referenceType)) continue;
+
+    const field = getBalanceField(item.accountType);
+    const currentBalance = nextBalances[field];
+    const grant = currentBalance > 0 ? 0 : item.defaultAmount;
+    const balanceAfter = currentBalance + grant;
+
+    if (grant > 0) {
+      await db.user.update({
+        where: { id: normalizedUserId },
+        data: { [field]: balanceAfter },
+      });
+      nextBalances[field] = balanceAfter;
+    }
+
+    await db.creditTransaction.create({
+      data: {
+        userId: normalizedUserId,
+        kind: CreditTransactionKind.WELCOME_BONUS,
+        accountType: item.accountType,
+        delta: grant,
+        balanceAfter,
+        description: grant > 0 ? item.descriptionWhenGranted : item.descriptionWhenEmpty,
+        referenceType: item.referenceType,
+      },
     });
   }
 
-  await db.creditTransaction.create({
-    data: {
-      userId: normalizedUserId,
-      kind: CreditTransactionKind.WELCOME_BONUS,
-      delta: grant,
-      balanceAfter: nextBalance,
-      description: grant > 0 ? 'Initial welcome credits' : 'Credits ledger initialized',
-    },
-  });
-
-  return nextBalance;
+  return nextBalances.creditsBalance;
 }
 
 export async function applyCreditDelta(
@@ -165,30 +275,34 @@ export async function applyCreditDelta(
   args: ApplyCreditDeltaArgs,
 ): Promise<number> {
   const userId = args.userId.trim();
+  const accountType = args.accountType ?? 'CASH';
   if (!userId) throw new Error('Invalid user for credit transaction');
 
   await ensureUserCreditsInitialized(db, userId);
 
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { creditsBalance: true },
-  });
+  const user = await loadUserBalances(db, userId);
   if (!user) throw new Error('User not found');
 
-  const nextBalance = user.creditsBalance + args.delta;
+  const field = getBalanceField(accountType);
+  const previousBalance = user[field];
+  const nextBalance = previousBalance + args.delta;
   if (nextBalance < 0) {
+    if (accountType === 'COMPUTE') throw new Error('算力积分不足，无法继续使用模型能力');
+    if (accountType === 'PURCHASE') throw new Error('购买积分不足，无法继续购买课程或笔记本');
+    if (accountType === 'NOTEBOOK_GENERATION') throw new Error('笔记本生成额度不足');
     throw new Error('积分不足，请先补充 credits');
   }
 
   await db.user.update({
     where: { id: userId },
-    data: { creditsBalance: nextBalance },
+    data: { [field]: nextBalance },
   });
 
   await db.creditTransaction.create({
     data: {
       userId,
       kind: args.kind,
+      accountType,
       delta: args.delta,
       balanceAfter: nextBalance,
       description: args.description,
@@ -201,22 +315,60 @@ export async function applyCreditDelta(
   return nextBalance;
 }
 
-export async function assertUserHasCredits(userId?: string | null): Promise<void> {
+export async function assertUserHasCredits(
+  userId?: string | null,
+  accountType: CreditAccountType = 'COMPUTE',
+): Promise<void> {
   const normalizedUserId = userId?.trim();
   if (!normalizedUserId) return;
 
   const prisma = getOptionalPrisma();
   if (!prisma) return;
 
-  await ensureUserCreditsInitialized(prisma, normalizedUserId);
-  const user = await prisma.user.findUnique({
-    where: { id: normalizedUserId },
-    select: { creditsBalance: true },
-  });
+  const balances = await getUserCreditBalances(prisma, normalizedUserId);
+  if (getBalance(balances, accountType) > 0) return;
 
-  if (!user || user.creditsBalance <= 0) {
-    throw new Error('积分不足，无法继续使用模型能力');
+  if (accountType === 'PURCHASE') {
+    throw new Error('购买积分不足，无法继续购买课程或笔记本');
   }
+  if (accountType === 'NOTEBOOK_GENERATION') {
+    throw new Error('笔记本生成额度不足');
+  }
+  if (accountType === 'CASH') {
+    throw new Error('余额不足，请先充值');
+  }
+  throw new Error('算力积分不足，无法继续使用模型能力');
+}
+
+export async function consumeNotebookGenerationCredit(args: {
+  userId: string;
+  notebookName?: string | null;
+  courseId?: string | null;
+  courseName?: string | null;
+  source?: string | null;
+}): Promise<number> {
+  const prisma = getOptionalPrisma();
+  if (!prisma) return 0;
+
+  return prisma.$transaction(async (tx) =>
+    applyCreditDelta(tx, {
+      userId: args.userId,
+      delta: -1,
+      kind: CreditTransactionKind.NOTEBOOK_GENERATION_USAGE,
+      accountType: 'NOTEBOOK_GENERATION',
+      description: args.notebookName?.trim()
+        ? `Notebook generation quota used for "${args.notebookName.trim()}"`
+        : 'Notebook generation quota used',
+      referenceType: 'notebook_generation',
+      referenceId: args.courseId?.trim() || undefined,
+      metadata: {
+        notebookName: args.notebookName?.trim() || null,
+        courseId: args.courseId?.trim() || null,
+        courseName: args.courseName?.trim() || null,
+        source: args.source?.trim() || null,
+      },
+    }),
+  );
 }
 
 export async function chargeCreditsForTokenUsage(args: {
@@ -245,7 +397,7 @@ export async function chargeCreditsForTokenUsage(args: {
   const userId = args.userId?.trim();
   if (!userId) {
     if (args.route?.startsWith('/api/generate/')) {
-      log.warn('Skipped generation credits charge because request had no userId', {
+      log.warn('Skipped generation compute charge because request had no userId', {
         route: args.route ?? null,
         source: args.source ?? null,
         modelString: args.modelString ?? null,
@@ -282,7 +434,7 @@ export async function chargeCreditsForTokenUsage(args: {
     }) ?? creditsFromTokenUsage(args.totalTokens);
   if (requestedCreditsCost <= 0) {
     if (args.route?.startsWith('/api/generate/')) {
-      log.info('Skipped generation credits charge because token usage was zero', {
+      log.info('Skipped generation compute charge because token usage was zero', {
         userId,
         route: args.route ?? null,
         source: args.source ?? null,
@@ -334,7 +486,7 @@ export async function chargeCreditsForTokenUsage(args: {
 
   if (!chargeSummary) {
     if (args.route?.startsWith('/api/generate/')) {
-      log.warn('Generation credits charge resolved to zero because balance is empty', {
+      log.warn('Generation compute charge resolved to zero because balance is empty', {
         userId,
         route: args.route ?? null,
         source: args.source ?? null,
@@ -346,7 +498,7 @@ export async function chargeCreditsForTokenUsage(args: {
   }
 
   if (args.route?.startsWith('/api/generate/')) {
-    log.info('Charged credits for generation usage', {
+    log.info('Charged compute credits for generation usage', {
       userId,
       route: args.route ?? null,
       source: args.source ?? null,

@@ -34,6 +34,8 @@ import {
   buildBudgetedGenerationMedia,
   SAFE_GENERATION_REQUEST_BYTES,
 } from '@/lib/generation/request-payload-budget';
+import { ensureSpeechActionsHaveAudio } from '@/lib/hooks/use-scene-generator';
+import type { SpeechAction } from '@/lib/types/action';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
 import { StepVisualizer } from './components/visualizers';
 
@@ -123,7 +125,10 @@ function GenerationPreviewContent() {
       .map((w) => w.trim())
       .filter((w) => w.length >= 2);
     const unique = Array.from(new Set(words)).slice(0, 5);
-    const defaultTags = language === 'en-US' ? ['learning', 'notebook', 'ai-generated'] : ['学习', '笔记本', 'AI生成'];
+    const defaultTags =
+      language === 'en-US'
+        ? ['learning', 'notebook', 'ai-generated']
+        : ['学习', '笔记本', 'AI生成'];
     const tags = unique.length > 0 ? unique : defaultTags;
     const description =
       language === 'en-US'
@@ -163,7 +168,10 @@ function GenerationPreviewContent() {
       };
     } catch (e) {
       log.warn('[Generation] Notebook metadata generation failed, using fallback:', e);
-      const fallback = buildFallbackNotebookMetadata(currentSession.requirements.requirement, language);
+      const fallback = buildFallbackNotebookMetadata(
+        currentSession.requirements.requirement,
+        language,
+      );
       if (courseContext?.tags?.length) {
         fallback.tags = Array.from(new Set([...courseContext.tags, ...fallback.tags])).slice(0, 8);
       }
@@ -294,7 +302,9 @@ function GenerationPreviewContent() {
             signal,
           });
           if (!parseResponse.ok) {
-            const errorData = await parseResponse.json().catch(() => ({ error: t('generation.pdfParseFailed') }));
+            const errorData = await parseResponse
+              .json()
+              .catch(() => ({ error: t('generation.pdfParseFailed') }));
             throw new Error(errorData.error || t('generation.pdfParseFailed'));
           }
 
@@ -474,9 +484,8 @@ function GenerationPreviewContent() {
         persona?: string;
       }> = [];
 
-      const { ensureLegacyCourseBucket, LEGACY_COURSE_ID, getCourse } = await import(
-        '@/lib/utils/course-storage'
-      );
+      const { ensureLegacyCourseBucket, LEGACY_COURSE_ID, getCourse } =
+        await import('@/lib/utils/course-storage');
       await ensureLegacyCourseBucket();
       const resolvedCourseId = currentSession.courseId || LEGACY_COURSE_ID;
       const currentCourse = await getCourse(resolvedCourseId);
@@ -492,6 +501,20 @@ function GenerationPreviewContent() {
             language: currentCourse.language,
           }
         : undefined;
+      const consumeResp = await backendFetch('/api/profile/credits/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'notebook_generation',
+          courseId: resolvedCourseId,
+          courseName: currentCourse?.name ?? null,
+          source: 'generation-preview',
+        }),
+        signal,
+      });
+      if (!consumeResp.ok) {
+        throw new Error(await readApiErrorMessage(consumeResp, '笔记本生成额度不足'));
+      }
       const notebookMeta = await generateNotebookMetadata(currentSession, courseContext, signal);
 
       // Create stage client-side (needed for agent generation stageId)
@@ -617,12 +640,18 @@ function GenerationPreviewContent() {
           imageMapping,
           maxRequestBytes: SAFE_GENERATION_REQUEST_BYTES,
         });
-        if (outlineMedia.omittedVisionImageIds.length > 0 || outlineMedia.omittedPdfImageIds.length > 0) {
-          log.warn('[GenerationPreview] Trimmed outline request media to stay under request limit', {
-            requestBytes: outlineMedia.requestBytes,
-            omittedVisionImageIds: outlineMedia.omittedVisionImageIds,
-            omittedPdfImageIds: outlineMedia.omittedPdfImageIds,
-          });
+        if (
+          outlineMedia.omittedVisionImageIds.length > 0 ||
+          outlineMedia.omittedPdfImageIds.length > 0
+        ) {
+          log.warn(
+            '[GenerationPreview] Trimmed outline request media to stay under request limit',
+            {
+              requestBytes: outlineMedia.requestBytes,
+              omittedVisionImageIds: outlineMedia.omittedVisionImageIds,
+              omittedPdfImageIds: outlineMedia.omittedPdfImageIds,
+            },
+          );
         }
         const primaryOutlinePayload = {
           ...outlineBasePayload,
@@ -644,7 +673,9 @@ function GenerationPreviewContent() {
               signal,
             });
             if (response.status === 413 && outlineMedia.imageMapping) {
-              log.warn('[GenerationPreview] Outline request still too large, retrying without vision images');
+              log.warn(
+                '[GenerationPreview] Outline request still too large, retrying without vision images',
+              );
               response = await backendFetch('/api/generate/scene-outlines-stream', {
                 method: 'POST',
                 headers: getApiHeaders(),
@@ -773,7 +804,9 @@ function GenerationPreviewContent() {
       const firstOutlineImageIds = firstOutline.suggestedImageIds || [];
       const firstOutlinePdfImages =
         firstOutlineImageIds.length > 0
-          ? (currentSession.pdfImages || []).filter((image) => firstOutlineImageIds.includes(image.id))
+          ? (currentSession.pdfImages || []).filter((image) =>
+              firstOutlineImageIds.includes(image.id),
+            )
           : undefined;
       const contentBasePayload = {
         outline: firstOutline,
@@ -805,10 +838,13 @@ function GenerationPreviewContent() {
         ...(contentMedia.imageMapping ? { imageMapping: contentMedia.imageMapping } : {}),
       });
       if (contentResp.status === 413 && contentMedia.imageMapping) {
-        log.warn('[GenerationPreview] Scene request still too large, retrying without vision images', {
-          outlineId: firstOutline.id,
-          outlineTitle: firstOutline.title,
-        });
+        log.warn(
+          '[GenerationPreview] Scene request still too large, retrying without vision images',
+          {
+            outlineId: firstOutline.id,
+            outlineTitle: firstOutline.title,
+          },
+        );
         contentResp = await sendSceneContentRequest({
           ...contentBasePayload,
           ...(contentMedia.pdfImages ? { pdfImages: contentMedia.pdfImages } : {}),
@@ -862,52 +898,16 @@ function GenerationPreviewContent() {
 
       // Generate TTS for first scene (part of actions step — blocking)
       if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
-        const ttsProviderConfig = settings.ttsProvidersConfig?.[settings.ttsProviderId];
-        const speechActions = (data.scene.actions || []).filter(
-          (a: { type: string; text?: string }) => a.type === 'speech' && a.text,
-        );
+        const speechActions =
+          (data.scene.actions || []).filter(
+            (action: { type: string; text?: string }): action is SpeechAction =>
+              action.type === 'speech' && Boolean(action.text),
+          ) ?? [];
+        const ttsResult = await ensureSpeechActionsHaveAudio(speechActions, signal);
 
-        let ttsFailCount = 0;
-        for (const action of speechActions) {
-          const audioId = `tts_${action.id}`;
-          action.audioId = audioId;
-          try {
-            const resp = await fetch('/api/generate/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                text: action.text,
-                audioId,
-                ttsProviderId: settings.ttsProviderId,
-                ttsVoice: settings.ttsVoice,
-                ttsSpeed: settings.ttsSpeed,
-                ttsApiKey: ttsProviderConfig?.apiKey || undefined,
-                ttsBaseUrl: ttsProviderConfig?.baseUrl || undefined,
-              }),
-              signal,
-            });
-            if (!resp.ok) {
-              ttsFailCount++;
-              continue;
-            }
-            const ttsData = await resp.json();
-            if (!ttsData.success) {
-              ttsFailCount++;
-              continue;
-            }
-            action.audioUrl = `data:audio/${ttsData.format};base64,${ttsData.base64}`;
-          } catch (err) {
-            if (err instanceof DOMException && err.name === 'AbortError') {
-              throw err;
-            }
-            log.warn(`[TTS] Failed for ${audioId}:`, err);
-            ttsFailCount++;
-          }
-        }
-
-        if (ttsFailCount > 0 && speechActions.length > 0) {
+        if (!ttsResult.ok && speechActions.length > 0) {
           log.warn(
-            `[GenerationPreview] TTS failed for ${ttsFailCount}/${speechActions.length} speech segments, but the slide will still be shown`,
+            `[GenerationPreview] TTS failed for the first scene, but the slide will still be shown: ${ttsResult.error || 'Unknown error'}`,
           );
         }
       }

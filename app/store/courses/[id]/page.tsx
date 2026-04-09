@@ -21,7 +21,10 @@ import { resolveCourseAvatarDisplayUrl } from '@/lib/constants/course-avatars';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useNotificationStore } from '@/lib/store/notifications';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
-import { creditsFromPriceCents, formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
+import {
+  formatPurchaseCreditsLabel,
+  purchaseCreditsFromPriceCents,
+} from '@/lib/utils/credits';
 
 type StoreNotebook = {
   id: string;
@@ -161,7 +164,9 @@ export default function StoreCourseDetailPage() {
   }, [currentCourseId]);
 
   const priceLabel = useMemo(() => {
-    return formatCreditsUsdCompactLabel(creditsFromPriceCents(data?.course.coursePriceCents ?? 0));
+    return formatPurchaseCreditsLabel(
+      purchaseCreditsFromPriceCents(data?.course.coursePriceCents ?? 0),
+    );
   }, [data]);
 
   const totalScenes = useMemo(
@@ -405,7 +410,9 @@ export default function StoreCourseDetailPage() {
                           <div className="mt-3 flex flex-wrap gap-2">
                             <span className="store-chip text-xs">{`${notebook._count.scenes} 页`}</span>
                             <span className="store-chip text-xs">
-                              {`单本价格 ${formatCreditsUsdLabel(creditsFromPriceCents(notebook.notebookPriceCents))}`}
+                              {`单本价格 ${formatPurchaseCreditsLabel(
+                                purchaseCreditsFromPriceCents(notebook.notebookPriceCents),
+                              )}`}
                             </span>
                             {notebook.tags.slice(0, 3).map((tag) => (
                               <span key={tag} className="store-chip text-xs">
@@ -566,9 +573,10 @@ export default function StoreCourseDetailPage() {
           onOpenChange={setCoursePurchaseOpen}
           itemTypeLabel="课程"
           itemName={course.name}
-          creditsCost={creditsFromPriceCents(course.coursePriceCents)}
+          creditsCost={purchaseCreditsFromPriceCents(course.coursePriceCents)}
+          accountType="PURCHASE"
           countSummary={`将复制 ${course.notebooks.length} 本笔记本，共 ${totalScenes} 页内容到你的个人空间。`}
-          note="确认后会立即扣除对应 credits，并生成你自己的课程副本。"
+          note="确认后会立即扣除对应购买积分，并生成你自己的课程副本。"
           busy={buying}
           confirmLabel="确认购买课程"
           onConfirm={handleBuy}
@@ -580,13 +588,16 @@ export default function StoreCourseDetailPage() {
           }}
           itemTypeLabel="笔记本"
           itemName={pendingNotebookPurchase?.name ?? ''}
-          creditsCost={creditsFromPriceCents(pendingNotebookPurchase?.notebookPriceCents ?? 0)}
+          creditsCost={purchaseCreditsFromPriceCents(
+            pendingNotebookPurchase?.notebookPriceCents ?? 0,
+          )}
+          accountType="PURCHASE"
           countSummary={
             pendingNotebookPurchase
               ? `将复制这本笔记本到你的空间，包含 ${pendingNotebookPurchase._count.scenes} 页内容。`
               : undefined
           }
-          note="确认后会立即扣除对应 credits，并生成你自己的笔记本副本。"
+          note="确认后会立即扣除对应购买积分，并生成你自己的笔记本副本。"
           busy={buyingNotebookId != null}
           confirmLabel="确认购买笔记本"
           onConfirm={() =>

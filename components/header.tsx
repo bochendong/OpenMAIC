@@ -32,7 +32,7 @@ import { useExportPPTX } from '@/lib/export/use-export-pptx';
 import { useSettingsStore } from '@/lib/store/settings';
 import { getSceneSpeechTtsBanner } from '@/lib/audio/speech-audio-readiness';
 import { renderPlainTitleWithOptionalLatex } from '@/lib/render-html-with-latex';
-import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
+import { ensureSpeechActionsHaveAudio } from '@/lib/hooks/use-scene-generator';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import type { SpeechAction } from '@/lib/types/action';
 
@@ -65,6 +65,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   const [synthAllSpeechProgress, setSynthAllSpeechProgress] = useState<{
     done: number;
     total: number;
+    active: number;
+    parallelism: number;
   } | null>(null);
   const [synthPickerOpen, setSynthPickerOpen] = useState(false);
   const [selectedSynthSceneIds, setSelectedSynthSceneIds] = useState<Set<string>>(() => new Set());
@@ -84,9 +86,7 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   // Export intentionally depends on slide/media readiness only.
   // Speech synthesis is manual/on-demand and must never block downloads.
   const canExport =
-    scenes.length > 0 &&
-    pendingOutlines.length === 0 &&
-    failedOutlines.length === 0;
+    scenes.length > 0 && pendingOutlines.length === 0 && failedOutlines.length === 0;
 
   const headerCurrentScene = useMemo(
     () => (currentSceneId ? scenes.find((s) => s.id === currentSceneId) : undefined),
@@ -109,7 +109,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     for (const scene of scenes) {
       const speechActions =
         splitLongSpeechActions(scene.actions || [], ttsProviderId).filter(
-          (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
+          (action): action is SpeechAction =>
+            action.type === 'speech' && Boolean(action.text?.trim()),
         ) ?? [];
       total += speechActions.length;
       ready += speechActions.filter((action) => Boolean(action.audioUrl)).length;
@@ -135,7 +136,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
       if (scene.type !== 'slide') continue;
       const speechActions =
         splitLongSpeechActions(scene.actions || [], ttsProviderId).filter(
-          (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
+          (action): action is SpeechAction =>
+            action.type === 'speech' && Boolean(action.text?.trim()),
         ) ?? [];
       if (speechActions.length === 0) continue;
       slideOrdinal += 1;
@@ -168,7 +170,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     for (const scene of ordered) {
       const speechActions =
         splitLongSpeechActions(scene.actions || [], ttsProviderId).filter(
-          (action): action is SpeechAction => action.type === 'speech' && Boolean(action.text?.trim()),
+          (action): action is SpeechAction =>
+            action.type === 'speech' && Boolean(action.text?.trim()),
         ) ?? [];
       if (speechActions.length === 0) continue;
       const pendingCount = speechActions.filter((a) => !a.audioUrl).length;
@@ -252,9 +255,14 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
 
   const synthAllSpeechStatusText = (() => {
     if (synthAllSpeechProgress != null) {
-      return locale === 'zh-CN'
-        ? `合成中 ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total} 条`
-        : `Generating ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total}`;
+      if (locale === 'zh-CN') {
+        return synthAllSpeechProgress.active > 0
+          ? `并行合成中 ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total} 条 · ${synthAllSpeechProgress.active}/${synthAllSpeechProgress.parallelism} 路`
+          : `收尾中 ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total} 条`;
+      }
+      return synthAllSpeechProgress.active > 0
+        ? `Generating ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total} · ${synthAllSpeechProgress.active}/${synthAllSpeechProgress.parallelism} active`
+        : `Finishing ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total}`;
     }
     if (speechPagesBreakdown.totalPagesWithSpeech > 0) {
       const { readyPages, totalPagesWithSpeech } = speechPagesBreakdown;
@@ -269,6 +277,11 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
 
   const synthAllSpeechTooltipBody = useMemo(() => {
     const baseHint = t('stage.ttsSynthesizeAllButtonTooltip');
+    if (synthAllSpeechProgress != null) {
+      return locale === 'zh-CN'
+        ? `正在并行合成语音。\n已完成 ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total} 条，当前并行 ${synthAllSpeechProgress.active}/${synthAllSpeechProgress.parallelism} 路。\n\n${baseHint}`
+        : `Speech generation is running in parallel.\nCompleted ${synthAllSpeechProgress.done}/${synthAllSpeechProgress.total}, with ${synthAllSpeechProgress.active}/${synthAllSpeechProgress.parallelism} active.\n\n${baseHint}`;
+    }
     if (speechPagesBreakdown.totalPagesWithSpeech === 0) {
       if (allSpeechStats.total === 0) return baseHint;
       return locale === 'zh-CN'
@@ -285,11 +298,13 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
     }
     const maxLines = 14;
     const trunc = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n)}…`);
-    const lines = pendingPages.slice(0, maxLines).map((p) =>
-      locale === 'zh-CN'
-        ? `· 第 ${p.displayIndex} 页：${trunc(p.title, 36)}`
-        : `· Slide ${p.displayIndex}: ${trunc(p.title, 40)}`,
-    );
+    const lines = pendingPages
+      .slice(0, maxLines)
+      .map((p) =>
+        locale === 'zh-CN'
+          ? `· 第 ${p.displayIndex} 页：${trunc(p.title, 36)}`
+          : `· Slide ${p.displayIndex}: ${trunc(p.title, 40)}`,
+      );
     const more =
       pendingPages.length > maxLines
         ? locale === 'zh-CN'
@@ -298,12 +313,17 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
         : '';
     const pendingHead = locale === 'zh-CN' ? '未就绪页面：' : 'Not ready:';
     return `${head}\n${pendingHead}\n${lines.join('\n')}${more}\n\n${baseHint}`;
-  }, [allSpeechStats.ready, allSpeechStats.total, locale, speechPagesBreakdown, t]);
+  }, [
+    allSpeechStats.ready,
+    allSpeechStats.total,
+    locale,
+    speechPagesBreakdown,
+    synthAllSpeechProgress,
+    t,
+  ]);
 
   const openSynthPicker = useCallback(() => {
-    const next = new Set(
-      synthSceneRows.filter((r) => r.pendingCount > 0).map((r) => r.sceneId),
-    );
+    const next = new Set(synthSceneRows.filter((r) => r.pendingCount > 0).map((r) => r.sceneId));
     setSelectedSynthSceneIds(next);
     setSynthPickerOpen(true);
   }, [synthSceneRows]);
@@ -333,7 +353,8 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
       const orderedScenes = [...useStageStore.getState().scenes].sort((a, b) => a.order - b.order);
       const pendingScenes = orderedScenes
         .map((scene) => {
-          const pendingCount = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId).filter(
+          const splitActions = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId);
+          const pendingCount = splitActions.filter(
             (action): action is SpeechAction =>
               action.type === 'speech' && Boolean(action.text?.trim()) && !action.audioUrl,
           ).length;
@@ -353,33 +374,65 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
 
       setSynthPickerOpen(false);
       setIsSynthesizingAllSpeech(true);
-      setSynthAllSpeechProgress({ done: 0, total });
+      setSynthAllSpeechProgress({ done: 0, total, active: 0, parallelism: 0 });
       const loadingId = toast.loading(
-        locale === 'zh-CN' ? `正在合成语音（0/${total}）…` : `Generating speech (0/${total})…`,
+        locale === 'zh-CN'
+          ? `正在并行合成语音（0/${total}）…`
+          : `Generating speech in parallel (0/${total})…`,
       );
 
-      let completed = 0;
       try {
-        for (const { scene, pendingCount } of pendingScenes) {
-          const result = await ensureMissingSpeechAudioForScene(scene, undefined, (done) => {
-            const nextDone = completed + done;
-            setSynthAllSpeechProgress({ done: nextDone, total });
-            toast.loading(
-              locale === 'zh-CN'
-                ? `正在合成语音（${nextDone}/${total}）…`
-                : `Generating speech (${nextDone}/${total})…`,
-              { id: loadingId },
-            );
-          });
-
-          if (!result.ok) {
-            throw new Error(result.error || 'Speech generation failed');
+        const pendingSpeechActions: SpeechAction[] = [];
+        for (const { scene } of pendingScenes) {
+          const splitActions = splitLongSpeechActions(scene.actions || [], settings.ttsProviderId);
+          if (splitActions !== scene.actions) {
+            scene.actions = splitActions;
           }
-
-          completed += pendingCount;
-          setSynthAllSpeechProgress({ done: completed, total });
+          pendingSpeechActions.push(
+            ...splitActions.filter(
+              (action): action is SpeechAction =>
+                action.type === 'speech' && Boolean(action.text?.trim()) && !action.audioUrl,
+            ),
+          );
         }
 
+        if (pendingSpeechActions.length === 0) {
+          useStageStore.getState().touchScenes();
+          toast.success(
+            locale === 'zh-CN'
+              ? '所选范围内没有待合成的语音。'
+              : 'No pending speech in the selected scenes.',
+            { id: loadingId },
+          );
+          return;
+        }
+
+        useStageStore.getState().touchScenes();
+
+        const result = await ensureSpeechActionsHaveAudio(
+          pendingSpeechActions,
+          undefined,
+          ({ done, total: progressTotal, active, parallelism }) => {
+            setSynthAllSpeechProgress({ done, total: progressTotal, active, parallelism });
+            useStageStore.getState().touchScenes();
+            toast.loading(
+              locale === 'zh-CN'
+                ? active > 0
+                  ? `正在并行合成语音（${done}/${progressTotal}，${active}/${parallelism} 路进行中）…`
+                  : `正在收尾语音任务（${done}/${progressTotal}）…`
+                : active > 0
+                  ? `Generating speech (${done}/${progressTotal}, ${active}/${parallelism} active)…`
+                  : `Finishing speech jobs (${done}/${progressTotal})…`,
+              { id: loadingId },
+            );
+          },
+        );
+
+        if (!result.ok) {
+          throw new Error(result.error || 'Speech generation failed');
+        }
+
+        useStageStore.getState().touchScenes();
         toast.success(
           locale === 'zh-CN'
             ? `语音已合成完成（${total}/${total}）。`
@@ -498,7 +551,10 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
                 <span className="min-w-0 truncate">{synthAllSpeechStatusText}</span>
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="max-w-md whitespace-pre-line text-xs leading-relaxed">
+            <TooltipContent
+              side="bottom"
+              className="max-w-md whitespace-pre-line text-xs leading-relaxed"
+            >
               {synthAllSpeechTooltipBody}
             </TooltipContent>
           </Tooltip>

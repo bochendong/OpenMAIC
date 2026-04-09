@@ -211,6 +211,14 @@ function resolveSlideRepairProfile(scene: Scene, outline?: SceneOutline): Notebo
   return outline ? inferSceneContentProfile(outline) : 'general';
 }
 
+function repairRequestLooksMathFocused(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return /公式|latex|符号|下标|上标|矩阵|推导|证明|同余|映射|核|像|math|formula|notation|equation|derivation|proof|matrix|subscript|superscript|kernel|image/i.test(
+    normalized,
+  );
+}
+
 function buildRepairPendingMessage(args: {
   language: 'zh-CN' | 'en-US';
   profile: NotebookContentProfile;
@@ -328,8 +336,7 @@ export function Stage({
     setCurrentSceneId,
     generatingOutlines,
     generationStatus,
-  } =
-    useStageStore();
+  } = useStageStore();
   const stage = useStageStore((s) => s.stage);
   const stageLanguage = useStageStore((s) => s.stage?.language);
   const updateScene = useStageStore((s) => s.updateScene);
@@ -1086,8 +1093,8 @@ export function Stage({
           const missingCount = speechActions.filter((a) => !a.audioUrl).length;
           const loadingId = toast.loading(
             locale === 'zh-CN'
-              ? `正在生成语音（0/${missingCount}）…`
-              : `Generating speech (0/${missingCount})…`,
+              ? `正在并行生成语音（0/${missingCount}）…`
+              : `Generating speech in parallel (0/${missingCount})…`,
           );
           setSpeechAudioPreparing(true);
           let ttsReady: Awaited<ReturnType<typeof ensureMissingSpeechAudioForScene>>;
@@ -1095,11 +1102,15 @@ export function Stage({
             ttsReady = await ensureMissingSpeechAudioForScene(
               sceneForTts,
               undefined,
-              (done, total) => {
+              ({ done, total, active, parallelism }) => {
                 toast.loading(
                   locale === 'zh-CN'
-                    ? `正在生成语音（${done}/${total}）…`
-                    : `Generating speech (${done}/${total})…`,
+                    ? active > 0
+                      ? `正在并行生成语音（${done}/${total}，${active}/${parallelism} 路进行中）…`
+                      : `正在收尾语音任务（${done}/${total}）…`
+                    : active > 0
+                      ? `Generating speech (${done}/${total}, ${active}/${parallelism} active)…`
+                      : `Finishing speech jobs (${done}/${total})…`,
                   { id: loadingId },
                 );
               },
@@ -1284,7 +1295,8 @@ export function Stage({
     const trimmedDraft = repairInstructions.trim();
     const rewriteLanguage = (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN';
     const matchedOutline = resolveRewriteOutline(currentScene, outlines, rewriteLanguage);
-    const repairProfile = resolveSlideRepairProfile(currentScene, matchedOutline);
+    const baseRepairProfile = resolveSlideRepairProfile(currentScene, matchedOutline);
+    const repairProfile = repairRequestLooksMathFocused(trimmedDraft) ? 'math' : baseRepairProfile;
     const userMessageContent =
       trimmedDraft || getDefaultRepairRequest(rewriteLanguage, repairProfile);
     const outlineExists = outlines.some((outline) => outline.id === matchedOutline.id);

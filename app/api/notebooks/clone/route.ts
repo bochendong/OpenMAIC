@@ -5,7 +5,7 @@ import { requireUserId } from '@/lib/server/api-auth';
 import { applyCreditDelta, ensureUserCreditsInitialized } from '@/lib/server/credits';
 import { safeRoute } from '@/lib/server/json-error-response';
 import { toPrismaJson, toPrismaNullableJson } from '@/lib/server/prisma-json';
-import { creditsFromPriceCents } from '@/lib/utils/credits';
+import { creditsFromPriceCents, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
 
 const bodySchema = z.object({
   sourceNotebookId: z.string().trim().min(1),
@@ -39,7 +39,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '笔记本不存在或未在商城公开' }, { status: 404 });
     }
 
-    const notebookCostCredits = creditsFromPriceCents(source.notebookPriceCents ?? 0);
+    const notebookCostCredits = purchaseCreditsFromPriceCents(source.notebookPriceCents ?? 0);
+    const creatorSaleCredits = creditsFromPriceCents(source.notebookPriceCents ?? 0);
 
     const existingPurchase = await prisma.notebookPurchase.findFirst({
       where: { buyerId: userId, sourceNotebookId: source.id },
@@ -58,18 +59,22 @@ export async function POST(request: Request) {
           userId,
           delta: -notebookCostCredits,
           kind: 'NOTEBOOK_PURCHASE',
+          accountType: 'PURCHASE',
           description: `Purchased notebook "${source.name}"`,
           referenceType: 'notebook',
           referenceId: source.id,
         });
-        await applyCreditDelta(tx, {
-          userId: source.ownerId,
-          delta: notebookCostCredits,
-          kind: 'CREATOR_NOTEBOOK_SALE',
-          description: `Notebook sale: "${source.name}"`,
-          referenceType: 'notebook',
-          referenceId: source.id,
-        });
+        if (creatorSaleCredits > 0) {
+          await applyCreditDelta(tx, {
+            userId: source.ownerId,
+            delta: creatorSaleCredits,
+            kind: 'CREATOR_NOTEBOOK_SALE',
+            accountType: 'CASH',
+            description: `Notebook sale: "${source.name}"`,
+            referenceType: 'notebook',
+            referenceId: source.id,
+          });
+        }
       }
 
       const clonedNotebook = await tx.notebook.create({

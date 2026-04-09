@@ -129,6 +129,7 @@ Generate natural teaching speech. The user prompt includes a **Course Outline** 
 - Encouragements and motivational remarks (e.g., "Great job, everyone!")
 - Transitional phrases (e.g., "Now let's move on to…")
 - Closing messages and teacher's reflections
+- For math narration, rewrite formulas into speakable language instead of leaving raw symbols. Example: say `2的3次方`, `x的平方`, `a 等于 b`; do NOT output raw speech text like `2^3`, `x^2`, `a=b`.
 
 **CRITICAL — Same-session continuity**: All pages belong to the **same class session** happening right now. This is NOT a series of separate classes.
 

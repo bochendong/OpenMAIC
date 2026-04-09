@@ -49,6 +49,14 @@ enum CreditTransactionKind {
   CREATOR_COURSE_SALE
   CREATOR_NOTEBOOK_SALE
   TOKEN_USAGE
+  NOTEBOOK_GENERATION_USAGE
+}
+
+enum CreditAccountType {
+  CASH
+  COMPUTE
+  PURCHASE
+  NOTEBOOK_GENERATION
 }
 
 enum TopUpOrderStatus {
@@ -64,7 +72,10 @@ model User {
   emailVerified    DateTime?
   image            String?
   role             UserRole  @default(USER)
-  creditsBalance   Int       @default(100)
+  creditsBalance   Int       @default(0)
+  computeCreditsBalance Int  @default(0)
+  purchaseCreditsBalance Int @default(0)
+  notebookGenerationBalance Int @default(0)
   stripeCustomerId String?   @unique
 
   accounts Account[]
@@ -383,6 +394,7 @@ model CreditTransaction {
   id            String                @id @default(cuid())
   userId        String
   kind          CreditTransactionKind
+  accountType   CreditAccountType     @default(CASH)
   delta         Int
   balanceAfter  Int
   description   String?

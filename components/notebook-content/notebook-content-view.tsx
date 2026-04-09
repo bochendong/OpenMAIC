@@ -15,6 +15,14 @@ interface NotebookContentViewProps {
   className?: string;
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
+}
+
 function FormulaBlock({ latex, display = true }: { latex: string; display?: boolean }) {
   const normalizedLatex = normalizeLatexSource(latex);
   const directSymbol = getDirectUnicodeMathSymbol(normalizedLatex);
@@ -27,6 +35,35 @@ function FormulaBlock({ latex, display = true }: { latex: string; display?: bool
       strict: 'ignore',
     });
   return <div className="[&_.katex-display]:my-1" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function renderInlineMathHtml(text: string): string {
+  const pattern =
+    /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
+  let result = '';
+  let lastIndex = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const fullMatch = match[0];
+    const start = match.index ?? 0;
+    const end = start + fullMatch.length;
+    const expression = normalizeLatexSource(match[2] ?? match[3] ?? match[4] ?? match[5] ?? '');
+
+    result += escapeHtml(text.slice(lastIndex, start));
+    const directSymbol = getDirectUnicodeMathSymbol(expression);
+    result +=
+      directSymbol ??
+      katex.renderToString(expression, {
+        displayMode: false,
+        throwOnError: false,
+        output: 'html',
+        strict: 'ignore',
+      });
+    lastIndex = end;
+  }
+
+  result += escapeHtml(text.slice(lastIndex));
+  return result;
 }
 
 export const NotebookContentView = memo(function NotebookContentView({
@@ -46,22 +83,26 @@ export const NotebookContentView = memo(function NotebookContentView({
                   block.level <= 1 ? 'text-xl' : block.level === 2 ? 'text-lg' : 'text-base',
                 )}
               >
-                {block.text}
+                <span dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }} />
               </h3>
             );
           case 'paragraph':
             return (
-              <p key={index} className="whitespace-pre-wrap leading-7 text-foreground">
-                {block.text}
-              </p>
+              <p
+                key={index}
+                className="whitespace-pre-wrap leading-7 text-foreground"
+                dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
+              />
             );
           case 'bullet_list':
             return (
               <ul key={index} className="list-disc space-y-1 pl-5 text-foreground">
                 {block.items.map((item, itemIdx) => (
-                  <li key={itemIdx} className="whitespace-pre-wrap leading-7">
-                    {item}
-                  </li>
+                  <li
+                    key={itemIdx}
+                    className="whitespace-pre-wrap leading-7"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item) }}
+                  />
                 ))}
               </ul>
             );
@@ -70,7 +111,10 @@ export const NotebookContentView = memo(function NotebookContentView({
               <div key={index} className="space-y-1">
                 <FormulaBlock latex={block.latex} display={block.display} />
                 {block.caption ? (
-                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
                 ) : null}
               </div>
             );
@@ -81,18 +125,29 @@ export const NotebookContentView = memo(function NotebookContentView({
                 className="space-y-1 rounded-xl border border-border/60 bg-muted/20 px-4 py-3"
               >
                 {block.label ? (
-                  <p className="text-sm font-medium text-foreground">{block.label}</p>
+                  <p
+                    className="text-sm font-medium text-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.label) }}
+                  />
                 ) : null}
                 <FormulaBlock latex={matrixBlockToLatex(block)} display />
                 {block.caption ? (
-                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
                 ) : null}
               </div>
             );
           case 'derivation_steps':
             return (
               <div key={index} className="space-y-2">
-                {block.title ? <p className="font-medium text-foreground">{block.title}</p> : null}
+                {block.title ? (
+                  <p
+                    className="font-medium text-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
+                  />
+                ) : null}
                 {block.steps.map((step, stepIdx) => (
                   <div
                     key={stepIdx}
@@ -111,14 +166,16 @@ export const NotebookContentView = memo(function NotebookContentView({
                         dangerouslySetInnerHTML={{ __html: chemistryTextToHtml(step.expression) }}
                       />
                     ) : (
-                      <p className="whitespace-pre-wrap leading-7 text-foreground">
-                        {step.expression}
-                      </p>
+                      <p
+                        className="whitespace-pre-wrap leading-7 text-foreground"
+                        dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.expression) }}
+                      />
                     )}
                     {step.explanation ? (
-                      <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
-                        {step.explanation}
-                      </p>
+                      <p
+                        className="mt-1 whitespace-pre-wrap text-sm leading-6 text-muted-foreground"
+                        dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.explanation) }}
+                      />
                     ) : null}
                   </div>
                 ))}
@@ -130,7 +187,10 @@ export const NotebookContentView = memo(function NotebookContentView({
               return (
                 <div key={index} className="space-y-2">
                   {block.caption ? (
-                    <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                    <p
+                      className="text-xs font-medium text-muted-foreground"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                    />
                   ) : null}
                   <CodeBlock code={block.code} language={codeLanguage}>
                     <CodeBlockCopyButton />
@@ -148,10 +208,16 @@ export const NotebookContentView = memo(function NotebookContentView({
                   className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
                 >
                   {block.title ? (
-                    <p className="text-sm font-semibold text-foreground">{block.title}</p>
+                    <p
+                      className="text-sm font-semibold text-foreground"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
+                    />
                   ) : null}
                   {block.caption ? (
-                    <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                    <p
+                      className="text-xs font-medium text-muted-foreground"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                    />
                   ) : null}
                   <CodeBlock code={block.code} language={codeLanguage}>
                     <CodeBlockCopyButton />
@@ -168,9 +234,10 @@ export const NotebookContentView = memo(function NotebookContentView({
                             : `步骤 ${stepIdx + 1}`}
                           {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
                         </p>
-                        <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground">
-                          {step.explanation}
-                        </p>
+                        <p
+                          className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.explanation) }}
+                        />
                       </div>
                     ))}
                   </div>
@@ -197,15 +264,20 @@ export const NotebookContentView = memo(function NotebookContentView({
             return (
               <div key={index} className="space-y-2 overflow-x-auto">
                 {block.caption ? (
-                  <p className="text-xs font-medium text-muted-foreground">{block.caption}</p>
+                  <p
+                    className="text-xs font-medium text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
                 ) : null}
                 <table className="w-full min-w-[320px] border-collapse text-left text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/40">
                       {headers.map((header, headerIdx) => (
-                        <th key={headerIdx} className="px-3 py-2 font-semibold text-foreground">
-                          {header}
-                        </th>
+                        <th
+                          key={headerIdx}
+                          className="px-3 py-2 font-semibold text-foreground"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(header) }}
+                        />
                       ))}
                     </tr>
                   </thead>
@@ -213,9 +285,11 @@ export const NotebookContentView = memo(function NotebookContentView({
                     {block.rows.map((row, rowIdx) => (
                       <tr key={rowIdx} className="border-b border-border/60">
                         {row.map((cell, cellIdx) => (
-                          <td key={cellIdx} className="px-3 py-2 align-top text-foreground">
-                            {cell}
-                          </td>
+                          <td
+                            key={cellIdx}
+                            className="px-3 py-2 align-top text-foreground"
+                            dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(cell) }}
+                          />
                         ))}
                       </tr>
                     ))}
@@ -237,47 +311,74 @@ export const NotebookContentView = memo(function NotebookContentView({
             }[block.tone];
             return (
               <div key={index} className={cn('rounded-xl border px-3 py-2.5', toneClass)}>
-                {block.title ? <p className="mb-1 text-sm font-semibold">{block.title}</p> : null}
-                <p className="whitespace-pre-wrap leading-7">{block.text}</p>
+                {block.title ? (
+                  <p
+                    className="mb-1 text-sm font-semibold"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
+                  />
+                ) : null}
+                <p
+                  className="whitespace-pre-wrap leading-7"
+                  dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
+                />
               </div>
             );
           }
           case 'example':
             return (
               <div key={index} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
-                <p className="text-sm font-semibold text-foreground">
-                  {block.title || (document.language === 'en-US' ? 'Worked Example' : '例题讲解')}
-                </p>
-                <p className="mt-2 whitespace-pre-wrap leading-7 text-foreground">
-                  {block.problem}
-                </p>
+                <p
+                  className="text-sm font-semibold text-foreground"
+                  dangerouslySetInnerHTML={{
+                    __html: renderInlineMathHtml(
+                      block.title || (document.language === 'en-US' ? 'Worked Example' : '例题讲解'),
+                    ),
+                  }}
+                />
+                <p
+                  className="mt-2 whitespace-pre-wrap leading-7 text-foreground"
+                  dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.problem) }}
+                />
                 {block.givens.length > 0 ? (
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-foreground">
                     {block.givens.map((item, itemIdx) => (
-                      <li key={itemIdx}>{item}</li>
+                      <li
+                        key={itemIdx}
+                        dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item) }}
+                      />
                     ))}
                   </ul>
                 ) : null}
                 {block.goal ? (
-                  <p className="mt-2 text-sm text-muted-foreground">{block.goal}</p>
+                  <p
+                    className="mt-2 text-sm text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.goal) }}
+                  />
                 ) : null}
                 <ol className="mt-3 list-decimal space-y-1 pl-5 text-foreground">
                   {block.steps.map((step, stepIdx) => (
-                    <li key={stepIdx} className="whitespace-pre-wrap leading-7">
-                      {step}
-                    </li>
+                    <li
+                      key={stepIdx}
+                      className="whitespace-pre-wrap leading-7"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step) }}
+                    />
                   ))}
                 </ol>
                 {block.answer ? (
-                  <p className="mt-3 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    {document.language === 'en-US' ? 'Answer: ' : '答案：'}
-                    {block.answer}
-                  </p>
+                  <p
+                    className="mt-3 text-sm font-medium text-emerald-700 dark:text-emerald-300"
+                    dangerouslySetInnerHTML={{
+                      __html: `${escapeHtml(document.language === 'en-US' ? 'Answer: ' : '答案：')}${renderInlineMathHtml(block.answer)}`,
+                    }}
+                  />
                 ) : null}
                 {block.pitfalls.length > 0 ? (
                   <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
                     {block.pitfalls.map((item, itemIdx) => (
-                      <li key={itemIdx}>{item}</li>
+                      <li
+                        key={itemIdx}
+                        dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item) }}
+                      />
                     ))}
                   </ul>
                 ) : null}
@@ -291,7 +392,10 @@ export const NotebookContentView = memo(function NotebookContentView({
                   dangerouslySetInnerHTML={{ __html: chemistryTextToHtml(block.formula) }}
                 />
                 {block.caption ? (
-                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
                 ) : null}
               </div>
             );
@@ -303,7 +407,10 @@ export const NotebookContentView = memo(function NotebookContentView({
                   dangerouslySetInnerHTML={{ __html: chemistryTextToHtml(block.equation) }}
                 />
                 {block.caption ? (
-                  <p className="text-xs text-muted-foreground">{block.caption}</p>
+                  <p
+                    className="text-xs text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
                 ) : null}
               </div>
             );

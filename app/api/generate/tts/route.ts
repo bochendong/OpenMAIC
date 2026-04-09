@@ -14,6 +14,7 @@ import type { TTSProviderId } from '@/lib/audio/types';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 const log = createLogger('TTS API');
 
@@ -61,6 +62,8 @@ export async function POST(req: NextRequest) {
       ? clientBaseUrl
       : resolveTTSBaseUrl(ttsProviderId, ttsBaseUrl || undefined);
 
+    const spokenText = verbalizeNarrationText(text);
+
     // Build TTS config
     const config = {
       providerId: ttsProviderId,
@@ -71,11 +74,11 @@ export async function POST(req: NextRequest) {
     };
 
     log.info(
-      `Generating TTS: provider=${ttsProviderId}, voice=${ttsVoice}, audioId=${audioId}, textLen=${text.length}`,
+      `Generating TTS: provider=${ttsProviderId}, voice=${ttsVoice}, audioId=${audioId}, textLen=${spokenText.length}`,
     );
 
     // Generate audio
-    const { audio, format, visemes, mouthCues } = await generateTTS(config, text);
+    const { audio, format, visemes, mouthCues } = await generateTTS(config, spokenText);
 
     // Convert to base64
     const base64 = Buffer.from(audio).toString('base64');

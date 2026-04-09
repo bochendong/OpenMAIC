@@ -6,6 +6,7 @@ import {
   isBrowserTTSAbortError,
   playBrowserTTSPreview,
 } from '@/lib/audio/browser-tts-preview';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 export interface TTSPreviewOptions {
   text: string;
@@ -63,6 +64,7 @@ export function useTTSPreview() {
       cleanup();
       const requestId = ++requestIdRef.current;
       const isStale = () => requestIdRef.current !== requestId;
+      const spokenText = verbalizeNarrationText(options.text);
 
       setPreviewing(true);
       try {
@@ -76,7 +78,7 @@ export function useTTSPreview() {
             throw new Error('No browser TTS voices available');
           }
           const controller = playBrowserTTSPreview({
-            text: options.text,
+            text: spokenText,
             voice: options.voice,
             rate: options.speed,
             voices,
@@ -92,7 +94,7 @@ export function useTTSPreview() {
 
         // API-based TTS
         const body: Record<string, unknown> = {
-          text: options.text,
+          text: spokenText,
           audioId: 'preview',
           ttsProviderId: options.providerId,
           ttsVoice: options.voice,

@@ -1296,6 +1296,21 @@ export async function runNotebookGenerationTask(
         }
       : undefined;
 
+    const consumeResp = await backendFetch('/api/profile/credits/consume', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: 'notebook_generation',
+        courseId: resolvedCourseId,
+        courseName: currentCourse?.name ?? null,
+        source: 'chat-orchestrator',
+      }),
+      signal: input.signal,
+    });
+    if (!consumeResp.ok) {
+      throw new Error(await readApiErrorMessage(consumeResp, '笔记本生成额度不足'));
+    }
+
     let pdfText: string | undefined;
     let pdfImages: PdfImage[] | undefined;
     let imageMapping: ImageMapping | undefined;

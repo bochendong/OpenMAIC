@@ -6,7 +6,7 @@ import { safeRoute } from '@/lib/server/json-error-response';
 import { applyCreditDelta, ensureUserCreditsInitialized } from '@/lib/server/credits';
 import { pickRandomCourseAvatarUrl } from '@/lib/constants/course-avatars';
 import { toPrismaJson, toPrismaNullableJson } from '@/lib/server/prisma-json';
-import { creditsFromPriceCents } from '@/lib/utils/credits';
+import { creditsFromPriceCents, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
 
 const bodySchema = z.object({
   sourceCourseId: z.string().trim().min(1),
@@ -49,7 +49,8 @@ export async function POST(request: Request) {
     }
 
     const avatarUrl = source.avatarUrl?.trim() || pickRandomCourseAvatarUrl();
-    const courseCostCredits = creditsFromPriceCents(source.coursePriceCents ?? 0);
+    const courseCostCredits = purchaseCreditsFromPriceCents(source.coursePriceCents ?? 0);
+    const creatorSaleCredits = creditsFromPriceCents(source.coursePriceCents ?? 0);
 
     const existingPurchase = await prisma.coursePurchase.findFirst({
       where: { buyerId: userId, sourceCourseId: source.id },
@@ -68,18 +69,22 @@ export async function POST(request: Request) {
           userId,
           delta: -courseCostCredits,
           kind: 'COURSE_PURCHASE',
+          accountType: 'PURCHASE',
           description: `Purchased course "${source.name}"`,
           referenceType: 'course',
           referenceId: source.id,
         });
-        await applyCreditDelta(tx, {
-          userId: source.ownerId,
-          delta: courseCostCredits,
-          kind: 'CREATOR_COURSE_SALE',
-          description: `Course sale: "${source.name}"`,
-          referenceType: 'course',
-          referenceId: source.id,
-        });
+        if (creatorSaleCredits > 0) {
+          await applyCreditDelta(tx, {
+            userId: source.ownerId,
+            delta: creatorSaleCredits,
+            kind: 'CREATOR_COURSE_SALE',
+            accountType: 'CASH',
+            description: `Course sale: "${source.name}"`,
+            referenceType: 'course',
+            referenceId: source.id,
+          });
+        }
       }
 
       const clonedCourse = await tx.course.create({

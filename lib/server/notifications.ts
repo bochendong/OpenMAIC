@@ -1,6 +1,17 @@
-import { CreditTransactionKind, type PrismaClient, type Prisma } from '@prisma/client';
+import {
+  CreditTransactionKind,
+  type CreditAccountType,
+  type PrismaClient,
+  type Prisma,
+} from '@prisma/client';
 import type { AppNotification, AppNotificationDetail } from '@/lib/notifications/types';
-import { formatCreditsUsdCompactLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
+import {
+  formatComputeCreditsLabel,
+  formatCreditsUsdCompactLabel,
+  formatCreditsUsdLabel,
+  formatNotebookGenerationLabel,
+  formatPurchaseCreditsLabel,
+} from '@/lib/utils/credits';
 
 type NotificationDbClient = PrismaClient | Prisma.TransactionClient;
 const TOKEN_USAGE_GROUP_WINDOW_MS = 3 * 60 * 1000;
@@ -8,6 +19,7 @@ const TOKEN_USAGE_GROUP_WINDOW_MS = 3 * 60 * 1000;
 type CreditNotificationRow = {
   id: string;
   kind: CreditTransactionKind;
+  accountType: CreditAccountType;
   delta: number;
   balanceAfter: number;
   description: string | null;
@@ -47,9 +59,30 @@ const OPERATION_LABELS: Record<string, string> = {
   quiz_grade: '测验批改',
 };
 
-function formatDeltaLabel(delta: number): string {
-  const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
-  return `${sign}${formatCreditsUsdCompactLabel(Math.abs(delta))}`;
+function formatAccountValue(accountType: CreditAccountType, value: number): string {
+  switch (accountType) {
+    case 'COMPUTE':
+      return formatComputeCreditsLabel(value);
+    case 'PURCHASE':
+      return formatPurchaseCreditsLabel(value);
+    case 'NOTEBOOK_GENERATION':
+      return formatNotebookGenerationLabel(value);
+    default:
+      return formatCreditsUsdLabel(value);
+  }
+}
+
+function formatAccountCompactValue(accountType: CreditAccountType, value: number): string {
+  switch (accountType) {
+    case 'COMPUTE':
+      return formatComputeCreditsLabel(value);
+    case 'PURCHASE':
+      return formatPurchaseCreditsLabel(value);
+    case 'NOTEBOOK_GENERATION':
+      return formatNotebookGenerationLabel(value);
+    default:
+      return formatCreditsUsdCompactLabel(value);
+  }
 }
 
 function getMetadataObject(metadata: Prisma.JsonValue | null): NotificationMetadata | null {
@@ -182,6 +215,8 @@ function buildSourceLabel(row: CreditNotificationRow): string {
       return '笔记本收益';
     case CreditTransactionKind.TOKEN_USAGE:
       return getReasonLabel(row) || '模型调用';
+    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE:
+      return '笔记本生成';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return 'Stripe 充值';
       return '系统发放';
@@ -224,6 +259,8 @@ function buildNotificationTitle(row: CreditNotificationRow): string {
       const reasonLabel = getReasonLabel(row);
       return `${reasonLabel || '模型调用'}已扣费`;
     }
+    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE:
+      return '笔记本生成额度已使用';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return '充值积分已到账';
       if (row.referenceType === 'admin_grant') return '积分已到账';
@@ -235,17 +272,17 @@ function buildNotificationTitle(row: CreditNotificationRow): string {
 }
 
 function buildNotificationBody(row: CreditNotificationRow): string {
-  const balanceText = `当前余额 ${formatCreditsUsdLabel(row.balanceAfter)}`;
+  const balanceText = `当前余额 ${formatAccountValue(row.accountType, row.balanceAfter)}`;
 
   switch (row.kind) {
     case CreditTransactionKind.COURSE_PURCHASE:
-      return `你购买课程时扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
+      return `你购买课程时扣除了 ${formatAccountValue(row.accountType, Math.abs(row.delta))}，${balanceText}。`;
     case CreditTransactionKind.NOTEBOOK_PURCHASE:
-      return `你购买笔记本时扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
+      return `你购买笔记本时扣除了 ${formatAccountValue(row.accountType, Math.abs(row.delta))}，${balanceText}。`;
     case CreditTransactionKind.CREATOR_COURSE_SALE:
-      return `你的课程售出后到账 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+      return `你的课程售出后到账 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
     case CreditTransactionKind.CREATOR_NOTEBOOK_SALE:
-      return `你的笔记本售出后到账 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+      return `你的笔记本售出后到账 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
     case CreditTransactionKind.TOKEN_USAGE: {
       const notebookLabel = getNotebookLabel(row);
       const courseLabel = getCourseLabel(row);
@@ -262,20 +299,23 @@ function buildNotificationBody(row: CreditNotificationRow): string {
             : '本次调用';
       const sceneSuffix = notebookLabel && sceneLabel ? `的 ${sceneLabel}` : '';
       const serviceAndModel = [serviceLabel, modelLabel].filter(Boolean).join(' / ');
-      return `${target}${sceneSuffix}在${reasonLabel}时${serviceAndModel ? `使用 ${serviceAndModel} ` : ''}扣除了 ${formatCreditsUsdLabel(Math.abs(row.delta))}，${balanceText}。`;
+      return `${target}${sceneSuffix}在${reasonLabel}时${serviceAndModel ? `使用 ${serviceAndModel} ` : ''}扣除了 ${formatAccountValue(row.accountType, Math.abs(row.delta))}，${balanceText}。`;
+    }
+    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE: {
+      return `你已使用 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 创建新笔记本，${balanceText}。`;
     }
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') {
         const packTitle = getMetadataString(row.metadata, 'packTitle');
-        return `你通过 Stripe${packTitle ? ` 购买 ${packTitle}` : ''}到账 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+        return `你通过 Stripe${packTitle ? ` 购买 ${packTitle}` : ''}到账 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
       }
       if (row.referenceType === 'admin_grant') {
-        return `管理员已向你发放 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+        return `管理员已向你发放 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
       }
       if (row.referenceType === 'credits_backfill') {
-        return `系统已补发 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+        return `系统已补发 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
       }
-      return `账户已收到 ${formatCreditsUsdLabel(row.delta)}，${balanceText}。`;
+      return `账户已收到 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
     default:
       return row.description?.trim() || balanceText;
   }
@@ -328,12 +368,13 @@ function mapTokenUsageGroupToNotification(group: TokenUsageGroup): AppNotificati
     id: `token-usage-group:${newestRow.id}`,
     kind: 'credit_spent',
     title: `${group.context.label}共扣费`,
-    body: `${target}在${group.context.label}时触发了 ${usageCount} 次${serviceAndModel ? ` ${serviceAndModel}` : ''}调用，共扣除 ${formatCreditsUsdLabel(
+    body: `${target}在${group.context.label}时触发了 ${usageCount} 次${serviceAndModel ? ` ${serviceAndModel}` : ''}调用，共扣除 ${formatAccountValue(
+      newestRow.accountType,
       Math.abs(totalDelta),
-    )}，当前余额 ${formatCreditsUsdLabel(newestRow.balanceAfter)}。`,
+    )}，当前余额 ${formatAccountValue(newestRow.accountType, newestRow.balanceAfter)}。`,
     tone: 'negative',
     presentation: 'banner',
-    amountLabel: `-${formatCreditsUsdCompactLabel(Math.abs(totalDelta))}`,
+    amountLabel: `-${formatAccountCompactValue(newestRow.accountType, Math.abs(totalDelta))}`,
     delta: totalDelta,
     balanceAfter: newestRow.balanceAfter,
     sourceKind: 'TOKEN_USAGE_GROUP',
@@ -362,7 +403,10 @@ export function mapCreditTransactionToNotification(row: CreditNotificationRow): 
     body: buildNotificationBody(row),
     tone,
     presentation: 'banner',
-    amountLabel: formatDeltaLabel(row.delta),
+    amountLabel: `${row.delta > 0 ? '+' : row.delta < 0 ? '-' : ''}${formatAccountCompactValue(
+      row.accountType,
+      Math.abs(row.delta),
+    )}`,
     delta: row.delta,
     balanceAfter: row.balanceAfter,
     sourceKind: row.kind,
@@ -391,6 +435,7 @@ export async function listUserNotifications(
     select: {
       id: true,
       kind: true,
+      accountType: true,
       delta: true,
       balanceAfter: true,
       description: true,

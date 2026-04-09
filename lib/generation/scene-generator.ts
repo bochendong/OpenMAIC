@@ -64,6 +64,7 @@ import type {
   GenerationCallbacks,
 } from './pipeline-types';
 import { createLogger } from '@/lib/logger';
+import { verbalizeSpeechActions } from '@/lib/audio/spoken-text';
 const log = createLogger('Generation');
 
 // ==================== Stage 2: Full Scenes (Two-Step) ====================
@@ -2867,6 +2868,8 @@ export async function generateSceneActions(
   const mergedCourseContext = [buildCourseContext(ctx), personalizationText]
     .filter(Boolean)
     .join('\n\n');
+  const finalizeActions = (actions: Action[], elements: PPTElement[] = []) =>
+    verbalizeSpeechActions(processActions(actions, elements, agents), lang);
 
   if (outline.type === 'slide' && 'elements' in content) {
     // Format element list for AI to select from
@@ -2889,7 +2892,7 @@ export async function generateSceneActions(
     });
 
     if (!prompts) {
-      return generateDefaultSlideActions(outline, content.elements);
+      return verbalizeSpeechActions(generateDefaultSlideActions(outline, content.elements), lang);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -2898,13 +2901,13 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       if (hasUnexpectedCjkForLanguage(actions, lang)) {
         log.warn(`Slide actions language mismatch for: ${outline.title}`);
-        return generateDefaultSlideActions(outline, content.elements);
+        return verbalizeSpeechActions(generateDefaultSlideActions(outline, content.elements), lang);
       }
       // Validate and fill in Action IDs
-      return processActions(actions, content.elements, agents);
+      return finalizeActions(actions, content.elements);
     }
 
-    return generateDefaultSlideActions(outline, content.elements);
+    return verbalizeSpeechActions(generateDefaultSlideActions(outline, content.elements), lang);
   }
 
   if (outline.type === 'quiz' && 'questions' in content) {
@@ -2922,7 +2925,7 @@ export async function generateSceneActions(
     });
 
     if (!prompts) {
-      return generateDefaultQuizActions(outline);
+      return verbalizeSpeechActions(generateDefaultQuizActions(outline), lang);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -2931,12 +2934,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       if (hasUnexpectedCjkForLanguage(actions, lang)) {
         log.warn(`Quiz actions language mismatch for: ${outline.title}`);
-        return generateDefaultQuizActions(outline);
+        return verbalizeSpeechActions(generateDefaultQuizActions(outline), lang);
       }
-      return processActions(actions, [], agents);
+      return finalizeActions(actions);
     }
 
-    return generateDefaultQuizActions(outline);
+    return verbalizeSpeechActions(generateDefaultQuizActions(outline), lang);
   }
 
   if (outline.type === 'interactive' && 'html' in content) {
@@ -2954,7 +2957,7 @@ export async function generateSceneActions(
     });
 
     if (!prompts) {
-      return generateDefaultInteractiveActions(outline);
+      return verbalizeSpeechActions(generateDefaultInteractiveActions(outline), lang);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
@@ -2963,12 +2966,12 @@ export async function generateSceneActions(
     if (actions.length > 0) {
       if (hasUnexpectedCjkForLanguage(actions, lang)) {
         log.warn(`Interactive actions language mismatch for: ${outline.title}`);
-        return generateDefaultInteractiveActions(outline);
+        return verbalizeSpeechActions(generateDefaultInteractiveActions(outline), lang);
       }
-      return processActions(actions, [], agents);
+      return finalizeActions(actions);
     }
 
-    return generateDefaultInteractiveActions(outline);
+    return verbalizeSpeechActions(generateDefaultInteractiveActions(outline), lang);
   }
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
@@ -2986,17 +2989,17 @@ export async function generateSceneActions(
     });
 
     if (!prompts) {
-      return generateDefaultPBLActions(outline);
+      return verbalizeSpeechActions(generateDefaultPBLActions(outline), lang);
     }
 
     const response = await aiCall(prompts.system, prompts.user);
     const actions = parseActionsFromStructuredOutput(response, outline.type);
 
     if (actions.length > 0) {
-      return processActions(actions, [], agents);
+      return finalizeActions(actions);
     }
 
-    return generateDefaultPBLActions(outline);
+    return verbalizeSpeechActions(generateDefaultPBLActions(outline), lang);
   }
 
   return [];
@@ -3011,23 +3014,24 @@ export function buildFallbackSceneActions(
     | GeneratedPBLContent,
   agents?: AgentInfo[],
 ): Action[] {
+  const lang = outline.language || 'zh-CN';
   if (outline.type === 'slide' && 'elements' in content) {
-    return generateDefaultSlideActions(outline, content.elements);
+    return verbalizeSpeechActions(generateDefaultSlideActions(outline, content.elements), lang);
   }
 
   if (outline.type === 'quiz' && 'questions' in content) {
-    return generateDefaultQuizActions(outline);
+    return verbalizeSpeechActions(generateDefaultQuizActions(outline), lang);
   }
 
   if (outline.type === 'interactive' && 'html' in content) {
-    return generateDefaultInteractiveActions(outline);
+    return verbalizeSpeechActions(generateDefaultInteractiveActions(outline), lang);
   }
 
   if (outline.type === 'pbl' && 'projectConfig' in content) {
-    return generateDefaultPBLActions(outline);
+    return verbalizeSpeechActions(generateDefaultPBLActions(outline), lang);
   }
 
-  return processActions([], [], agents);
+  return verbalizeSpeechActions(processActions([], [], agents), lang);
 }
 
 /**

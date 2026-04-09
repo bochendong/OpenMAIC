@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { Action, SpeechAction } from '@/lib/types/action';
 import type { Scene } from '@/lib/types/stage';
+import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 type DraftSpeechSegment = {
   id: string;
@@ -130,7 +131,7 @@ export function SlideNarrationEditor({
     }
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(previewText);
+    const utterance = new SpeechSynthesisUtterance(verbalizeNarrationText(previewText));
     utterance.lang = language === 'en-US' ? 'en-US' : 'zh-CN';
     utterance.rate = 1;
     utterance.onend = () => setPreviewing(false);
