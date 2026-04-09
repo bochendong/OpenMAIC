@@ -22,8 +22,8 @@ import { useCurrentCourseStore } from '@/lib/store/current-course';
 import { useNotificationStore } from '@/lib/store/notifications';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import {
+  creditsFromPriceCents,
   formatPurchaseCreditsLabel,
-  purchaseCreditsFromPriceCents,
 } from '@/lib/utils/credits';
 
 type StoreNotebook = {
@@ -165,7 +165,7 @@ export default function StoreCourseDetailPage() {
 
   const priceLabel = useMemo(() => {
     return formatPurchaseCreditsLabel(
-      purchaseCreditsFromPriceCents(data?.course.coursePriceCents ?? 0),
+      creditsFromPriceCents(data?.course.coursePriceCents ?? 0),
     );
   }, [data]);
 
@@ -411,7 +411,7 @@ export default function StoreCourseDetailPage() {
                             <span className="store-chip text-xs">{`${notebook._count.scenes} 页`}</span>
                             <span className="store-chip text-xs">
                               {`单本价格 ${formatPurchaseCreditsLabel(
-                                purchaseCreditsFromPriceCents(notebook.notebookPriceCents),
+                                creditsFromPriceCents(notebook.notebookPriceCents),
                               )}`}
                             </span>
                             {notebook.tags.slice(0, 3).map((tag) => (
@@ -573,7 +573,7 @@ export default function StoreCourseDetailPage() {
           onOpenChange={setCoursePurchaseOpen}
           itemTypeLabel="课程"
           itemName={course.name}
-          creditsCost={purchaseCreditsFromPriceCents(course.coursePriceCents)}
+          creditsCost={creditsFromPriceCents(course.coursePriceCents)}
           accountType="PURCHASE"
           countSummary={`将复制 ${course.notebooks.length} 本笔记本，共 ${totalScenes} 页内容到你的个人空间。`}
           note="确认后会立即扣除对应购买积分，并生成你自己的课程副本。"
@@ -588,9 +588,7 @@ export default function StoreCourseDetailPage() {
           }}
           itemTypeLabel="笔记本"
           itemName={pendingNotebookPurchase?.name ?? ''}
-          creditsCost={purchaseCreditsFromPriceCents(
-            pendingNotebookPurchase?.notebookPriceCents ?? 0,
-          )}
+          creditsCost={creditsFromPriceCents(pendingNotebookPurchase?.notebookPriceCents ?? 0)}
           accountType="PURCHASE"
           countSummary={
             pendingNotebookPurchase

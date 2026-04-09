@@ -19,7 +19,7 @@ import {
   listCommunityStoreCourses,
   listCourses,
 } from '@/lib/utils/course-storage';
-import { formatPurchaseCreditsLabel, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
+import { creditsFromPriceCents, formatPurchaseCreditsLabel } from '@/lib/utils/credits';
 import { listStagesByCourse } from '@/lib/utils/stage-storage';
 import type { CommunityCourseListItem, CourseRecord } from '@/lib/utils/database';
 import { markCourseOwnedByUser } from '@/lib/utils/course-ownership';
@@ -352,7 +352,7 @@ export default function CourseStorePage() {
                   }}
                   countUnit="个笔记本"
                   priceLabel={formatPurchaseCreditsLabel(
-                    purchaseCreditsFromPriceCents(featuredCourse.coursePriceCents),
+                    creditsFromPriceCents(featuredCourse.coursePriceCents),
                   )}
                   ratingLabel={`★ ${(featuredCourse.averageRating ?? 0).toFixed(1)} · ${featuredCourse.reviewCount ?? 0} 条`}
                   secondaryActionLabel={
@@ -394,7 +394,7 @@ export default function CourseStorePage() {
                         <span className="store-chip text-xs">{item.notebookCount} 个笔记本</span>
                         <span className="store-chip text-xs">
                           {formatPurchaseCreditsLabel(
-                            purchaseCreditsFromPriceCents(item.coursePriceCents),
+                            creditsFromPriceCents(item.coursePriceCents),
                           )}
                         </span>
                       </div>
@@ -476,7 +476,7 @@ export default function CourseStorePage() {
                   }}
                   countUnit="个笔记本"
                   priceLabel={formatPurchaseCreditsLabel(
-                    purchaseCreditsFromPriceCents(item.coursePriceCents),
+                    creditsFromPriceCents(item.coursePriceCents),
                   )}
                   ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                   actionLabel="查看详情"
@@ -542,7 +542,7 @@ export default function CourseStorePage() {
                       }}
                       countUnit="个笔记本"
                       priceLabel={formatPurchaseCreditsLabel(
-                        purchaseCreditsFromPriceCents(item.coursePriceCents),
+                        creditsFromPriceCents(item.coursePriceCents),
                       )}
                       ratingLabel={`★ ${(item.averageRating ?? 0).toFixed(1)} · ${item.reviewCount ?? 0} 条`}
                       actionLabel="查看详情"
@@ -660,7 +660,7 @@ export default function CourseStorePage() {
           }}
           itemTypeLabel="课程"
           itemName={pendingPurchaseCourse?.name ?? ''}
-          creditsCost={purchaseCreditsFromPriceCents(pendingPurchaseCourse?.coursePriceCents ?? 0)}
+          creditsCost={creditsFromPriceCents(pendingPurchaseCourse?.coursePriceCents ?? 0)}
           accountType="PURCHASE"
           countSummary={
             pendingPurchaseCourse

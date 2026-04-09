@@ -2,13 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Coins, Loader2, Sparkles } from 'lucide-react';
+import { ArrowRight, ArrowRightLeft, Coins, Cpu, Loader2, ShoppingBag, Sparkles, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { backendJson } from '@/lib/utils/backend-api';
-import { formatCreditsUsdLabel, formatUsdLabel, usdFromCredits } from '@/lib/utils/credits';
+import {
+  formatCashCreditsLabel,
+  formatComputeCreditsLabel,
+  formatCreditsUsdLabel,
+  formatPurchaseCreditsLabel,
+  formatUsdLabel,
+  usdFromCredits,
+} from '@/lib/utils/credits';
 import {
   APPROX_USD_TO_CAD,
   APPROX_USD_TO_CNY,
@@ -23,6 +31,11 @@ type CreditsResponse = {
   success: true;
   balance: number;
   databaseEnabled: boolean;
+  balances: {
+    cash: number;
+    compute: number;
+    purchase: number;
+  };
 };
 
 type CheckoutSessionResponse = {
@@ -59,22 +72,52 @@ const CURRENCY_META: Record<TopUpCurrency, { note: string }> = {
 export default function TopUpPage() {
   const router = useRouter();
   const [currency, setCurrency] = useState<TopUpCurrency>(STRIPE_TOP_UP_CHECKOUT_CURRENCY);
-  const [balance, setBalance] = useState<number | null>(null);
+  const [balances, setBalances] = useState<CreditsResponse['balances'] | null>(null);
   const [loadingBalance, setLoadingBalance] = useState(true);
   const [submittingPackId, setSubmittingPackId] = useState<string | null>(null);
+  const [convertAmount, setConvertAmount] = useState('100');
+  const [convertingTo, setConvertingTo] = useState<'COMPUTE' | 'PURCHASE' | null>(null);
   const handledCheckoutStateRef = useRef('');
 
   const loadBalance = useCallback(async () => {
     setLoadingBalance(true);
     try {
       const response = await backendJson<CreditsResponse>('/api/profile/credits');
-      setBalance(response.balance);
+      setBalances(response.balances);
     } catch {
-      setBalance(null);
+      setBalances(null);
     } finally {
       setLoadingBalance(false);
     }
   }, []);
+
+  const handleConvert = useCallback(
+    async (targetAccountType: 'COMPUTE' | 'PURCHASE') => {
+      const amount = Number.parseInt(convertAmount, 10);
+      if (!Number.isFinite(amount) || amount <= 0) {
+        toast.error('请输入大于 0 的现金积分');
+        return;
+      }
+
+      setConvertingTo(targetAccountType);
+      try {
+        await backendJson('/api/profile/credits/convert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, targetAccountType }),
+        });
+        await loadBalance();
+        toast.success(
+          `已将 ${amount} 现金积分转换为${targetAccountType === 'COMPUTE' ? '算力积分' : '购买积分'}`,
+        );
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '积分转换失败');
+      } finally {
+        setConvertingTo(null);
+      }
+    },
+    [convertAmount, loadBalance],
+  );
 
   const handleCheckout = useCallback(
     async (packId: string) => {
@@ -192,19 +235,16 @@ export default function TopUpPage() {
                 多充一点，课就能再多做几步
               </h1>
               <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-[#5b6270] dark:text-slate-300">
-                积分会在你用 AI
-                的时候慢慢消耗：跟它聊天追问、生成或改一版课件、整理讲义和练习，都会算在内。
-                现在积分和真实美元强绑定，按{' '}
+                现金积分、算力积分、购买积分都和真实美元强绑定，统一按{' '}
                 <span className="font-medium text-[#1d1d1f] dark:text-slate-100">{`${TOP_UP_CREDITS_PER_USD} credits = ${formatUsdLabel(1)}`}</span>{' '}
-                来算；模型消耗则按 GPT 公开价上浮 50% 扣分，所以平台会保留服务毛利。
+                来算。平台里的任何 AI 算力消耗都会扣算力积分；课程和商城内容购买则扣购买积分；现金积分可以 1:1 转换到另外两类。
               </p>
               <p className="mt-3 max-w-xl text-[14px] leading-relaxed text-[#5b6270] dark:text-slate-400">
                 <span className="font-medium text-[#1d1d1f] dark:text-slate-200">
-                  500 积分大概啥概念？
+                  200 算力积分大概啥概念？
                 </span>
-                500 credits 现在就是 {formatUsdLabel(usdFromCredits(500))}。如果你主要在用 GPT-5.4
-                mini / nano
-                做日常对话、改讲义、微调课件，通常足够把主要流程跑熟一遍；更重的长文本或高质量输出会消耗更快。
+                200 credits 现在就是 {formatUsdLabel(usdFromCredits(200))}。如果主要是轻量对话、改讲义、微调课件，
+                大致可以覆盖 200 轮对话左右，或者支撑一次 10-20 页笔记本生成预算。
               </p>
               <div className="mt-4 flex flex-wrap gap-3 text-xs">
                 <div className="rounded-full border border-sky-200/70 bg-sky-50/80 px-3 py-1.5 font-medium text-sky-800 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-100">
@@ -225,18 +265,97 @@ export default function TopUpPage() {
                   <Coins className="size-4" />
                   当前余额
                 </div>
-                <div className="mt-3 text-4xl font-semibold tracking-[-0.05em] text-foreground">
-                  {loadingBalance ? <Loader2 className="size-8 animate-spin" /> : (balance ?? '--')}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">credits</div>
-                {!loadingBalance && balance != null ? (
+                {loadingBalance ? (
+                  <Loader2 className="mt-3 size-8 animate-spin" />
+                ) : (
+                  <div className="mt-3 grid gap-3">
+                    <div className="flex items-center justify-between rounded-2xl bg-amber-50/80 px-3 py-2 text-sm dark:bg-amber-400/10">
+                      <span className="inline-flex items-center gap-2"><Wallet className="size-4" />现金积分</span>
+                      <span className="font-semibold">{balances ? formatCashCreditsLabel(balances.cash) : '--'}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-sky-50/80 px-3 py-2 text-sm dark:bg-sky-400/10">
+                      <span className="inline-flex items-center gap-2"><Cpu className="size-4" />算力积分</span>
+                      <span className="font-semibold">{balances ? formatComputeCreditsLabel(balances.compute) : '--'}</span>
+                    </div>
+                    <div className="flex items-center justify-between rounded-2xl bg-emerald-50/80 px-3 py-2 text-sm dark:bg-emerald-400/10">
+                      <span className="inline-flex items-center gap-2"><ShoppingBag className="size-4" />购买积分</span>
+                      <span className="font-semibold">{balances ? formatPurchaseCreditsLabel(balances.purchase) : '--'}</span>
+                    </div>
+                  </div>
+                )}
+                {!loadingBalance && balances != null ? (
                   <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-                    约 {formatUsdLabel(usdFromCredits(balance))}
+                    现金积分约 {formatUsdLabel(usdFromCredits(balances.cash))}
                   </div>
                 ) : null}
               </Card>
             </div>
           </div>
+        </section>
+
+        <section>
+          <Card className="rounded-[28px] border-white/60 bg-white/80 p-6 shadow-xl dark:border-white/10 dark:bg-slate-900/75">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
+                  <ArrowRightLeft className="size-5" />
+                  积分转换
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  只支持把现金积分按 1:1 转成算力积分或购买积分，其他积分不能转回现金积分。
+                </p>
+              </div>
+              <div className="text-xs text-muted-foreground">三种积分统一按 100 分 = {formatUsdLabel(1)}</div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[220px_1fr_1fr]">
+              <div className="rounded-2xl border bg-background/60 p-4">
+                <div className="text-xs font-medium text-muted-foreground">转换数量</div>
+                <Input
+                  value={convertAmount}
+                  onChange={(e) => setConvertAmount(e.target.value)}
+                  inputMode="numeric"
+                  className="mt-3"
+                  placeholder="例如 100"
+                />
+                <div className="mt-2 text-xs text-muted-foreground">会从现金积分中扣除同等数量</div>
+              </div>
+
+              <div className="rounded-2xl border border-sky-200/70 bg-sky-50/70 p-4 dark:border-sky-400/20 dark:bg-sky-400/10">
+                <div className="flex items-center gap-2 text-sm font-semibold text-sky-900 dark:text-sky-100">
+                  <Cpu className="size-4" />
+                  转为算力积分
+                </div>
+                <p className="mt-2 text-sm leading-6 text-sky-800/90 dark:text-sky-100/90">
+                  用于所有平台内算力消耗，包括对话、笔记本生成、联网搜索、图片等生成能力。
+                </p>
+                <Button
+                  className="mt-4 rounded-full"
+                  disabled={convertingTo != null}
+                  onClick={() => void handleConvert('COMPUTE')}
+                >
+                  {convertingTo === 'COMPUTE' ? '转换中…' : '转成算力积分'}
+                </Button>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 p-4 dark:border-emerald-400/20 dark:bg-emerald-400/10">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-100">
+                  <ShoppingBag className="size-4" />
+                  转为购买积分
+                </div>
+                <p className="mt-2 text-sm leading-6 text-emerald-800/90 dark:text-emerald-100/90">
+                  用于购买课程与商城笔记本，后续也会支持更多内容型消费。
+                </p>
+                <Button
+                  className="mt-4 rounded-full"
+                  disabled={convertingTo != null}
+                  onClick={() => void handleConvert('PURCHASE')}
+                >
+                  {convertingTo === 'PURCHASE' ? '转换中…' : '转成购买积分'}
+                </Button>
+              </div>
+            </div>
+          </Card>
         </section>
 
         <section>

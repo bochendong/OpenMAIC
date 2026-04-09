@@ -20,6 +20,29 @@ function formatNotificationTime(value: string): string {
   }).format(date);
 }
 
+function accountTheme(accountType: 'CASH' | 'COMPUTE' | 'PURCHASE') {
+  switch (accountType) {
+    case 'COMPUTE':
+      return {
+        icon: 'border-sky-300/70 bg-sky-500/12 text-sky-700 dark:border-sky-400/20 dark:bg-sky-400/12 dark:text-sky-200',
+        badge: 'bg-sky-500/12 text-sky-700 dark:bg-sky-400/12 dark:text-sky-200',
+        chip: 'bg-sky-50 text-sky-700 dark:bg-sky-400/10 dark:text-sky-100',
+      };
+    case 'PURCHASE':
+      return {
+        icon: 'border-emerald-300/70 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/12 dark:text-emerald-200',
+        badge: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-200',
+        chip: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-100',
+      };
+    default:
+      return {
+        icon: 'border-amber-300/70 bg-amber-500/12 text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/12 dark:text-amber-200',
+        badge: 'bg-amber-500/12 text-amber-700 dark:bg-amber-400/12 dark:text-amber-200',
+        chip: 'bg-amber-50 text-amber-700 dark:bg-amber-400/10 dark:text-amber-100',
+      };
+  }
+}
+
 export default function NotificationsPage() {
   const router = useRouter();
   const isLoggedIn = useAuthStore((state) => state.isLoggedIn);
@@ -112,6 +135,7 @@ export default function NotificationsPage() {
           <div className="space-y-4">
             {notifications.map((item) => {
               const isUnread = !currentReadSet.has(item.id);
+              const theme = accountTheme(item.accountType);
 
               return (
                 <article
@@ -127,9 +151,7 @@ export default function NotificationsPage() {
                     <div
                       className={cn(
                         'flex size-12 shrink-0 items-center justify-center rounded-2xl border',
-                        item.tone === 'positive'
-                          ? 'border-emerald-300/60 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/12 dark:text-emerald-200'
-                          : 'border-rose-300/70 bg-rose-500/12 text-rose-700 dark:border-rose-400/20 dark:bg-rose-400/12 dark:text-rose-200',
+                        theme.icon,
                       )}
                     >
                       <Coins className="size-5" strokeWidth={1.8} />
@@ -157,9 +179,7 @@ export default function NotificationsPage() {
                           <span
                             className={cn(
                               'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium',
-                              item.tone === 'positive'
-                                ? 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-200'
-                                : 'bg-rose-500/12 text-rose-700 dark:bg-rose-400/12 dark:text-rose-200',
+                              theme.badge,
                             )}
                           >
                             {item.amountLabel}
@@ -171,7 +191,7 @@ export default function NotificationsPage() {
                       </div>
 
                       <div className="mt-4 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-black/5 px-2.5 py-1 text-xs text-slate-600 dark:bg-white/8 dark:text-slate-300">
+                        <span className={cn('rounded-full px-2.5 py-1 text-xs', theme.chip)}>
                           {item.sourceLabel}
                         </span>
                         {isUnread ? (

@@ -338,9 +338,9 @@ function colorInput(value: string | undefined, onChange: (next: string) => void)
 type ManualInspectorTab = 'add' | 'position' | 'text';
 
 const MANUAL_INSPECTOR_TABS: { id: ManualInspectorTab; label: string }[] = [
-  { id: 'add', label: '添加组件' },
-  { id: 'position', label: '调整位置' },
   { id: 'text', label: '调整文本' },
+  { id: 'position', label: '调整位置' },
+  { id: 'add', label: '添加组件' },
 ];
 
 interface SlideElementInspectorProps {
@@ -382,7 +382,7 @@ export function SlideElementInspector({
   const [newTextFontSize, setNewTextFontSize] = useState<number>(DEFAULT_TEXT_FONT_SIZE);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [addingImage, setAddingImage] = useState(false);
-  const [manualTab, setManualTab] = useState<ManualInspectorTab>('add');
+  const [manualTab, setManualTab] = useState<ManualInspectorTab>('text');
 
   const selectedElements = useMemo(
     () => elements.filter((element) => activeElementIdList.includes(element.id)),
@@ -400,7 +400,7 @@ export function SlideElementInspector({
   useEffect(() => {
     const prev = prevSidebarPanelRef.current;
     prevSidebarPanelRef.current = sidebarPanel;
-    if (prev === 'ai' && sidebarPanel === 'manual') setManualTab('add');
+    if (prev === 'ai' && sidebarPanel === 'manual') setManualTab('text');
   }, [sidebarPanel]);
 
   useEffect(() => {
@@ -1328,6 +1328,78 @@ export function SlideElementInspector({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="space-y-6 px-4 py-4">
             <div className="space-y-4">
+              {manualTab === 'text' ? (
+                <section className="space-y-4">
+                  {selectedElement ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+                      {renderElementEditor(selectedElement)}
+                    </div>
+                  ) : selectedElements.length > 1 ? (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
+                      多选状态下无法编辑具体内容。请在画布上单选一个组件后再使用本区。
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
+                      选中单个组件后，本区会出现对应的文字与属性编辑项。
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
+              {manualTab === 'position' ? (
+                <section className="space-y-4">
+                  {sectionTitle(
+                    '调整位置',
+                    '在左侧画布选中一个组件后，可在此修改坐标、宽高、旋转与层级；多选时仅支持批量删除。',
+                  )}
+                  {selectedElement ? (
+                    <div className="space-y-4 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                            {getElementDisplayName(
+                              selectedElement,
+                              elements.findIndex((item) => item.id === selectedElement.id),
+                            )}
+                          </h3>
+                          <Badge variant="outline" className="text-[10px]">
+                            {getElementTypeLabel(selectedElement.type)}
+                          </Badge>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteSelected}
+                            className="ml-auto"
+                          >
+                            <Trash2 className="size-4" />
+                            删除
+                          </Button>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          改动会同步到左侧画布；也可在画布上按 Delete 删除选中项。
+                        </p>
+                      </div>
+                      {renderCommonGeometry(selectedElement)}
+                    </div>
+                  ) : selectedElements.length > 1 ? (
+                    <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+                      <p>
+                        当前选中了 {selectedElements.length} 个组件。位置与内容编辑需单选；可先批量删除或再在画布上点选其中一个。
+                      </p>
+                      <Button type="button" variant="destructive" size="sm" onClick={handleDeleteSelected}>
+                        <Trash2 className="size-4" />
+                        删除所选组件
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
+                      尚未选中组件。请在左侧幻灯片上点击标题、正文、图片等元素，再在此区调整位置与尺寸。
+                    </div>
+                  )}
+                </section>
+              ) : null}
+
               {manualTab === 'add' ? (
                 <section className="space-y-4">
                   <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
@@ -1432,78 +1504,6 @@ export function SlideElementInspector({
                       {addingImage ? '处理中…' : '通过地址添加图片'}
                     </Button>
                   </div>
-                </section>
-              ) : null}
-
-              {manualTab === 'position' ? (
-                <section className="space-y-4">
-                  {sectionTitle(
-                    '调整位置',
-                    '在左侧画布选中一个组件后，可在此修改坐标、宽高、旋转与层级；多选时仅支持批量删除。',
-                  )}
-                  {selectedElement ? (
-                    <div className="space-y-4 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                            {getElementDisplayName(
-                              selectedElement,
-                              elements.findIndex((item) => item.id === selectedElement.id),
-                            )}
-                          </h3>
-                          <Badge variant="outline" className="text-[10px]">
-                            {getElementTypeLabel(selectedElement.type)}
-                          </Badge>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={handleDeleteSelected}
-                            className="ml-auto"
-                          >
-                            <Trash2 className="size-4" />
-                            删除
-                          </Button>
-                        </div>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          改动会同步到左侧画布；也可在画布上按 Delete 删除选中项。
-                        </p>
-                      </div>
-                      {renderCommonGeometry(selectedElement)}
-                    </div>
-                  ) : selectedElements.length > 1 ? (
-                    <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                      <p>
-                        当前选中了 {selectedElements.length} 个组件。位置与内容编辑需单选；可先批量删除或再在画布上点选其中一个。
-                      </p>
-                      <Button type="button" variant="destructive" size="sm" onClick={handleDeleteSelected}>
-                        <Trash2 className="size-4" />
-                        删除所选组件
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
-                      尚未选中组件。请在左侧幻灯片上点击标题、正文、图片等元素，再在此区调整位置与尺寸。
-                    </div>
-                  )}
-                </section>
-              ) : null}
-
-              {manualTab === 'text' ? (
-                <section className="space-y-4">
-                  {selectedElement ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm dark:border-white/10 dark:bg-white/[0.03]">
-                      {renderElementEditor(selectedElement)}
-                    </div>
-                  ) : selectedElements.length > 1 ? (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
-                      多选状态下无法编辑具体内容。请在画布上单选一个组件后再使用本区。
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-300 px-4 py-5 text-sm leading-6 text-slate-500 dark:border-white/15 dark:text-slate-400">
-                      选中单个组件后，本区会出现对应的文字与属性编辑项。
-                    </div>
-                  )}
                 </section>
               ) : null}
             </div>

@@ -501,20 +501,6 @@ function GenerationPreviewContent() {
             language: currentCourse.language,
           }
         : undefined;
-      const consumeResp = await backendFetch('/api/profile/credits/consume', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          kind: 'notebook_generation',
-          courseId: resolvedCourseId,
-          courseName: currentCourse?.name ?? null,
-          source: 'generation-preview',
-        }),
-        signal,
-      });
-      if (!consumeResp.ok) {
-        throw new Error(await readApiErrorMessage(consumeResp, '笔记本生成额度不足'));
-      }
       const notebookMeta = await generateNotebookMetadata(currentSession, courseContext, signal);
 
       // Create stage client-side (needed for agent generation stageId)

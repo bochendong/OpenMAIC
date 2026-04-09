@@ -7,9 +7,8 @@ import {
 import type { AppNotification, AppNotificationDetail } from '@/lib/notifications/types';
 import {
   formatComputeCreditsLabel,
+  formatCashCreditsLabel,
   formatCreditsUsdCompactLabel,
-  formatCreditsUsdLabel,
-  formatNotebookGenerationLabel,
   formatPurchaseCreditsLabel,
 } from '@/lib/utils/credits';
 
@@ -65,10 +64,8 @@ function formatAccountValue(accountType: CreditAccountType, value: number): stri
       return formatComputeCreditsLabel(value);
     case 'PURCHASE':
       return formatPurchaseCreditsLabel(value);
-    case 'NOTEBOOK_GENERATION':
-      return formatNotebookGenerationLabel(value);
     default:
-      return formatCreditsUsdLabel(value);
+      return formatCashCreditsLabel(value);
   }
 }
 
@@ -78,8 +75,6 @@ function formatAccountCompactValue(accountType: CreditAccountType, value: number
       return formatComputeCreditsLabel(value);
     case 'PURCHASE':
       return formatPurchaseCreditsLabel(value);
-    case 'NOTEBOOK_GENERATION':
-      return formatNotebookGenerationLabel(value);
     default:
       return formatCreditsUsdCompactLabel(value);
   }
@@ -215,8 +210,10 @@ function buildSourceLabel(row: CreditNotificationRow): string {
       return '笔记本收益';
     case CreditTransactionKind.TOKEN_USAGE:
       return getReasonLabel(row) || '模型调用';
-    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE:
-      return '笔记本生成';
+    case CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER:
+      return '转入算力积分';
+    case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
+      return '转入购买积分';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return 'Stripe 充值';
       return '系统发放';
@@ -259,8 +256,10 @@ function buildNotificationTitle(row: CreditNotificationRow): string {
       const reasonLabel = getReasonLabel(row);
       return `${reasonLabel || '模型调用'}已扣费`;
     }
-    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE:
-      return '笔记本生成额度已使用';
+    case CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER:
+      return row.accountType === 'CASH' ? '现金积分已转出' : '算力积分已到账';
+    case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
+      return row.accountType === 'CASH' ? '现金积分已转出' : '购买积分已到账';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return '充值积分已到账';
       if (row.referenceType === 'admin_grant') return '积分已到账';
@@ -301,9 +300,14 @@ function buildNotificationBody(row: CreditNotificationRow): string {
       const serviceAndModel = [serviceLabel, modelLabel].filter(Boolean).join(' / ');
       return `${target}${sceneSuffix}在${reasonLabel}时${serviceAndModel ? `使用 ${serviceAndModel} ` : ''}扣除了 ${formatAccountValue(row.accountType, Math.abs(row.delta))}，${balanceText}。`;
     }
-    case CreditTransactionKind.NOTEBOOK_GENERATION_USAGE: {
-      return `你已使用 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 创建新笔记本，${balanceText}。`;
-    }
+    case CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER:
+      return row.accountType === 'CASH'
+        ? `你已转出 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 到算力积分，${balanceText}。`
+        : `你已收到 ${formatAccountValue(row.accountType, row.delta)}，来源为现金积分转换，${balanceText}。`;
+    case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
+      return row.accountType === 'CASH'
+        ? `你已转出 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 到购买积分，${balanceText}。`
+        : `你已收到 ${formatAccountValue(row.accountType, row.delta)}，来源为现金积分转换，${balanceText}。`;
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') {
         const packTitle = getMetadataString(row.metadata, 'packTitle');
@@ -377,6 +381,7 @@ function mapTokenUsageGroupToNotification(group: TokenUsageGroup): AppNotificati
     amountLabel: `-${formatAccountCompactValue(newestRow.accountType, Math.abs(totalDelta))}`,
     delta: totalDelta,
     balanceAfter: newestRow.balanceAfter,
+    accountType: newestRow.accountType,
     sourceKind: 'TOKEN_USAGE_GROUP',
     sourceLabel: group.context.label,
     createdAt: newestRow.createdAt.toISOString(),
@@ -410,6 +415,7 @@ export function mapCreditTransactionToNotification(row: CreditNotificationRow): 
     delta: row.delta,
     balanceAfter: row.balanceAfter,
     sourceKind: row.kind,
+    accountType: row.accountType,
     sourceLabel: buildSourceLabel(row),
     createdAt: row.createdAt.toISOString(),
     details: buildNotificationDetails(row),

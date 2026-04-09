@@ -5,7 +5,6 @@ import { getOptionalPrisma } from '@/lib/server/prisma-safe';
 import {
   DEFAULT_USER_CASH_CREDITS,
   DEFAULT_USER_COMPUTE_CREDITS,
-  DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
   DEFAULT_USER_PURCHASE_CREDITS,
   creditsFromTokenUsage,
   creditsFromUsd,
@@ -23,24 +22,18 @@ import {
 type CreditDbClient = PrismaClient | Prisma.TransactionClient;
 const log = createLogger('Credits');
 
-type BalanceField =
-  | 'creditsBalance'
-  | 'computeCreditsBalance'
-  | 'purchaseCreditsBalance'
-  | 'notebookGenerationBalance';
+type BalanceField = 'creditsBalance' | 'computeCreditsBalance' | 'purchaseCreditsBalance';
 
 type UserBalances = {
   creditsBalance: number;
   computeCreditsBalance: number;
   purchaseCreditsBalance: number;
-  notebookGenerationBalance: number;
 };
 
 const ACCOUNT_BALANCE_FIELD: Record<CreditAccountType, BalanceField> = {
   CASH: 'creditsBalance',
   COMPUTE: 'computeCreditsBalance',
   PURCHASE: 'purchaseCreditsBalance',
-  NOTEBOOK_GENERATION: 'notebookGenerationBalance',
 };
 
 const ACCOUNT_INIT_CONFIG: Array<{
@@ -70,13 +63,6 @@ const ACCOUNT_INIT_CONFIG: Array<{
     referenceType: 'welcome_init_purchase',
     descriptionWhenGranted: 'Welcome purchase credits',
     descriptionWhenEmpty: 'Purchase credits ledger initialized',
-  },
-  {
-    accountType: 'NOTEBOOK_GENERATION',
-    defaultAmount: DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
-    referenceType: 'welcome_init_notebook_generation',
-    descriptionWhenGranted: 'Welcome notebook generation quota',
-    descriptionWhenEmpty: 'Notebook generation quota ledger initialized',
   },
 ];
 
@@ -121,7 +107,6 @@ async function loadUserBalances(
       creditsBalance: true,
       computeCreditsBalance: true,
       purchaseCreditsBalance: true,
-      notebookGenerationBalance: true,
     },
   });
 }
@@ -137,7 +122,6 @@ export async function getUserCreditBalances(
       creditsBalance: 0,
       computeCreditsBalance: 0,
       purchaseCreditsBalance: 0,
-      notebookGenerationBalance: 0,
     }
   );
 }
@@ -289,7 +273,6 @@ export async function applyCreditDelta(
   if (nextBalance < 0) {
     if (accountType === 'COMPUTE') throw new Error('算力积分不足，无法继续使用模型能力');
     if (accountType === 'PURCHASE') throw new Error('购买积分不足，无法继续购买课程或笔记本');
-    if (accountType === 'NOTEBOOK_GENERATION') throw new Error('笔记本生成额度不足');
     throw new Error('积分不足，请先补充 credits');
   }
 
@@ -331,44 +314,57 @@ export async function assertUserHasCredits(
   if (accountType === 'PURCHASE') {
     throw new Error('购买积分不足，无法继续购买课程或笔记本');
   }
-  if (accountType === 'NOTEBOOK_GENERATION') {
-    throw new Error('笔记本生成额度不足');
-  }
   if (accountType === 'CASH') {
     throw new Error('余额不足，请先充值');
   }
   throw new Error('算力积分不足，无法继续使用模型能力');
 }
 
-export async function consumeNotebookGenerationCredit(args: {
+export async function convertCashCredits(args: {
   userId: string;
-  notebookName?: string | null;
-  courseId?: string | null;
-  courseName?: string | null;
-  source?: string | null;
-}): Promise<number> {
+  amount: number;
+  targetAccountType: Extract<CreditAccountType, 'COMPUTE' | 'PURCHASE'>;
+}): Promise<{ cashBalance: number; targetBalance: number }> {
   const prisma = getOptionalPrisma();
-  if (!prisma) return 0;
+  if (!prisma) throw new Error('数据库不可用，暂时无法转换积分');
 
-  return prisma.$transaction(async (tx) =>
-    applyCreditDelta(tx, {
+  const amount = Math.max(0, Math.round(args.amount));
+  if (amount <= 0) throw new Error('转换积分必须大于 0');
+
+  return prisma.$transaction(async (tx) => {
+    const transferKind =
+      args.targetAccountType === 'COMPUTE'
+        ? CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER
+        : CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER;
+    const targetLabel = args.targetAccountType === 'COMPUTE' ? '算力积分' : '购买积分';
+
+    const cashBalance = await applyCreditDelta(tx, {
       userId: args.userId,
-      delta: -1,
-      kind: CreditTransactionKind.NOTEBOOK_GENERATION_USAGE,
-      accountType: 'NOTEBOOK_GENERATION',
-      description: args.notebookName?.trim()
-        ? `Notebook generation quota used for "${args.notebookName.trim()}"`
-        : 'Notebook generation quota used',
-      referenceType: 'notebook_generation',
-      referenceId: args.courseId?.trim() || undefined,
+      delta: -amount,
+      kind: transferKind,
+      accountType: 'CASH',
+      description: `Transfer to ${targetLabel}`,
+      referenceType: 'credits_transfer_out',
       metadata: {
-        notebookName: args.notebookName?.trim() || null,
-        courseId: args.courseId?.trim() || null,
-        courseName: args.courseName?.trim() || null,
-        source: args.source?.trim() || null,
+        amount,
+        targetAccountType: args.targetAccountType,
       },
-    }),
-  );
+    });
+    const targetBalance = await applyCreditDelta(tx, {
+      userId: args.userId,
+      delta: amount,
+      kind: transferKind,
+      accountType: args.targetAccountType,
+      description: `Received from 现金积分`,
+      referenceType: 'credits_transfer_in',
+      metadata: {
+        amount,
+        sourceAccountType: 'CASH',
+      },
+    });
+
+    return { cashBalance, targetBalance };
+  });
 }
 
 export async function chargeCreditsForTokenUsage(args: {

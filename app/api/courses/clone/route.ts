@@ -6,7 +6,7 @@ import { safeRoute } from '@/lib/server/json-error-response';
 import { applyCreditDelta, ensureUserCreditsInitialized } from '@/lib/server/credits';
 import { pickRandomCourseAvatarUrl } from '@/lib/constants/course-avatars';
 import { toPrismaJson, toPrismaNullableJson } from '@/lib/server/prisma-json';
-import { creditsFromPriceCents, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
+import { creditsFromPriceCents } from '@/lib/utils/credits';
 
 const bodySchema = z.object({
   sourceCourseId: z.string().trim().min(1),
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     const avatarUrl = source.avatarUrl?.trim() || pickRandomCourseAvatarUrl();
-    const courseCostCredits = purchaseCreditsFromPriceCents(source.coursePriceCents ?? 0);
+    const courseCostCredits = creditsFromPriceCents(source.coursePriceCents ?? 0);
     const creatorSaleCredits = creditsFromPriceCents(source.coursePriceCents ?? 0);
 
     const existingPurchase = await prisma.coursePurchase.findFirst({

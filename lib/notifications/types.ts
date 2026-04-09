@@ -20,6 +20,7 @@ export interface AppNotification {
   amountLabel: string;
   delta: number;
   balanceAfter: number;
+  accountType: 'CASH' | 'COMPUTE' | 'PURCHASE';
   sourceKind: string;
   sourceLabel: string;
   createdAt: string;

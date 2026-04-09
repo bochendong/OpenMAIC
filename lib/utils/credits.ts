@@ -1,7 +1,6 @@
 export const DEFAULT_USER_CASH_CREDITS = 0;
 export const DEFAULT_USER_COMPUTE_CREDITS = 200;
-export const DEFAULT_USER_PURCHASE_CREDITS = 3;
-export const DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS = 1;
+export const DEFAULT_USER_PURCHASE_CREDITS = 300;
 export const DEFAULT_USER_CREDITS = DEFAULT_USER_CASH_CREDITS;
 export const CREDITS_PER_USD = 100;
 export const USD_PER_CREDIT = 1 / CREDITS_PER_USD;
@@ -27,12 +26,6 @@ function toSafeInt(value: number | null | undefined): number {
 
 export function creditsFromPriceCents(priceCents: number | null | undefined): number {
   return toSafeInt(priceCents);
-}
-
-export function purchaseCreditsFromPriceCents(priceCents: number | null | undefined): number {
-  const cents = toSafeInt(priceCents);
-  if (cents <= 0) return 0;
-  return Math.max(1, Math.round(cents / 100));
 }
 
 export function priceCentsFromCredits(credits: number | null | undefined): number {
@@ -68,16 +61,16 @@ export function formatCreditsLabel(credits: number): string {
   return `${toSafeInt(credits)} credits`;
 }
 
+export function formatCashCreditsLabel(credits: number): string {
+  return `${toSafeInt(credits)} 现金积分`;
+}
+
 export function formatComputeCreditsLabel(credits: number): string {
   return `${toSafeInt(credits)} 算力积分`;
 }
 
 export function formatPurchaseCreditsLabel(credits: number): string {
   return `${toSafeInt(credits)} 购买积分`;
-}
-
-export function formatNotebookGenerationLabel(count: number): string {
-  return `${toSafeInt(count)} 次笔记本生成额度`;
 }
 
 export function formatCreditsUsdLabel(credits: number): string {

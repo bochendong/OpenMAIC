@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
 import { cn } from '@/lib/utils';
-import { formatPurchaseCreditsLabel, formatCreditsUsdLabel } from '@/lib/utils/credits';
+import { formatCashCreditsLabel, formatPurchaseCreditsLabel } from '@/lib/utils/credits';
 
 interface PurchaseConfirmDialogProps {
   open: boolean;
@@ -41,7 +41,7 @@ type CreditsBalanceResponse = {
 };
 
 function formatBalanceLabel(value: number, accountType: 'PURCHASE' | 'CASH') {
-  return accountType === 'PURCHASE' ? formatPurchaseCreditsLabel(value) : formatCreditsUsdLabel(value);
+  return accountType === 'PURCHASE' ? formatPurchaseCreditsLabel(value) : formatCashCreditsLabel(value);
 }
 
 export function PurchaseConfirmDialog({

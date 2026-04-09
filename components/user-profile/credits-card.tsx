@@ -1,14 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Cpu, Loader2, RefreshCw, ShoppingBag, Wallet } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { backendJson } from '@/lib/utils/backend-api';
 import {
   formatComputeCreditsLabel,
-  formatCreditsUsdLabel,
-  formatNotebookGenerationLabel,
+  formatCashCreditsLabel,
   formatPurchaseCreditsLabel,
   formatUsdLabel,
   usdFromCredits,
@@ -24,12 +23,11 @@ type CreditsResponse = {
     cash: number;
     compute: number;
     purchase: number;
-    notebookGeneration: number;
   };
   recentTransactions: Array<{
     id: string;
     kind: string;
-    accountType: 'CASH' | 'COMPUTE' | 'PURCHASE' | 'NOTEBOOK_GENERATION';
+    accountType: 'CASH' | 'COMPUTE' | 'PURCHASE';
     delta: number;
     balanceAfter: number;
     description: string | null;
@@ -60,8 +58,6 @@ function formatAccountLabel(accountType: CreditsResponse['recentTransactions'][n
       return '算力积分';
     case 'PURCHASE':
       return '购买积分';
-    case 'NOTEBOOK_GENERATION':
-      return '笔记本生成额度';
     default:
       return '现金积分';
   }
@@ -76,10 +72,8 @@ function formatAccountValue(
       return formatComputeCreditsLabel(value);
     case 'PURCHASE':
       return formatPurchaseCreditsLabel(value);
-    case 'NOTEBOOK_GENERATION':
-      return formatNotebookGenerationLabel(value);
     default:
-      return formatCreditsUsdLabel(value);
+      return formatCashCreditsLabel(value);
   }
 }
 
@@ -141,10 +135,10 @@ export function CreditsCard() {
           </div>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-3">
           <div className="rounded-2xl border bg-background/60 p-4">
-            <div className="flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
-              <Coins className="size-4" />
+            <div className="flex items-center gap-2 text-[11px] font-medium text-amber-700 dark:text-amber-200">
+              <Wallet className="size-4" />
               现金积分
             </div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
@@ -156,30 +150,27 @@ export function CreditsCard() {
             </div>
           </div>
           <div className="rounded-2xl border bg-background/60 p-4">
-            <div className="text-[11px] font-medium text-muted-foreground">算力积分</div>
+            <div className="flex items-center gap-2 text-[11px] font-medium text-sky-700 dark:text-sky-200">
+              <Cpu className="size-4" />
+              算力积分
+            </div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
               {data?.balances.compute ?? 0}
             </div>
             <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              约可继续进行 {data?.balances.compute ?? 0} 次轻量对话
+              100 分 = {formatUsdLabel(1)}，约支持 200 轮赠送对话预算
             </div>
           </div>
           <div className="rounded-2xl border bg-background/60 p-4">
-            <div className="text-[11px] font-medium text-muted-foreground">购买积分</div>
+            <div className="flex items-center gap-2 text-[11px] font-medium text-emerald-700 dark:text-emerald-200">
+              <ShoppingBag className="size-4" />
+              购买积分
+            </div>
             <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
               {data?.balances.purchase ?? 0}
             </div>
             <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
               可用于购买课程或商城笔记本
-            </div>
-          </div>
-          <div className="rounded-2xl border bg-background/60 p-4">
-            <div className="text-[11px] font-medium text-muted-foreground">笔记本生成额度</div>
-            <div className="mt-2 text-3xl font-semibold tracking-[-0.04em] text-foreground">
-              {data?.balances.notebookGeneration ?? 0}
-            </div>
-            <div className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              每次可生成 1 本约 10-20 页的新笔记本
             </div>
           </div>
         </div>

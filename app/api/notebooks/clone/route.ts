@@ -5,7 +5,7 @@ import { requireUserId } from '@/lib/server/api-auth';
 import { applyCreditDelta, ensureUserCreditsInitialized } from '@/lib/server/credits';
 import { safeRoute } from '@/lib/server/json-error-response';
 import { toPrismaJson, toPrismaNullableJson } from '@/lib/server/prisma-json';
-import { creditsFromPriceCents, purchaseCreditsFromPriceCents } from '@/lib/utils/credits';
+import { creditsFromPriceCents } from '@/lib/utils/credits';
 
 const bodySchema = z.object({
   sourceNotebookId: z.string().trim().min(1),
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '笔记本不存在或未在商城公开' }, { status: 404 });
     }
 
-    const notebookCostCredits = purchaseCreditsFromPriceCents(source.notebookPriceCents ?? 0);
+    const notebookCostCredits = creditsFromPriceCents(source.notebookPriceCents ?? 0);
     const creatorSaleCredits = creditsFromPriceCents(source.notebookPriceCents ?? 0);
 
     const existingPurchase = await prisma.notebookPurchase.findFirst({

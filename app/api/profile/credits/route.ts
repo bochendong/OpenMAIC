@@ -4,7 +4,6 @@ import { getOptionalPrisma } from '@/lib/server/prisma-safe';
 import {
   DEFAULT_USER_CASH_CREDITS,
   DEFAULT_USER_COMPUTE_CREDITS,
-  DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
   DEFAULT_USER_PURCHASE_CREDITS,
 } from '@/lib/utils/credits';
 import { ensureUserCreditsInitialized, getUserCreditBalances } from '@/lib/server/credits';
@@ -34,7 +33,6 @@ export async function GET(request: Request) {
         cash: DEFAULT_USER_CASH_CREDITS,
         compute: DEFAULT_USER_COMPUTE_CREDITS,
         purchase: DEFAULT_USER_PURCHASE_CREDITS,
-        notebookGeneration: DEFAULT_USER_NOTEBOOK_GENERATION_CREDITS,
       },
       recentTransactions: [],
       pagination: {
@@ -81,7 +79,6 @@ export async function GET(request: Request) {
       cash: balances.creditsBalance,
       compute: balances.computeCreditsBalance,
       purchase: balances.purchaseCreditsBalance,
-      notebookGeneration: balances.notebookGenerationBalance,
     },
     recentTransactions: recentTransactions.map((row) => ({
       ...row,

@@ -49,14 +49,14 @@ enum CreditTransactionKind {
   CREATOR_COURSE_SALE
   CREATOR_NOTEBOOK_SALE
   TOKEN_USAGE
-  NOTEBOOK_GENERATION_USAGE
+  CASH_TO_COMPUTE_TRANSFER
+  CASH_TO_PURCHASE_TRANSFER
 }
 
 enum CreditAccountType {
   CASH
   COMPUTE
   PURCHASE
-  NOTEBOOK_GENERATION
 }
 
 enum TopUpOrderStatus {
@@ -75,7 +75,6 @@ model User {
   creditsBalance   Int       @default(0)
   computeCreditsBalance Int  @default(0)
   purchaseCreditsBalance Int @default(0)
-  notebookGenerationBalance Int @default(0)
   stripeCustomerId String?   @unique
 
   accounts Account[]
