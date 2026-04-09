@@ -3,6 +3,7 @@ import { useCanvasStore } from '@/lib/store';
 import { getElementListRange } from '@/lib/utils/element';
 import type { PPTElement } from '@/lib/types/slides';
 import type { ViewportStyles } from './hooks/useViewportSize';
+import { useCanvasViewportMetrics } from './canvas-viewport-metrics-context';
 
 interface RulerProps {
   viewportStyles: ViewportStyles;
@@ -10,9 +11,8 @@ interface RulerProps {
 }
 
 export function Ruler({ viewportStyles, elementList }: RulerProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const { fittedCanvasScale, contentHeight } = useCanvasViewportMetrics();
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
-  const viewportRatio = useCanvasStore.use.viewportRatio();
   const viewportSize = useCanvasStore.use.viewportSize();
 
   const [elementListRange, setElementListRange] = useState<ReturnType<
@@ -30,10 +30,12 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
   }, [elementList, activeElementIdList]);
 
   const markerSize = useMemo(() => {
-    return (viewportStyles.width * canvasScale) / (viewportSize / 100);
-  }, [viewportStyles.width, canvasScale, viewportSize]);
+    return (viewportStyles.width * fittedCanvasScale) / (viewportSize / 100);
+  }, [viewportStyles.width, fittedCanvasScale, viewportSize]);
 
   const markers = Array.from({ length: 20 }, (_, i) => i + 1);
+  const verticalMarkerCount = Math.min(40, Math.max(1, Math.ceil(contentHeight / 100)));
+  const verticalMarkers = Array.from({ length: verticalMarkerCount }, (_, i) => i + 1);
 
   return (
     <div className="ruler text-xs">
@@ -50,7 +52,7 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
       <div
         className="h absolute bg-white border border-gray-200 h-5 flex justify-between items-center overflow-hidden"
         style={{
-          width: viewportStyles.width * canvasScale + 'px',
+          width: viewportStyles.width * fittedCanvasScale + 'px',
           left: viewportStyles.left + 'px',
           top: viewportStyles.top - 25 + 'px',
         }}
@@ -75,8 +77,8 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
           <div
             className="range absolute top-0 bottom-0 bg-primary/10"
             style={{
-              left: elementListRange.minX * canvasScale + 'px',
-              width: (elementListRange.maxX - elementListRange.minX) * canvasScale + 'px',
+              left: elementListRange.minX * fittedCanvasScale + 'px',
+              width: (elementListRange.maxX - elementListRange.minX) * fittedCanvasScale + 'px',
             }}
           />
         )}
@@ -86,12 +88,12 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
       <div
         className="v absolute bg-white border border-gray-200 w-5 overflow-hidden"
         style={{
-          height: viewportStyles.height * canvasScale + 'px',
+          height: contentHeight * fittedCanvasScale + 'px',
           top: viewportStyles.top + 'px',
           left: viewportStyles.left - 25 + 'px',
         }}
       >
-        {markers.map((marker) => (
+        {verticalMarkers.map((marker) => (
           <div
             key={`v-marker-100-${marker}`}
             className={`ruler-marker-100 w-full leading-5 text-right pb-[5px] relative [writing-mode:vertical-rl] ${
@@ -99,7 +101,7 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
             } ${markerSize < 72 ? 'before:hidden' : ''}`}
             style={{ height: markerSize + 'px' }}
           >
-            {marker * 100 <= viewportSize * viewportRatio && <span>{marker * 100}</span>}
+            {marker * 100 <= contentHeight && <span>{marker * 100}</span>}
             {/* Major tick mark */}
             <div className="absolute bottom-0 right-0 h-[0.1px] w-3 bg-gray-600 last:content-none" />
             {/* Minor tick mark (50) */}
@@ -111,8 +113,8 @@ export function Ruler({ viewportStyles, elementList }: RulerProps) {
           <div
             className="range absolute left-0 right-0 bg-primary/10"
             style={{
-              top: elementListRange.minY * canvasScale + 'px',
-              height: (elementListRange.maxY - elementListRange.minY) * canvasScale + 'px',
+              top: elementListRange.minY * fittedCanvasScale + 'px',
+              height: (elementListRange.maxY - elementListRange.minY) * fittedCanvasScale + 'px',
             }}
           />
         )}

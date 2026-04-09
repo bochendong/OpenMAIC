@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type {
   PPTVideoElement,
   PPTLatexElement,
@@ -31,7 +31,7 @@ export function CommonElementOperate({
   rotateElement,
   scaleElement,
 }: CommonElementOperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
 
   const scaleWidth = useMemo(
     () => elementInfo.width * canvasScale,

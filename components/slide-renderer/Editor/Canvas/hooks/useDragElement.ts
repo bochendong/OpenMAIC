@@ -17,10 +17,11 @@ export function useDragElement(
   elementListRef: React.RefObject<PPTElement[]>,
   setElementList: React.Dispatch<React.SetStateAction<PPTElement[]>>,
   setAlignmentLines: React.Dispatch<React.SetStateAction<AlignmentLineProps[]>>,
+  /** Screen px → logical px (matches `.viewport` transform scale). */
+  interactionScale: number,
 ) {
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
   const activeGroupElementId = useCanvasStore.use.activeGroupElementId();
-  const canvasScale = useCanvasStore.use.canvasScale();
   const shiftKeyState = useKeyboardStore((state) => state.shiftKeyState);
 
   const viewportRatio = useCanvasStore.use.viewportRatio();
@@ -155,8 +156,8 @@ export function useDragElement(
         }
         if (!isMouseDown || isMisoperation) return;
 
-        let moveX = (currentPageX - startPageX) / canvasScale;
-        let moveY = (currentPageY - startPageY) / canvasScale;
+        let moveX = (currentPageX - startPageX) / interactionScale;
+        let moveY = (currentPageY - startPageY) / interactionScale;
 
         // Lock to horizontal or vertical direction when Shift is held
         if (shiftKeyState) {
@@ -387,7 +388,7 @@ export function useDragElement(
       activeElementIdList,
       activeGroupElementId,
       shiftKeyState,
-      canvasScale,
+      interactionScale,
       elementListRef,
       setElementList,
       setAlignmentLines,

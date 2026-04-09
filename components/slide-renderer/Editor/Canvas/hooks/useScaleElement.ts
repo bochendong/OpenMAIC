@@ -125,11 +125,11 @@ export function useScaleElement(
   elementListRef: React.RefObject<PPTElement[]>,
   setElementList: React.Dispatch<React.SetStateAction<PPTElement[]>>,
   setAlignmentLines: React.Dispatch<React.SetStateAction<AlignmentLineProps[]>>,
+  interactionScale: number,
 ) {
   const setScalingState = useCanvasStore.use.setScalingState();
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
   const activeGroupElementId = useCanvasStore.use.activeGroupElementId();
-  const canvasScale = useCanvasStore.use.canvasScale();
 
   const viewportRatio = useCanvasStore.use.viewportRatio();
   const viewportSize = useCanvasStore.use.viewportSize();
@@ -323,8 +323,10 @@ export function useScaleElement(
 
         // For rotated elements, recalculate the scaling distance based on the rotation angle (distance moved after mouse down)
         if (elRotate) {
-          const revisedX = (Math.cos(rotateRadian) * x + Math.sin(rotateRadian) * y) / canvasScale;
-          let revisedY = (Math.cos(rotateRadian) * y - Math.sin(rotateRadian) * x) / canvasScale;
+          const revisedX =
+            (Math.cos(rotateRadian) * x + Math.sin(rotateRadian) * y) / interactionScale;
+          let revisedY =
+            (Math.cos(rotateRadian) * y - Math.sin(rotateRadian) * x) / interactionScale;
 
           // Lock aspect ratio (only triggered by four corners, not edges)
           // Use horizontal scaling distance as the basis to calculate vertical scaling distance, maintaining the same ratio
@@ -389,8 +391,8 @@ export function useScaleElement(
         // Additionally handle alignment snapping operations
         // Aspect ratio locking logic is the same as above
         else {
-          let moveX = x / canvasScale;
-          let moveY = y / canvasScale;
+          let moveX = x / interactionScale;
+          let moveY = y / interactionScale;
 
           if (fixedRatio) {
             if (
@@ -557,7 +559,7 @@ export function useScaleElement(
     [
       elementListRef,
       setElementList,
-      canvasScale,
+      interactionScale,
       activeElementIdList,
       activeGroupElementId,
       viewportRatio,
@@ -591,8 +593,8 @@ export function useScaleElement(
         const currentPageX = e.pageX;
         const currentPageY = e.pageY;
 
-        const x = (currentPageX - startPageX) / canvasScale;
-        let y = (currentPageY - startPageY) / canvasScale;
+        const x = (currentPageX - startPageX) / interactionScale;
+        let y = (currentPageY - startPageY) / interactionScale;
 
         // Lock aspect ratio, same logic as above
         if (ctrlOrShiftKeyActive) {
@@ -685,7 +687,7 @@ export function useScaleElement(
     [
       elementListRef,
       setElementList,
-      canvasScale,
+      interactionScale,
       activeElementIdList,
       ctrlOrShiftKeyActive,
       updateSlide,

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type { PPTImageElement } from '@/lib/types/slides';
 import type { OperateResizeHandlers } from '@/lib/types/edit';
 import { useCommonOperate } from '../hooks/useCommonOperate';
@@ -24,7 +25,7 @@ export function ImageElementOperate({
   rotateElement,
   scaleElement,
 }: ImageElementOperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
   const clipingImageElementId = useCanvasStore.use.clipingImageElementId();
 
   const isCliping = useMemo(

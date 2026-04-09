@@ -1,5 +1,6 @@
 import { useMemo, useEffect, useState } from 'react';
 import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type { PPTElement } from '@/lib/types/slides';
 import { getElementListRange } from '@/lib/utils/element';
 import type { OperateResizeHandlers, MultiSelectRange } from '@/lib/types/edit';
@@ -18,7 +19,7 @@ interface MultiSelectOperateProps {
 
 export function MultiSelectOperate({ elementList, scaleMultiElement }: MultiSelectOperateProps) {
   const activeElementIdList = useCanvasStore.use.activeElementIdList();
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
 
   const localActiveElementList = useMemo(
     () => elementList.filter((el) => activeElementIdList.includes(el.id)),

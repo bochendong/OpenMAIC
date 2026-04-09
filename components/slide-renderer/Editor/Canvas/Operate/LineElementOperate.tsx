@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type { PPTLineElement } from '@/lib/types/slides';
 import { OperateLineHandlers } from '@/lib/types/edit';
 import { ResizeHandler } from './ResizeHandler';
@@ -19,7 +19,7 @@ export function LineElementOperate({
   handlerVisible,
   dragLineElement,
 }: LineElementOperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
 
   const svgWidth = useMemo(
     () => Math.max(elementInfo.start[0], elementInfo.end[0]),

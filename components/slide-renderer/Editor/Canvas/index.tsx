@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { KEYS } from '@/configs/hotkey';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSceneSelector } from '@/lib/contexts/scene-context';
@@ -30,6 +30,10 @@ import type { AlignmentLineProps } from '@/lib/types/edit';
 import type { ContextmenuItem } from './EditableElement';
 import type { SlideContent } from '@/lib/types/stage';
 import { useCanvasOperations } from '@/lib/hooks/use-canvas-operations';
+import { getElementListRange } from '@/lib/utils/element';
+import {
+  CanvasViewportMetricsProvider,
+} from './canvas-viewport-metrics-context';
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -41,6 +45,8 @@ import {
   ContextMenuShortcut,
   ContextMenuItem,
 } from '@/components/ui/context-menu';
+
+const CONTENT_BOTTOM_PADDING = 24;
 
 export interface CanvasProps {
   editable?: boolean;
@@ -106,36 +112,74 @@ export function Canvas(_props: CanvasProps) {
   // Viewport size and positioning
   const { viewportStyles, dragViewport } = useViewportSize(canvasRef);
 
+  const contentHeight = useMemo(() => {
+    if (!elementList.length) return viewportStyles.height;
+    const { maxY } = getElementListRange(elementList);
+    return Math.max(viewportStyles.height, maxY + CONTENT_BOTTOM_PADDING);
+  }, [elementList, viewportStyles.height]);
+
+  const fitScale = useMemo(
+    () => Math.min(1, viewportStyles.height / contentHeight),
+    [contentHeight, viewportStyles.height],
+  );
+  const fittedCanvasScale = canvasScale * fitScale;
+  const fittedCanvasWidth = viewportStyles.width * fittedCanvasScale;
+  const fittedCanvasHeight = contentHeight * fittedCanvasScale;
+  const fittedCanvasLeft =
+    viewportStyles.left + (viewportStyles.width * canvasScale - fittedCanvasWidth) / 2;
+
+  const viewportMetrics = useMemo(
+    () => ({
+      fittedCanvasScale,
+      contentHeight,
+      viewportWidth: viewportStyles.width,
+    }),
+    [fittedCanvasScale, contentHeight, viewportStyles.width],
+  );
+
   // Initialize drop handler
   useDrop(canvasRef);
 
   // Element drag (with alignment snapping)
-  const { dragElement } = useDragElement(elementListRef, setElementList, setAlignmentLines);
+  const { dragElement } = useDragElement(
+    elementListRef,
+    setElementList,
+    setAlignmentLines,
+    fittedCanvasScale,
+  );
 
   // Element selection
   const { selectElement } = useSelectElement(elementListRef, dragElement);
 
   // Mouse selection
   const { mouseSelection, mouseSelectionVisible, mouseSelectionQuadrant, updateMouseSelection } =
-    useMouseSelection(elementListRef, viewportRef);
+    useMouseSelection(elementListRef, viewportRef, fittedCanvasScale);
 
   // Element operations
   const { scaleElement, scaleMultiElement } = useScaleElement(
     elementListRef,
     setElementList,
     setAlignmentLines,
+    fittedCanvasScale,
   );
   const { rotateElement } = useRotateElement(
     elementListRef,
     setElementList,
     viewportRef,
-    canvasScale,
+    fittedCanvasScale,
   );
-  const { dragLineElement } = useDragLineElement(elementListRef, setElementList);
-  const { moveShapeKeypoint } = useMoveShapeKeypoint(elementListRef, setElementList, canvasScale);
+  const { dragLineElement } = useDragLineElement(elementListRef, setElementList, fittedCanvasScale);
+  const { moveShapeKeypoint } = useMoveShapeKeypoint(
+    elementListRef,
+    setElementList,
+    fittedCanvasScale,
+  );
 
   // Create element from selection
-  const { insertElementFromCreateSelection } = useInsertFromCreateSelection(viewportRef);
+  const { insertElementFromCreateSelection } = useInsertFromCreateSelection(
+    viewportRef,
+    fittedCanvasScale,
+  );
 
   // Click on blank canvas area: clear active elements
   const handleClickBlankArea = (e: React.MouseEvent) => {
@@ -282,13 +326,14 @@ export function Canvas(_props: CanvasProps) {
             />
           )}
 
+          <CanvasViewportMetricsProvider value={viewportMetrics}>
           {/* Viewport wrapper */}
           <div
             className="viewport-wrapper absolute shadow-[0_0_0_1px_rgba(0,0,0,0.01),0_0_12px_0_rgba(0,0,0,0.1)]"
             style={{
-              width: `${viewportStyles.width * canvasScale}px`,
-              height: `${viewportStyles.height * canvasScale}px`,
-              left: `${viewportStyles.left}px`,
+              width: `${fittedCanvasWidth}px`,
+              height: `${fittedCanvasHeight}px`,
+              left: `${fittedCanvasLeft}px`,
               top: `${viewportStyles.top}px`,
             }}
           >
@@ -301,7 +346,7 @@ export function Canvas(_props: CanvasProps) {
                   type={line.type}
                   axis={line.axis}
                   length={line.length}
-                  canvasScale={canvasScale}
+                  canvasScale={fittedCanvasScale}
                 />
               ))}
 
@@ -342,8 +387,8 @@ export function Canvas(_props: CanvasProps) {
               className="viewport absolute top-0 left-0 origin-top-left"
               style={{
                 width: `${viewportStyles.width}px`,
-                height: `${viewportStyles.height}px`,
-                transform: `scale(${canvasScale})`,
+                height: `${contentHeight}px`,
+                transform: `scale(${fittedCanvasScale})`,
               }}
             >
               {/* Grid lines */}
@@ -357,7 +402,7 @@ export function Canvas(_props: CanvasProps) {
                   width={mouseSelection.width}
                   height={mouseSelection.height}
                   quadrant={mouseSelectionQuadrant}
-                  canvasScale={canvasScale}
+                  canvasScale={fittedCanvasScale}
                 />
               )}
 
@@ -379,6 +424,8 @@ export function Canvas(_props: CanvasProps) {
 
           {/* Ruler */}
           {showRuler && <Ruler viewportStyles={viewportStyles} elementList={elementList} />}
+
+          </CanvasViewportMetricsProvider>
 
           {/* Drag mask when space key is pressed */}
           {spaceKeyState && <div className="drag-mask absolute inset-0 cursor-grab" />}

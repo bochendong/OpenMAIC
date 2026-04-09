@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type { PPTShapeElement } from '@/lib/types/slides';
 import type { OperateResizeHandlers } from '@/lib/types/edit';
 import { SHAPE_PATH_FORMULAS } from '@/configs/shapes';
@@ -31,7 +31,7 @@ export function ShapeElementOperate({
   scaleElement,
   moveShapeKeypoint,
 }: ShapeElementOperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
 
   const scaleWidth = useMemo(
     () => elementInfo.width * canvasScale,

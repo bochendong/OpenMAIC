@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useCanvasStore } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import type { PPTTableElement } from '@/lib/types/slides';
 import type { OperateResizeHandlers } from '@/lib/types/edit';
 import { useCommonOperate } from '../hooks/useCommonOperate';
@@ -24,7 +24,7 @@ export function TableElementOperate({
   rotateElement,
   scaleElement,
 }: TableElementOperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
 
   const outlineWidth = useMemo(() => elementInfo.outline.width || 1, [elementInfo.outline.width]);
 

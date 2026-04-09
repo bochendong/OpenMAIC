@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { useKeyboardStore } from '@/lib/store/keyboard';
-import { useCanvasStore } from '@/lib/store';
 import type { PPTElement, PPTLineElement } from '@/lib/types/slides';
 import { OperateLineHandlers } from '@/lib/types/edit';
 import { useHistorySnapshot } from '@/lib/hooks/use-history-snapshot';
@@ -20,9 +19,9 @@ interface AdsorptionPoint {
 export function useDragLineElement(
   elementListRef: React.RefObject<PPTElement[]>,
   setElementList: React.Dispatch<React.SetStateAction<PPTElement[]>>,
+  interactionScale: number,
 ) {
   const updateSlide = useCanvasOperations().updateSlide;
-  const canvasScale = useCanvasStore.use.canvasScale();
   const ctrlOrShiftKeyActive = useKeyboardStore((state) => state.ctrlOrShiftKeyActive());
   const { addHistorySnapshot } = useHistorySnapshot();
 
@@ -81,8 +80,8 @@ export function useDragLineElement(
         const currentPageX = e.pageX;
         const currentPageY = e.pageY;
 
-        const moveX = (currentPageX - startPageX) / canvasScale;
-        const moveY = (currentPageY - startPageY) / canvasScale;
+        const moveX = (currentPageX - startPageX) / interactionScale;
+        const moveY = (currentPageY - startPageY) / interactionScale;
 
         // Position of line start and end points in the editing area
         let startX = element.left + element.start[0];
@@ -260,7 +259,7 @@ export function useDragLineElement(
     [
       elementListRef,
       setElementList,
-      canvasScale,
+      interactionScale,
       ctrlOrShiftKeyActive,
       updateSlide,
       addHistorySnapshot,

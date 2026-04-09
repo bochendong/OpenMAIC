@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useCanvasStore, useSceneSelector } from '@/lib/store';
+import { useOverlayCanvasScale } from '../canvas-viewport-metrics-context';
 import {
   ElementTypes,
   type PPTElement,
@@ -63,7 +64,7 @@ export function Operate({
   moveShapeKeypoint,
   openLinkDialog: _openLinkDialog,
 }: OperateProps) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+  const canvasScale = useOverlayCanvasScale();
   const toolbarState = useCanvasStore.use.toolbarState();
 
   // Get the formatted animations using a proper selector to avoid infinite loops

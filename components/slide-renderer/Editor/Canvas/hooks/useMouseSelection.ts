@@ -7,6 +7,7 @@ import { getElementRange } from '@/lib/utils/element';
 export function useMouseSelection(
   elementListRef: React.RefObject<PPTElement[]>,
   viewportRef: RefObject<HTMLElement | null>,
+  interactionScale: number,
 ) {
   const [mouseSelectionVisible, setMouseSelectionVisible] = useState(false);
   const [mouseSelectionQuadrant, setMouseSelectionQuadrant] = useState(1);
@@ -17,7 +18,6 @@ export function useMouseSelection(
     height: 0,
   });
 
-  const canvasScale = useCanvasStore.use.canvasScale();
   const hiddenElementIdList = useCanvasStore.use.hiddenElementIdList();
   const setActiveElementIdList = useCanvasStore.use.setActiveElementIdList();
   const ctrlOrShiftKeyActive = useKeyboardStore((state) => state.ctrlOrShiftKeyActive());
@@ -35,8 +35,8 @@ export function useMouseSelection(
       const startPageX = e.pageX;
       const startPageY = e.pageY;
 
-      const left = (startPageX - viewportRect.x) / canvasScale;
-      const top = (startPageY - viewportRect.y) / canvasScale;
+      const left = (startPageX - viewportRect.x) / interactionScale;
+      const top = (startPageY - viewportRect.y) / interactionScale;
 
       // Initialize selection start position and defaults
       setMouseSelection({
@@ -54,8 +54,8 @@ export function useMouseSelection(
         const currentPageX = e.pageX;
         const currentPageY = e.pageY;
 
-        const offsetWidth = (currentPageX - startPageX) / canvasScale;
-        const offsetHeight = (currentPageY - startPageY) / canvasScale;
+        const offsetWidth = (currentPageX - startPageX) / interactionScale;
+        const offsetHeight = (currentPageY - startPageY) / interactionScale;
 
         const width = Math.abs(offsetWidth);
         const height = Math.abs(offsetHeight);
@@ -183,7 +183,7 @@ export function useMouseSelection(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally excludes mouseSelection state to avoid infinite re-creation
     [
       viewportRef,
-      canvasScale,
+      interactionScale,
       ctrlOrShiftKeyActive,
       hiddenElementIdList,
       elementListRef,

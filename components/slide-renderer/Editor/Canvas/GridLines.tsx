@@ -2,11 +2,12 @@ import { useMemo } from 'react';
 import { useCanvasStore, useSceneSelector } from '@/lib/store';
 import type { SlideContent } from '@/lib/types/stage';
 import type { SlideBackground } from '@/lib/types/slides';
+import { useCanvasViewportMetrics } from './canvas-viewport-metrics-context';
 
 export function GridLines() {
   const gridLineSize = useCanvasStore.use.gridLineSize();
-  const viewportRatio = useCanvasStore.use.viewportRatio();
   const viewportSize = useCanvasStore.use.viewportSize();
+  const { contentHeight } = useCanvasViewportMetrics();
 
   const background = useSceneSelector<SlideContent, SlideBackground | undefined>(
     (content) => content.canvas.background,
@@ -24,7 +25,7 @@ export function GridLines() {
   // Grid path
   const path = useMemo(() => {
     const maxX = viewportSize;
-    const maxY = viewportSize * viewportRatio;
+    const maxY = contentHeight;
 
     let p = '';
     for (let i = 0; i <= Math.floor(maxY / gridLineSize); i++) {
@@ -34,14 +35,14 @@ export function GridLines() {
       p += `M${i * gridLineSize} 0 L${i * gridLineSize} ${maxY} `;
     }
     return p;
-  }, [viewportSize, viewportRatio, gridLineSize]);
+  }, [viewportSize, contentHeight, gridLineSize]);
 
   return (
     <svg
       className="grid-lines absolute inset-0 pointer-events-none z-40"
       width={viewportSize}
-      height={viewportSize * viewportRatio}
-      viewBox={`0 0 ${viewportSize} ${viewportSize * viewportRatio}`}
+      height={contentHeight}
+      viewBox={`0 0 ${viewportSize} ${contentHeight}`}
     >
       <path d={path} fill="none" stroke={gridColor} strokeWidth="1" strokeDasharray="5 5" />
     </svg>

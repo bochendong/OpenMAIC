@@ -2,8 +2,10 @@ import { useCallback, type RefObject } from 'react';
 import { useCanvasStore } from '@/lib/store';
 import type { CreateElementSelectionData } from '@/lib/types/edit';
 
-export function useInsertFromCreateSelection(viewportRef: RefObject<HTMLElement | null>) {
-  const canvasScale = useCanvasStore.use.canvasScale();
+export function useInsertFromCreateSelection(
+  viewportRef: RefObject<HTMLElement | null>,
+  interactionScale: number,
+) {
   const creatingElement = useCanvasStore.use.creatingElement();
   const setCreatingElement = useCanvasStore.use.setCreatingElement();
 
@@ -22,14 +24,14 @@ export function useInsertFromCreateSelection(viewportRef: RefObject<HTMLElement 
       const minY = Math.min(startY, endY);
       const maxY = Math.max(startY, endY);
 
-      const left = (minX - viewportRect.x) / canvasScale;
-      const top = (minY - viewportRect.y) / canvasScale;
-      const width = (maxX - minX) / canvasScale;
-      const height = (maxY - minY) / canvasScale;
+      const left = (minX - viewportRect.x) / interactionScale;
+      const top = (minY - viewportRect.y) / interactionScale;
+      const width = (maxX - minX) / interactionScale;
+      const height = (maxY - minY) / interactionScale;
 
       return { left, top, width, height };
     },
-    [viewportRef, canvasScale],
+    [viewportRef, interactionScale],
   );
 
   // Calculate line position and start/end points on canvas from the start and end points of mouse drag selection
@@ -47,10 +49,10 @@ export function useInsertFromCreateSelection(viewportRef: RefObject<HTMLElement 
       const minY = Math.min(startY, endY);
       const maxY = Math.max(startY, endY);
 
-      const left = (minX - viewportRect.x) / canvasScale;
-      const top = (minY - viewportRect.y) / canvasScale;
-      const width = (maxX - minX) / canvasScale;
-      const height = (maxY - minY) / canvasScale;
+      const left = (minX - viewportRect.x) / interactionScale;
+      const top = (minY - viewportRect.y) / interactionScale;
+      const width = (maxX - minX) / interactionScale;
+      const height = (maxY - minY) / interactionScale;
 
       const _start: [number, number] = [startX === minX ? 0 : width, startY === minY ? 0 : height];
       const _end: [number, number] = [endX === minX ? 0 : width, endY === minY ? 0 : height];
@@ -62,7 +64,7 @@ export function useInsertFromCreateSelection(viewportRef: RefObject<HTMLElement 
         end: _end,
       };
     },
-    [viewportRef, canvasScale],
+    [viewportRef, interactionScale],
   );
 
   // Insert element based on mouse selection position and size
