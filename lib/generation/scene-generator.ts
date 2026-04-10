@@ -54,6 +54,7 @@ import type {
 } from '@/lib/types/slides';
 import type { QuizQuestion } from '@/lib/types/stage';
 import type { Action } from '@/lib/types/action';
+import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
 import type {
   AgentInfo,
   CoursePersonalizationContext,
@@ -290,11 +291,15 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
       width: 860,
       height: 56,
       content: toTextHtml(
-        splitIntoLines(outline.title || (lang === 'zh-CN' ? '未命名页面' : 'Untitled Slide'), 30, 2),
+        splitIntoLines(
+          outline.title || (lang === 'zh-CN' ? '未命名页面' : 'Untitled Slide'),
+          30,
+          2,
+        ),
         {
-        fontSize: 30,
-        color: '#0f172a',
-        bold: true,
+          fontSize: 30,
+          color: '#0f172a',
+          bold: true,
         },
       ),
       defaultColor: '#0f172a',
@@ -374,10 +379,7 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
 
 const CJK_TEXT_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
-function hasUnexpectedCjkForLanguage(
-  value: unknown,
-  language: 'zh-CN' | 'en-US',
-): boolean {
+function hasUnexpectedCjkForLanguage(value: unknown, language: 'zh-CN' | 'en-US'): boolean {
   if (language !== 'en-US') return false;
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   return CJK_TEXT_REGEX.test(text);
@@ -2280,7 +2282,8 @@ async function generateSlideContent(
     title: outline.title,
     description: outline.description,
     keyPoints: (outline.keyPoints || []).map((p, i) => `${i + 1}. ${p}`).join('\n'),
-    elements: lang === 'zh-CN' ? '（根据要点自动生成）' : '(Generate automatically from the key points)',
+    elements:
+      lang === 'zh-CN' ? '（根据要点自动生成）' : '(Generate automatically from the key points)',
     assignedImages: assignedImagesText,
     canvas_width: canvasWidth,
     canvas_height: canvasHeight,
@@ -2354,6 +2357,7 @@ async function generateSlideContent(
     id: `${el.type}_${nanoid(8)}`,
     rotate: 0,
   })) as PPTElement[];
+  const normalizedElements = normalizeSlideTextLayout(processedElements);
 
   // Process background
   let background: SlideBackground | undefined;
@@ -2369,7 +2373,7 @@ async function generateSlideContent(
   }
 
   return {
-    elements: processedElements,
+    elements: normalizedElements,
     background,
     remark: generatedData.remark || outline.description,
   };
@@ -2861,10 +2865,7 @@ export async function generateSceneActions(
 ): Promise<Action[]> {
   const agentsText = formatAgentsForPrompt(agents);
   const lang = outline.language || 'zh-CN';
-  const personalizationText = formatCoursePersonalizationForPrompt(
-    coursePersonalization,
-    lang,
-  );
+  const personalizationText = formatCoursePersonalizationForPrompt(coursePersonalization, lang);
   const mergedCourseContext = [buildCourseContext(ctx), personalizationText]
     .filter(Boolean)
     .join('\n\n');
@@ -2874,10 +2875,7 @@ export async function generateSceneActions(
   if (outline.type === 'slide' && 'elements' in content) {
     // Format element list for AI to select from
     const elementsText = formatElementsForPrompt(content.elements);
-    const workedExampleContext = formatWorkedExampleForPrompt(
-      outline.workedExampleConfig,
-      lang,
-    );
+    const workedExampleContext = formatWorkedExampleForPrompt(outline.workedExampleConfig, lang);
 
     const prompts = buildPrompt(PROMPT_IDS.SLIDE_ACTIONS, {
       language: lang,
@@ -3292,7 +3290,7 @@ export function createSceneWithActions(
       viewportSize: 1000,
       viewportRatio: 0.5625,
       theme: content.theme || defaultTheme,
-      elements: content.elements,
+      elements: normalizeSlideTextLayout(content.elements),
       background: content.background,
     };
 

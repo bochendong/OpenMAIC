@@ -156,7 +156,9 @@ export async function POST(req: NextRequest) {
       const question = body?.question?.trim() || '';
       if (!question) return apiError('MISSING_REQUIRED_FIELD', 400, 'question is required');
 
-      const { model, modelInfo, modelString } = await resolveModelFromHeaders(req);
+      const { model, modelInfo, modelString } = await resolveModelFromHeaders(req, {
+        allowOpenAIModelOverride: true,
+      });
       const language = body.language === 'en-US' ? 'en-US' : 'zh-CN';
       const aiCall: AICallFn = async (systemPrompt, userPrompt) => {
         const result = await callLLM(

@@ -18,6 +18,10 @@ import type { CourseRecord } from '@/lib/utils/database';
 import { notebookCourseContext } from '@/lib/utils/course-display';
 import { toast } from 'sonner';
 import { resolveNotebookAgentAvatarDisplayUrl } from '@/lib/constants/notebook-agent-avatars';
+import {
+  getPurchasedNotebookMoveSuccessMessage,
+  getPurchasedNotebookMoveWarning,
+} from '@/lib/utils/course-publish';
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
@@ -212,7 +216,10 @@ export default function StorePage() {
           {loading ? (
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 3 }).map((_, idx) => (
-                <div key={idx} className="h-[30rem] animate-pulse rounded-[32px] bg-white/70 dark:bg-white/6" />
+                <div
+                  key={idx}
+                  className="h-[30rem] animate-pulse rounded-[32px] bg-white/70 dark:bg-white/6"
+                />
               ))}
             </div>
           ) : recommendedNotebooks.length === 0 ? (
@@ -242,9 +249,19 @@ export default function StorePage() {
                     actionLabel={needsJoin ? '加入当前课程' : '进入笔记本'}
                     onAction={async () => {
                       if (needsJoin) {
+                        if (
+                          nb.sourceNotebookId &&
+                          !window.confirm(getPurchasedNotebookMoveWarning(currentCourseName))
+                        ) {
+                          return;
+                        }
                         try {
                           await moveStageToCourse(nb.id, currentCourseId);
-                          toast.success('已将该笔记本加入当前课程');
+                          toast.success(
+                            nb.sourceNotebookId
+                              ? getPurchasedNotebookMoveSuccessMessage(currentCourseName)
+                              : '已将该笔记本加入当前课程',
+                          );
                           await loadStoreData({ silent: true });
                         } catch (e) {
                           toast.error(e instanceof Error ? e.message : '操作失败');

@@ -22,6 +22,7 @@ import {
 } from './block-utils';
 import { chemistryTextToHtml } from './chemistry';
 import { resolveNotebookContentProfile } from './profile';
+import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
 
 const CANVAS_WIDTH = 1000;
 const CANVAS_HEIGHT = 562.5;
@@ -109,8 +110,7 @@ function escapeHtml(text: string): string {
 }
 
 function renderInlineLatexToHtml(text: string): string {
-  const pattern =
-    /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
+  const pattern = /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
   let result = '';
   let lastIndex = 0;
 
@@ -274,10 +274,7 @@ function fitParagraphBlockToHeight(args: {
   const wrapped = wrapTextToLines(args.text, maxChars);
   const maxLines = Math.max(1, Math.floor((args.maxHeightPx - 18) / args.lineHeightPx));
   const fittedLines = clampWrappedLines(wrapped, maxLines, maxChars);
-  const height = Math.max(
-    args.lineHeightPx + 12,
-    fittedLines.length * args.lineHeightPx + 18,
-  );
+  const height = Math.max(args.lineHeightPx + 12, fittedLines.length * args.lineHeightPx + 18);
 
   return {
     html: fittedLines
@@ -656,10 +653,7 @@ export function renderNotebookContentDocumentToSlide(args: {
     if (block.type === 'paragraph') {
       const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
       const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
-      const maxContentHeight = Math.max(
-        28,
-        remainingHeight - CARD_INSET_Y * 2,
-      );
+      const maxContentHeight = Math.max(28, remainingHeight - CARD_INSET_Y * 2);
       const paragraph = fitParagraphBlockToHeight({
         text: block.text,
         widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
@@ -690,10 +684,7 @@ export function renderNotebookContentDocumentToSlide(args: {
     if (block.type === 'bullet_list') {
       const tone = cardPalettes[visualBlockIndex % cardPalettes.length];
       const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
-      const maxContentHeight = Math.max(
-        40,
-        remainingHeight - CARD_INSET_Y * 2,
-      );
+      const maxContentHeight = Math.max(40, remainingHeight - CARD_INSET_Y * 2);
       const bulletList = fitBulletListBlockToHeight({
         items: block.items,
         widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
@@ -1052,7 +1043,10 @@ export function renderNotebookContentDocumentToSlide(args: {
       fontColor: tokens.titleText,
       fontName: 'Microsoft YaHei',
     },
-    elements,
+    elements: normalizeSlideTextLayout(elements, {
+      width: CANVAS_WIDTH,
+      height: CANVAS_HEIGHT,
+    }),
     background: {
       type: 'gradient',
       gradient: {

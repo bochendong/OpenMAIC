@@ -17,6 +17,7 @@ import type { LanguageModel } from 'ai';
 import type { Slide, SlideTheme } from '@/lib/types/slides';
 import type { Scene } from '@/lib/types/stage';
 import type { Action } from '@/lib/types/action';
+import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
 import { applyOutlineFallbacks } from './outline-generator';
 import { generateSceneContent, generateSceneActions } from './scene-generator';
 import type { AgentInfo, SceneGenerationContext, AICallFn } from './pipeline-types';
@@ -147,7 +148,7 @@ export function buildCompleteScene(
       viewportSize: 1000,
       viewportRatio: 0.5625,
       theme: content.theme || defaultTheme,
-      elements: content.elements,
+      elements: normalizeSlideTextLayout(content.elements),
       background: content.background,
     };
 

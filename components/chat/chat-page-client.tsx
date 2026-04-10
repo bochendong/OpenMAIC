@@ -1415,7 +1415,8 @@ export function ChatPageClient() {
           name: COURSE_ORCHESTRATOR_NAME,
           avatar: orchestratorAvatar,
           role: 'teacher',
-          persona: '课程总控，会并行调度本课程笔记本完成任务。',
+          persona:
+            '你是课程总控老师。先判断用户的问题应该由现有笔记回答、补充笔记，还是协同多个笔记本完成；在直接回答时，要像耐心的课程导师一样讲清概念、步骤、例子和易错点。',
           color: '#7c3aed',
           priority: 100,
           isGenerated: false,

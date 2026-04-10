@@ -48,6 +48,12 @@ import {
   formatPurchaseCreditsLabel,
   priceCentsFromCredits,
 } from '@/lib/utils/credits';
+import {
+  courseContainsPurchasedNotebook,
+  getCoursePublishBlockReasonFromFlags,
+  getPurchasedNotebookMoveSuccessMessage,
+  getPurchasedNotebookMoveWarning,
+} from '@/lib/utils/course-publish';
 
 function formatDate(ts: number) {
   return new Date(ts).toLocaleDateString();
@@ -82,8 +88,15 @@ export default function CourseDetailPage() {
   const [publishProgress, setPublishProgress] = useState<{ done: number; total: number } | null>(
     null,
   );
-  const coursePublishLocked = Boolean(course?.sourceCourseId);
   const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
+  const courseHasPurchasedNotebook = courseContainsPurchasedNotebook(notebooks);
+  const coursePublishBlockReason = getCoursePublishBlockReasonFromFlags(
+    course,
+    courseHasPurchasedNotebook,
+  );
+  const coursePublishActionDisabled = Boolean(
+    !course?.listedInCourseStore && coursePublishBlockReason,
+  );
 
   useEffect(() => {
     if (!isLoggedIn) {
@@ -137,9 +150,21 @@ export default function CourseDetailPage() {
   if (!isLoggedIn) return null;
 
   const handleMoveNotebook = async (notebookId: string, targetCourseId: string) => {
+    const notebook = notebooks.find((item) => item.id === notebookId);
+    const targetCourseName = moveTargets.find((item) => item.id === targetCourseId)?.name;
+    if (
+      notebook?.sourceNotebookId &&
+      !window.confirm(getPurchasedNotebookMoveWarning(targetCourseName))
+    ) {
+      return;
+    }
     try {
       await moveStageToCourse(notebookId, targetCourseId);
-      toast.success('已移动到其他课程');
+      toast.success(
+        notebook?.sourceNotebookId
+          ? getPurchasedNotebookMoveSuccessMessage(targetCourseName)
+          : '已移动到其他课程',
+      );
       const list = await listStagesByCourse(id);
       setNotebooks(list);
       setThumbnails(await getFirstSlideByStages(list.map((n) => n.id)));
@@ -163,8 +188,8 @@ export default function CourseDetailPage() {
 
   const handleTogglePublishCourse = async () => {
     if (!course) return;
-    if (course.sourceCourseId) {
-      toast.error('购买得到的课程副本不能再次发布到商城');
+    if (!course.listedInCourseStore && coursePublishBlockReason) {
+      toast.error(coursePublishBlockReason);
       return;
     }
     if (!course.listedInCourseStore) {
@@ -236,6 +261,10 @@ export default function CourseDetailPage() {
 
   const handleConfirmPublish = async () => {
     if (!course || !publishTarget) return;
+    if (publishTarget.kind === 'course' && coursePublishBlockReason) {
+      toast.error(coursePublishBlockReason);
+      return;
+    }
     setPublishState(publishWithAudio ? 'preparing_audio' : 'publishing');
     setPublishProgress(null);
     try {
@@ -444,11 +473,13 @@ export default function CourseDetailPage() {
                     type="button"
                     variant="outline"
                     className="h-11 rounded-xl border-slate-200 bg-white/80 dark:border-white/20 dark:bg-white/5"
-                    disabled={coursePublishLocked}
+                    disabled={coursePublishActionDisabled}
                     onClick={() => void handleTogglePublishCourse()}
                   >
-                    {coursePublishLocked
-                      ? '已购副本不可发布'
+                    {coursePublishActionDisabled
+                      ? course?.sourceCourseId
+                        ? '已购副本不可发布'
+                        : '含已购笔记本不可发布'
                       : publishTarget?.kind === 'course' &&
                           (publishState === 'preparing_audio' || publishState === 'publishing')
                         ? '发布中…'
@@ -464,6 +495,11 @@ export default function CourseDetailPage() {
                   </Button>
                 </div>
               </div>
+              {courseHasPurchasedNotebook && !course.listedInCourseStore ? (
+                <p className="mt-4 text-sm text-amber-700 dark:text-amber-300">
+                  当前课程包含从商城购买的笔记本副本，因此不能发布到商城。
+                </p>
+              ) : null}
             </section>
 
             {notebooks.length === 0 ? (

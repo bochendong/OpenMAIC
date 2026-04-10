@@ -245,6 +245,21 @@ If the scene outline includes `mediaGenerations`, you may also use generated ima
 
 **Required Fields**: `id`, `type`, `left`, `top`, `width`, `height`, `path` (SVG path), `viewBox` [width, height], `fill` (hex color), `fixedRatio`
 
+**Optional Fields**: `text` (preferred when the shape is a card/container whose text belongs fully inside it)
+
+**Shape text format**:
+
+```json
+"text": {
+  "content": "<p style=\"font-size:18px;text-align:center;\">Key idea</p>",
+  "defaultFontName": "Microsoft YaHei",
+  "defaultColor": "#333333",
+  "align": "middle"
+}
+```
+
+If the text is conceptually inside the card or pill, prefer `shape.text` instead of creating a separate free-floating `TextElement`.
+
 **Common Shapes**:
 
 - Rectangle: `path: "M 0 0 L 1 0 L 1 1 L 0 1 Z"`, `viewBox: [1, 1]`
@@ -658,7 +673,7 @@ Element 3: left = 660, width = 280  (gap = 20px)  ✓ (consistent)
 
 ### Rule 5: Text with Background Shape
 
-When placing text on a background shape, follow this process:
+When placing text on a background shape, follow this process. This is a hard layout requirement, not a style suggestion.
 
 #### Step 1: Design the background shape first
 
@@ -680,7 +695,9 @@ text.width = shape.width - 40    (20px padding left + 20px padding right)
 text.height = from lookup table, must be ≤ shape.height - 40
 ```
 
-#### Step 3: Center the text inside the shape
+#### Step 3: Place the text inside the shape
+
+If the design is centered, center it both horizontally and vertically. If the design is top-aligned, preserve consistent insets on every side and keep the text fully contained.
 
 **Both horizontally AND vertically:**
 
@@ -1023,12 +1040,13 @@ Before outputting JSON, verify:
 11. ✓ LineElement `width` is stroke thickness (2-6), NOT line length. Check: no LineElement has `width` > 6. If width equals the distance between start and end, it is WRONG — you confused stroke thickness with line span.
 12. ✓ **Slide text is concise and impersonal**: Every text element uses keywords, short phrases, or bullet points — no conversational sentences, no lecture-script-style paragraphs. No teacher name or identity appears on any slide (no "Teacher X's tips/wishes/comments"). If a text reads like spoken language or a personal message, rewrite it as a neutral bullet point.
 
-**🟡 P1 — Serious (strongly recommended)**: 13. ✓ **Text-Background pairs**: For each text with a background shape:
+**🟡 P1 — Serious (must pass unless the shape uses `shape.text`)**: 13. ✓ **Text-Background pairs**: For each text with a background shape:
 
 - text.width < shape.width (with padding)
 - text.height < shape.height (with padding)
 - text is centered: `text.left = shape.left + (shape.width - text.width) / 2`
 - text is centered: `text.top = shape.top + (shape.height - text.height) / 2`
+- no visible text may extend beyond the shape bounds
 
 14. ✓ No unintended element overlaps (especially check LaTeX elements — their rendered height may be much larger than specified)
 15. ✓ Image placed near related text (25-35px gap)

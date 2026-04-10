@@ -245,6 +245,21 @@ If the scene outline includes `mediaGenerations`, you may also use generated ima
 
 **Required Fields**: `id`, `type`, `left`, `top`, `width`, `height`, `path` (SVG path), `viewBox` [width, height], `fill` (hex color), `fixedRatio`
 
+**Optional Fields**: `text`（当形状本身就是承载文案的卡片 / 标签 / 容器时，优先使用）
+
+**Shape text format**:
+
+```json
+"text": {
+  "content": "<p style=\"font-size:18px;text-align:center;\">Key idea</p>",
+  "defaultFontName": "Microsoft YaHei",
+  "defaultColor": "#333333",
+  "align": "middle"
+}
+```
+
+如果文案在语义上就是这个卡片或胶囊的一部分，优先使用 `shape.text`，不要再额外创建一个漂浮的 `TextElement`。
+
 **Common Shapes**:
 
 - Rectangle: `path: "M 0 0 L 1 0 L 1 1 L 0 1 Z"`, `viewBox: [1, 1]`
@@ -658,7 +673,7 @@ Element 3: left = 660, width = 280  (gap = 20px)  ✓ (consistent)
 
 ### Rule 5: Text with Background Shape
 
-When placing text on a background shape, follow this process:
+当文字放在背景形状内时，必须遵守下面的流程。这是硬性布局要求，不是风格建议。
 
 #### Step 1: Design the background shape first
 
@@ -680,9 +695,11 @@ text.width = shape.width - 40    (20px padding left + 20px padding right)
 text.height = from lookup table, must be ≤ shape.height - 40
 ```
 
-#### Step 3: Center the text inside the shape
+#### Step 3: 将文字放入形状内部
 
-**Both horizontally AND vertically:**
+如果版式本来就是居中卡片，就做水平和垂直居中；如果版式是顶部对齐，就保持四周 inset 一致且文字完整落在形状内部。
+
+**水平与垂直居中公式：**
 
 ```
 text.left = shape.left + (shape.width - text.width) / 2
@@ -1023,12 +1040,13 @@ Before outputting JSON, verify:
 11. ✓ LineElement `width` is stroke thickness (2-6), NOT line length. Check: no LineElement has `width` > 6. If width equals the distance between start and end, it is WRONG — you confused stroke thickness with line span.
 12. ✓ **Slide text is concise and impersonal**: Every text element uses keywords, short phrases, or bullet points — no conversational sentences, no lecture-script-style paragraphs. No teacher name or identity appears on any slide (no "Teacher X's tips/wishes/comments"). If a text reads like spoken language or a personal message, rewrite it as a neutral bullet point.
 
-**🟡 P1 — Serious (strongly recommended)**: 13. ✓ **Text-Background pairs**: For each text with a background shape:
+**🟡 P1 — Serious（除非直接使用 `shape.text`，否则必须通过）**: 13. ✓ **文字-背景配对**：对每个带背景形状的文字：
 
 - text.width < shape.width (with padding)
 - text.height < shape.height (with padding)
 - text is centered: `text.left = shape.left + (shape.width - text.width) / 2`
 - text is centered: `text.top = shape.top + (shape.height - text.height) / 2`
+- 不能出现任何肉眼可见的文字越出形状边界
 
 14. ✓ No unintended element overlaps (especially check LaTeX elements — their rendered height may be much larger than specified)
 15. ✓ Image placed near related text (25-35px gap)

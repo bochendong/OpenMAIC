@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
       }
 
       const maxOrder = Math.max(...currentPages.map((p) => p.order));
-      const { model, modelString } = await resolveModelFromHeaders(req);
+      const { model, modelString } = await resolveModelFromHeaders(req, {
+        allowOpenAIModelOverride: true,
+      });
       const system = `You are a curriculum editor. Decide the best insertion position for new lesson pages in an existing notebook outline.
 Return strict JSON only.`;
       const prompt = `Notebook title: ${body.notebookTitle?.trim() || '未命名笔记本'}
@@ -97,4 +99,3 @@ Rules:
     }
   });
 }
-

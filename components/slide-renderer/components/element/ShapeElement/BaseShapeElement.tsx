@@ -95,6 +95,17 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
 
           <ShapeTextSurface
             align={text.align}
+            fitOverflow
+            fitDeps={[
+              elementInfo.width,
+              elementInfo.height,
+              text.content,
+              text.defaultFontName,
+              text.defaultColor,
+              text.lineHeight,
+              text.wordSpace,
+              text.paragraphSpace,
+            ]}
             style={{
               lineHeight: text.lineHeight,
               letterSpacing: `${text.wordSpace || 0}px`,

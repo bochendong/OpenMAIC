@@ -60,9 +60,18 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing required field: config.agentIds');
     }
 
-    const { model: languageModel } = await resolveModel({});
+    const { model: languageModel, modelString } = await resolveModel(
+      {
+        modelString: body.model,
+        apiKey: body.apiKey,
+        baseUrl: body.baseUrl,
+        providerType: body.providerType,
+        requiresApiKey: body.requiresApiKey,
+      },
+      { allowOpenAIModelOverride: true },
+    );
 
-    log.info('Processing request');
+    log.info(`Processing request [model=${modelString}]`);
     log.info(
       `Agents: ${body.config.agentIds.join(', ')}, Messages: ${body.messages.length}, Turn: ${body.directorState?.turnCount ?? 0}`,
     );

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/server/prisma';
 import { requireUserId } from '@/lib/server/api-auth';
 import { safeRoute } from '@/lib/server/json-error-response';
 import { pickStableCourseAvatarUrl } from '@/lib/constants/course-avatars';
+import { getCoursePublishBlockReasonFromFlags } from '@/lib/utils/course-publish';
 
 const updateCourseSchema = z.object({
   name: z.string().trim().min(1).max(120).optional(),
@@ -65,11 +66,21 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return NextResponse.json({ error: 'Course not found' }, { status: 404 });
     }
 
-    if (payload.data.listedInCourseStore === true && existing.sourceCourseId) {
-      return NextResponse.json(
-        { error: '购买得到的课程副本不能再次发布到商城' },
-        { status: 400 },
+    if (payload.data.listedInCourseStore === true) {
+      const purchasedNotebookCount = await prisma.notebook.count({
+        where: {
+          ownerId: userId,
+          courseId: id,
+          sourceNotebookId: { not: null },
+        },
+      });
+      const publishBlockReason = getCoursePublishBlockReasonFromFlags(
+        existing,
+        purchasedNotebookCount > 0,
       );
+      if (publishBlockReason) {
+        return NextResponse.json({ error: publishBlockReason }, { status: 400 });
+      }
     }
 
     const shouldPublishCourse = payload.data.listedInCourseStore === true;

@@ -5,6 +5,8 @@ import type { PPTTextElement } from '@/lib/types/slides';
 import { renderHtmlWithLatex } from '@/lib/render-html-with-latex';
 import { useElementShadow } from '../hooks/useElementShadow';
 import { ElementOutline } from '../ElementOutline';
+import { TEXT_BOX_PADDING_PX } from '@/lib/slide-text-layout';
+import { useOverflowFit } from '../hooks/useOverflowFit';
 
 export interface BaseTextElementProps {
   elementInfo: PPTTextElement;
@@ -21,6 +23,16 @@ export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
     () => renderHtmlWithLatex(elementInfo.content),
     [elementInfo.content],
   );
+  const { viewportRef, contentRef, metrics } = useOverflowFit(true, [
+    elementInfo.width,
+    elementInfo.height,
+    elementInfo.content,
+    elementInfo.defaultFontName,
+    elementInfo.defaultColor,
+    elementInfo.wordSpace,
+    elementInfo.lineHeight,
+    elementInfo.paragraphSpace,
+  ]);
 
   return (
     <div
@@ -37,10 +49,10 @@ export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
         style={{ transform: `rotate(${elementInfo.rotate}deg)` }}
       >
         <div
-          className="element-content subpixel-antialiased relative p-[10px] leading-[1.5] break-words"
+          className="element-content subpixel-antialiased relative leading-[1.5] break-words overflow-hidden"
           style={{
-            width: elementInfo.vertical ? 'auto' : `${elementInfo.width}px`,
-            height: elementInfo.vertical ? `${elementInfo.height}px` : 'auto',
+            width: `${elementInfo.width}px`,
+            height: `${elementInfo.height}px`,
             backgroundColor: elementInfo.fill,
             opacity: elementInfo.opacity,
             textShadow: shadowStyle,
@@ -58,12 +70,26 @@ export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
             height={elementInfo.height}
             outline={elementInfo.outline}
           />
+
           <div
-            className={`text ProseMirror-static relative [&_ol]:my-0 [&_p]:m-0 [&_p:not(:last-child)]:mb-[var(--paragraphSpace)] [&_ul]:my-0 ${
-              target === 'thumbnail' ? 'pointer-events-none' : ''
-            }`}
-            dangerouslySetInnerHTML={{ __html: renderedContent }}
-          />
+            ref={viewportRef}
+            className="absolute overflow-hidden"
+            style={{
+              inset: `${TEXT_BOX_PADDING_PX}px`,
+            }}
+          >
+            <div
+              ref={contentRef}
+              className={`text ProseMirror-static relative origin-top-left [&_ol]:my-0 [&_p]:m-0 [&_p:not(:last-child)]:mb-[var(--paragraphSpace)] [&_ul]:my-0 ${
+                target === 'thumbnail' ? 'pointer-events-none' : ''
+              }`}
+              style={{
+                transform: metrics.scale < 0.999 ? `scale(${metrics.scale})` : undefined,
+                transformOrigin: 'top left',
+              }}
+              dangerouslySetInnerHTML={{ __html: renderedContent }}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -172,7 +172,9 @@ export async function POST(req: NextRequest) {
       const allowWrite = body.options?.allowWrite !== false;
       const purpose = body.course?.purpose;
       const purposePolicy = buildPurposePolicy(purpose);
-      const { model, modelString } = await resolveModelFromHeaders(req);
+      const { model, modelString } = await resolveModelFromHeaders(req, {
+        allowOpenAIModelOverride: true,
+      });
 
       let webSearchContext = '';
       let webSearchUsed = false;
@@ -206,8 +208,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const systemPrompt =
-        'You are a notebook copilot. Return ONLY strict JSON. No markdown, no prose outside JSON.';
+      const systemPrompt = `You are a patient notebook copilot and teacher.
+Return ONLY strict JSON that matches the requested schema. No markdown fences. No prose outside JSON.
+
+Your job:
+- Answer like a strong instructor, not a terse search snippet.
+- Ground the answer in existing notebook pages whenever possible.
+- If the notebook lacks prerequisite or reference material, say so clearly, set knowledgeGap=true, and propose focused insert/update operations that would genuinely help the student.
+- Be encouraging, calm, and specific. Never patronize.
+- Prioritize accuracy over confidence. If the notebook does not support a claim, do not pretend it does.`;
       const conversationContext = (body.conversation || [])
         .slice(-12)
         .map((m, idx) => {
@@ -261,8 +270,12 @@ ${conversationContext || 'N/A'}
 Attachments (optional):
 ${attachmentContext || 'N/A'}
 
-Write permission:
-${allowWrite ? 'allowed' : 'disallowed'}
+Auto-apply permission:
+${
+  allowWrite
+    ? 'enabled'
+    : 'disabled (still return the best operations plan; the caller may choose not to auto-apply it)'
+}
 
 Output schema:
 {
@@ -299,11 +312,13 @@ Output schema:
 }
 
 Rules:
-- references must point to existing pages when answering.
-- if knowledge is missing, set knowledgeGap=true.
-- if write is disallowed, operations must all be empty arrays.
-- never request full PPT rewrite; only incremental insert/update/delete.
-- keep answer short and practical.
+- default to a teacher-style explanation that is complete enough for the student to keep learning on their own.
+- for substantive questions, prefer this flow: direct answer -> intuition/background -> step-by-step explanation -> example/application -> common pitfall or next step.
+- do NOT be stingy. Only keep it very short if the user explicitly asks for brevity or the question is trivial.
+- references must point only to existing notebook pages that actually support the answer.
+- if the notebook is missing prerequisite/reference content, set knowledgeGap=true and explain the gap plainly.
+- when there is a gap, propose the smallest useful insert/update plan to bridge it. Return operations even if auto-apply is disabled.
+- never request a full PPT rewrite; only incremental insert/update/delete.
 - answerDocument should be the structured version of the answer for rendering in chat.
 - choose profile='math' for formula / proof / matrix-heavy content, profile='code' for programming explanations, and profile='general' otherwise.
 - when the answer or inserted slide contains formulas, derivation steps, code, tables, worked examples, or chemistry expressions, use structured blocks instead of hiding them inside plain paragraph text.
@@ -349,13 +364,6 @@ Rules:
       const plan = sanitizePlan(parsedRaw, body.course?.language || 'zh-CN');
       const response: SendNotebookMessageResponse = {
         ...plan,
-        operations: allowWrite
-          ? plan.operations
-          : {
-              insert: [],
-              update: [],
-              delete: [],
-            },
         webSearchUsed,
         prerequisiteHints: webSearchUsed ? ['used_web_search_for_prerequisites'] : [],
       };
