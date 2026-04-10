@@ -34,9 +34,6 @@ const ACCOUNT_BALANCE_FIELD: Record<CreditAccountType, BalanceField> = {
   CASH: 'creditsBalance',
   COMPUTE: 'computeCreditsBalance',
   PURCHASE: 'purchaseCreditsBalance',
-  // @deprecated Kept for backward compatibility — existing DB rows still reference this value.
-  // Falls back to the general cash credits balance.
-  NOTEBOOK_GENERATION: 'creditsBalance',
 };
 
 const ACCOUNT_INIT_CONFIG: Array<{

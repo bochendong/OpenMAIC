@@ -7,5 +7,6 @@ builder = "NIXPACKS"
 buildCommand = "pnpm install && pnpm run build"
 
 [deploy]
-startCommand = "pnpm run start"
+# Use Node directly: Nixpacks runtime image may not have `pnpm` on PATH (catatonit: failed to exec pid1).
+startCommand = "node node_modules/next/dist/bin/next start"
 restartPolicyType = "ON_FAILURE"

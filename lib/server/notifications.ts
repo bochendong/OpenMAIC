@@ -41,6 +41,14 @@ type TokenUsageGroup = {
 
 type NotificationMetadata = Record<string, Prisma.JsonValue>;
 
+function normalizeNotificationAccountType(
+  accountType: CreditAccountType,
+): 'CASH' | 'COMPUTE' | 'PURCHASE' {
+  if (accountType === 'CASH') return 'CASH';
+  if (accountType === 'PURCHASE') return 'PURCHASE';
+  return 'COMPUTE';
+}
+
 const OPERATION_LABELS: Record<string, string> = {
   notebook_metadata_generation: '生成笔记本标题与简介',
   notebook_research: '为新笔记本补充联网资料',
@@ -381,7 +389,7 @@ function mapTokenUsageGroupToNotification(group: TokenUsageGroup): AppNotificati
     amountLabel: `-${formatAccountCompactValue(newestRow.accountType, Math.abs(totalDelta))}`,
     delta: totalDelta,
     balanceAfter: newestRow.balanceAfter,
-    accountType: newestRow.accountType,
+    accountType: normalizeNotificationAccountType(newestRow.accountType),
     sourceKind: 'TOKEN_USAGE_GROUP',
     sourceLabel: group.context.label,
     createdAt: newestRow.createdAt.toISOString(),
@@ -415,7 +423,7 @@ export function mapCreditTransactionToNotification(row: CreditNotificationRow): 
     delta: row.delta,
     balanceAfter: row.balanceAfter,
     sourceKind: row.kind,
-    accountType: row.accountType,
+    accountType: normalizeNotificationAccountType(row.accountType),
     sourceLabel: buildSourceLabel(row),
     createdAt: row.createdAt.toISOString(),
     details: buildNotificationDetails(row),
