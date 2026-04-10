@@ -45,7 +45,7 @@ import type { SpeechAction } from '@/lib/types/action';
 import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import {
   creditsFromPriceCents,
-  formatCreditsUsdCompactLabel,
+  formatPurchaseCreditsLabel,
   priceCentsFromCredits,
 } from '@/lib/utils/credits';
 
@@ -491,7 +491,7 @@ export default function CourseDetailPage() {
                         slide={thumbnails[nb.id]}
                         subtitle={formatDate(nb.updatedAt)}
                         secondaryLabel=""
-                        priceLabel={formatCreditsUsdCompactLabel(
+                        priceLabel={formatPurchaseCreditsLabel(
                           creditsFromPriceCents(nb.notebookPriceCents),
                         )}
                         actionLabel="打开笔记本"

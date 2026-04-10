@@ -263,22 +263,31 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     >
                       {contextBadge}
                     </div>
-                    <div className="flex w-full gap-2">
-                      <Link
-                        href="/top-up"
-                        className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-slate-200/80 bg-white/75 px-3 py-2 text-[11px] font-medium text-slate-700 transition-colors hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
-                      >
-                        <Coins className="size-3.5" />
-                        充值/转换
-                      </Link>
-                      <Link
-                        href="/credits-market"
-                        className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-full border border-fuchsia-200/80 bg-fuchsia-50/80 px-3 py-2 text-[11px] font-medium text-fuchsia-800 transition-colors hover:bg-fuchsia-100 dark:border-fuchsia-400/20 dark:bg-fuchsia-400/10 dark:text-fuchsia-100 dark:hover:bg-fuchsia-400/15"
-                      >
-                        <ArrowRightLeft className="size-3.5" />
-                        交易积分
-                      </Link>
-                    </div>
+                    {balances != null ? (
+                      <div className="grid gap-1.5 text-[11px]">
+                        <div className="flex items-center justify-between rounded-xl border border-amber-200/70 bg-amber-50/80 px-3 py-2 text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Wallet className="size-3.5" />
+                            现金积分
+                          </span>
+                          <span className="font-semibold">{balances.cash}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded-xl border border-sky-200/70 bg-sky-50/80 px-3 py-2 text-sky-900 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-100">
+                          <span className="inline-flex items-center gap-1.5">
+                            <Cpu className="size-3.5" />
+                            算力积分
+                          </span>
+                          <span className="font-semibold">{balances.compute}</span>
+                        </div>
+                        <div className="flex items-center justify-between rounded-xl border border-emerald-200/70 bg-emerald-50/80 px-3 py-2 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-100">
+                          <span className="inline-flex items-center gap-1.5">
+                            <ShoppingBag className="size-3.5" />
+                            购买积分
+                          </span>
+                          <span className="font-semibold">{balances.purchase}</span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </>
               )}
@@ -307,34 +316,21 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     <TooltipContent side="right">{railTooltip}</TooltipContent>
                   </Tooltip>
                   {balances != null ? (
-                    <>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            href="/top-up"
-                            className="inline-flex size-8 items-center justify-center rounded-full border border-amber-200/70 bg-amber-50/80 text-amber-800 transition-colors hover:bg-amber-100 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100 dark:hover:bg-amber-400/15"
-                          >
-                            <Wallet className="size-3.5" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">
-                          {`${formatCashCreditsLabel(balances.cash)} · ${formatComputeCreditsLabel(
-                            balances.compute,
-                          )} · ${formatPurchaseCreditsLabel(balances.purchase)}`}
-                        </TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Link
-                            href="/credits-market"
-                            className="inline-flex size-8 items-center justify-center rounded-full border border-fuchsia-200/80 bg-fuchsia-50/80 text-fuchsia-800 transition-colors hover:bg-fuchsia-100 dark:border-fuchsia-400/20 dark:bg-fuchsia-400/10 dark:text-fuchsia-100 dark:hover:bg-fuchsia-400/15"
-                          >
-                            <ArrowRightLeft className="size-3.5" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">交易积分</TooltipContent>
-                      </Tooltip>
-                    </>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex size-8 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-700 transition-colors hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+                        >
+                          <Wallet className="size-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {`${formatCashCreditsLabel(balances.cash)} · ${formatComputeCreditsLabel(
+                          balances.compute,
+                        )} · ${formatPurchaseCreditsLabel(balances.purchase)}`}
+                      </TooltipContent>
+                    </Tooltip>
                   ) : null}
                 </div>
               )}
@@ -388,46 +384,24 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
           )}
 
           <div className="shrink-0 border-t border-slate-900/[0.08] dark:border-white/[0.08]">
-            {balances != null ? (
-              <div className={cn('border-b border-slate-900/[0.08] px-3 py-3 dark:border-white/[0.08]', collapsed ? 'px-2' : '')}>
-                {collapsed ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Link
-                          href="/top-up"
-                          className="inline-flex size-8 items-center justify-center rounded-full border border-sky-200/70 bg-sky-50/80 text-sky-800 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-100"
-                        >
-                          <Cpu className="size-3.5" />
-                        </Link>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        {`${formatCashCreditsLabel(balances.cash)} · ${formatComputeCreditsLabel(
-                          balances.compute,
-                        )} · ${formatPurchaseCreditsLabel(balances.purchase)}`}
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                ) : (
-                  <div className="grid gap-1.5 text-[11px]">
-                    <div className="flex items-center justify-between rounded-xl border border-amber-200/70 bg-amber-50/80 px-3 py-2 text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
-                      <span className="inline-flex items-center gap-1.5"><Wallet className="size-3.5" />现金积分</span>
-                      <span className="font-semibold">{balances.cash}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-xl border border-sky-200/70 bg-sky-50/80 px-3 py-2 text-sky-900 dark:border-sky-400/20 dark:bg-sky-400/10 dark:text-sky-100">
-                      <span className="inline-flex items-center gap-1.5"><Cpu className="size-3.5" />算力积分</span>
-                      <span className="font-semibold">{balances.compute}</span>
-                    </div>
-                    <div className="flex items-center justify-between rounded-xl border border-emerald-200/70 bg-emerald-50/80 px-3 py-2 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-400/10 dark:text-emerald-100">
-                      <span className="inline-flex items-center gap-1.5"><ShoppingBag className="size-3.5" />购买积分</span>
-                      <span className="font-semibold">{balances.purchase}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : null}
             {!collapsed ? (
               <div className="px-3 py-3">
+                <div className="mb-3 grid gap-2">
+                  <Link
+                    href="/top-up"
+                    className="flex min-w-0 items-center justify-center gap-1.5 rounded-full border border-slate-200/80 bg-white/75 px-3 py-2 text-[11px] font-medium text-slate-700 transition-colors hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+                  >
+                    <Coins className="size-3.5" />
+                    充值/转换
+                  </Link>
+                  <Link
+                    href="/credits-market"
+                    className="flex min-w-0 items-center justify-center gap-1.5 rounded-full border border-fuchsia-200/80 bg-fuchsia-50/80 px-3 py-2 text-[11px] font-medium text-fuchsia-800 transition-colors hover:bg-fuchsia-100 dark:border-fuchsia-400/20 dark:bg-fuchsia-400/10 dark:text-fuchsia-100 dark:hover:bg-fuchsia-400/15"
+                  >
+                    <ArrowRightLeft className="size-3.5" />
+                    交易积分
+                  </Link>
+                </div>
                 <div className="flex items-center gap-0.5">
                   <div className="mr-auto min-w-0 flex-1 pl-1">
                     <p className="truncate text-[11px] text-muted-foreground">
@@ -499,6 +473,28 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2 px-2 py-3">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href="/top-up"
+                      className="flex size-10 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]"
+                    >
+                      <Coins className="size-[18px]" strokeWidth={1.75} />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">充值/转换</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href="/credits-market"
+                      className="flex size-10 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]"
+                    >
+                      <ArrowRightLeft className="size-[18px]" strokeWidth={1.75} />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">交易积分</TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
