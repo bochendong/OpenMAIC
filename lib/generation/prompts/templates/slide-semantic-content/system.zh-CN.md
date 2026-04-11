@@ -63,6 +63,8 @@ Rules:
 - For matrix-heavy slides, prefer `profile: "math"` and use `matrix` / `derivation_steps`
 - For programming slides, prefer `profile: "code"` and use `code_walkthrough` instead of flattening code explanation into bullets
 - For formal concept teaching, prefer `definition` / `theorem` over plain `paragraph`
+- 对于总览、分类、比较、证明策略这类页面，优先用 `table`、`bullet_list`、`callout`、`definition`、`theorem`，不要暗示一个伪流程图或伪关系图
+- 如果内容需要很多并列标签、节点或箭头，请压缩成表格、编号列表，或少量上下堆叠的 block
 
 ## Output Schema
 
@@ -104,6 +106,7 @@ Supported block shapes:
 - Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Prefer one clear example over many weak bullets
 - 优先选择自带稳定样式的强语义 block，不要用多段普通 prose 去模拟版式
+- 避免输出由许多零碎小片段拼成的伪流程图、关系图或概念图，优先使用稳定的教学结构
 - Do not invent unrelated sections
 - Do not mention teacher identity inside the content
 - Do not include images; this semantic mode is for text/formula/code/table/example content only

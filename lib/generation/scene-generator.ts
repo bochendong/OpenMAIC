@@ -23,6 +23,7 @@ import type { StageStore } from '@/lib/api/stage-api';
 import { createStageAPI } from '@/lib/api/stage-api';
 import { generatePBLContent } from '@/lib/pbl/generate-pbl';
 import {
+  assessNotebookContentDocumentForSlide,
   parseNotebookContentDocument,
   renderNotebookContentDocumentToSlide,
   type NotebookContentDocument,
@@ -75,6 +76,7 @@ import { verbalizeSpeechActions } from '@/lib/audio/spoken-text';
 const log = createLogger('Generation');
 const SLIDE_LAYOUT_VIEWPORT = { width: 1000, height: 562.5 } as const;
 const MAX_SLIDE_LAYOUT_RETRIES = 1;
+const MAX_SEMANTIC_SLIDE_RETRIES = 1;
 
 function appendRewriteReason(base?: string, extra?: string): string | undefined {
   const trimmedExtra = extra?.trim();
@@ -195,6 +197,8 @@ function formatLayoutIssueForRetry(
         return '不要输出空背景框，再把正文或公式放在框外或框下';
       case 'invalid_text_metrics':
         return '文字样式存在非法度量，例如过小的 line-height，导致整行文字被压扁';
+      case 'element_overlap':
+        return '多个组件发生重叠，页面结构过于拥挤';
       default:
         return issue.message;
     }
@@ -213,6 +217,8 @@ function formatLayoutIssueForRetry(
       return 'do not place an empty background shape above content that belongs inside it';
     case 'invalid_text_metrics':
       return 'text metrics are invalid, such as a line-height that crushes the glyphs';
+    case 'element_overlap':
+      return 'multiple slide components overlap each other';
     default:
       return issue.message;
   }
@@ -235,6 +241,7 @@ function buildLayoutRetryReason(
       '- 卡片、说明框、提示框里的正文，优先直接写到 shape.text；如果使用独立 TextElement 或 LatexElement，它必须几何上完整位于背景 shape 内。',
       '- 不要输出空背景框，再把正文、项目符号或公式漂在框外、框下或相邻位置。',
       '- 不允许通过缩小字号来解决布局问题；如果内容过多，请改布局、增大容器、拆成多块，或减少单页信息密度。',
+      '- 对于总览、分类、判定步骤、证明方法等内容，优先改成表格、要点列表、callout 或上下堆叠卡片，不要拼很多漂浮的小标签和小框。',
     ].join('\n');
   }
 
@@ -245,7 +252,65 @@ function buildLayoutRetryReason(
     '- For card, callout, or container copy, prefer shape.text. If you use a separate TextElement or LatexElement, it must be geometrically inside the background shape.',
     '- Do not output an empty background shape and place the real copy, bullets, or formulas below or outside that shape.',
     '- Do not solve layout by shrinking font sizes. If content is too dense, change the layout, enlarge the container, split the card, or reduce per-slide density.',
+    '- For overviews, classifications, proof strategies, or decision flows, prefer tables, bullet lists, callouts, or vertically stacked cards instead of many floating mini-boxes.',
   ].join('\n');
+}
+
+function buildSemanticStructureRetryReason(language: 'zh-CN' | 'en-US'): string {
+  if (language === 'zh-CN') {
+    return [
+      '请优先输出稳定的语义结构，而不是隐含复杂图形布局。',
+      '- “总览 / 分类 / 判定 / 证明方法”优先用 table、bullet_list、callout、definition、theorem。',
+      '- 如果一个 block 需要很多并列标签、节点或箭头，请改成表格、编号列表或拆成两块上下堆叠内容。',
+      '- 不要尝试用许多漂浮的小文本块去模拟流程图、关系图或概念图。',
+    ].join('\n');
+  }
+
+  return [
+    'Prefer stable semantic structures instead of implying a complex diagram layout.',
+    '- For overview, classification, proof strategy, or decision content, prefer table, bullet_list, callout, definition, or theorem blocks.',
+    '- If a block would require many peer labels, nodes, or arrows, convert it into a table, numbered list, or two vertically stacked blocks.',
+    '- Do not simulate flowcharts, relation maps, or concept maps with many floating mini text blocks.',
+  ].join('\n');
+}
+
+function buildSemanticBudgetRetryReason(language: 'zh-CN' | 'en-US', reasons: string[]): string {
+  const reasonText = reasons.join(language === 'zh-CN' ? '；' : '; ');
+  if (language === 'zh-CN') {
+    return [
+      '当前语义内容超过单页信息预算，需要降低单页密度。',
+      `- 预算信号：${reasonText || '当前页面内容过多。'}`,
+      '- 只保留这一页最核心的 1-2 个结构，不要同时塞入很多平级分类、标签、说明和结论。',
+      '- 优先输出表格、编号列表、要点卡片或 callout，不要把多个分类结果拆成很多零碎小块。',
+      '- 如果材料天然需要两页，请让这一页只覆盖前半部分或核心主线，不要强行把全部信息塞进一页。',
+    ].join('\n');
+  }
+
+  return [
+    'The semantic content exceeds the per-slide information budget and must be simplified.',
+    `- Budget signals: ${reasonText || 'This slide is too dense.'}`,
+    '- Keep only the most important 1-2 structures for this slide instead of combining many peer classifications, labels, notes, and conclusions.',
+    '- Prefer a table, numbered list, bullet card, or callout instead of many tiny fragments.',
+    '- If the material naturally needs two slides, keep this slide focused on the first half or the main thread rather than forcing everything onto one page.',
+  ].join('\n');
+}
+
+function buildValidatedFallbackSlideContent(outline: SceneOutline): GeneratedSlideContent | null {
+  const fallback = buildFallbackSlideContentFromOutline(outline);
+  const normalizedElements = normalizeSlideTextLayout(fallback.elements, SLIDE_LAYOUT_VIEWPORT);
+  const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
+  if (!layoutValidation.isValid) {
+    log.warn(
+      `Fallback slide content layout invalid for: ${outline.title}`,
+      layoutValidation.issues.map((issue) => issue.message),
+    );
+    return null;
+  }
+
+  return {
+    ...fallback,
+    elements: normalizedElements,
+  };
 }
 
 // ==================== Stage 2: Full Scenes (Two-Step) ====================
@@ -2297,6 +2362,7 @@ async function generateSemanticSlideContent(
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
   rewriteReason?: string,
+  semanticRetryCount = 0,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
   const teacherContext = formatTeacherPersonaForPrompt(agents, lang);
@@ -2333,10 +2399,45 @@ async function generateSemanticSlideContent(
     : null;
   if (!contentDocument) {
     log.warn(`Semantic slide content parse failed for: ${outline.title}`);
+    if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
+      return generateSemanticSlideContent(
+        outline,
+        aiCall,
+        agents,
+        courseContext,
+        appendRewriteReason(rewriteReason, buildSemanticStructureRetryReason(lang)),
+        semanticRetryCount + 1,
+      );
+    }
     return null;
   }
   if (hasUnexpectedCjkForLanguage(contentDocument, lang)) {
     log.warn(`Semantic slide content language mismatch for: ${outline.title}`);
+    return null;
+  }
+
+  const contentBudget = assessNotebookContentDocumentForSlide(contentDocument);
+  if (!contentBudget.fits) {
+    log.warn(`Semantic slide content budget exceeded for: ${outline.title}`, contentBudget.reasons);
+    if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
+      return generateSemanticSlideContent(
+        outline,
+        aiCall,
+        agents,
+        courseContext,
+        appendRewriteReason(
+          rewriteReason,
+          buildSemanticBudgetRetryReason(lang, contentBudget.reasons),
+        ),
+        semanticRetryCount + 1,
+      );
+    }
+
+    const fallbackContent = buildValidatedFallbackSlideContent(outline);
+    if (fallbackContent) {
+      log.warn(`Using safe fallback slide layout after semantic budget overflow: ${outline.title}`);
+      return fallbackContent;
+    }
     return null;
   }
 
@@ -2354,6 +2455,24 @@ async function generateSemanticSlideContent(
       `Semantic slide content layout invalid for: ${outline.title}`,
       layoutValidation.issues.map((issue) => issue.message),
     );
+    if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
+      return generateSemanticSlideContent(
+        outline,
+        aiCall,
+        agents,
+        courseContext,
+        appendRewriteReason(
+          rewriteReason,
+          `${buildLayoutRetryReason(layoutValidation, lang)}\n${buildSemanticStructureRetryReason(lang)}`,
+        ),
+        semanticRetryCount + 1,
+      );
+    }
+    const fallbackContent = buildValidatedFallbackSlideContent(outline);
+    if (fallbackContent) {
+      log.warn(`Using safe fallback slide layout after semantic layout failure: ${outline.title}`);
+      return fallbackContent;
+    }
     return null;
   }
 
@@ -2613,6 +2732,15 @@ async function generateSlideContent(
     }
 
     log.error(`Slide layout validation failed after retry for: ${outline.title}`);
+    if (shouldUseSemanticSlideGeneration(outline, assignedImages)) {
+      const fallbackContent = buildValidatedFallbackSlideContent(outline);
+      if (fallbackContent) {
+        log.warn(
+          `Using safe fallback slide layout after repeated layout failure: ${outline.title}`,
+        );
+        return fallbackContent;
+      }
+    }
     return null;
   }
 

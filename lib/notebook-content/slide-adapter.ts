@@ -1156,3 +1156,239 @@ export function renderNotebookContentDocumentToSlide(args: {
     type: 'content',
   };
 }
+
+export interface NotebookSlideContentBudgetAssessment {
+  fits: boolean;
+  estimatedBottom: number;
+  overflowPx: number;
+  densityScore: number;
+  maxDensityScore: number;
+  expandedBlockCount: number;
+  reasons: string[];
+}
+
+function getProfileDensityBudget(profile: NotebookContentProfile): number {
+  switch (profile) {
+    case 'math':
+      return 8.8;
+    case 'code':
+      return 8.2;
+    default:
+      return 8.4;
+  }
+}
+
+function assessExpandedBlockHeight(
+  block: NotebookContentBlock,
+  language: 'zh-CN' | 'en-US',
+  visualBlockIndex: number,
+): { height: number; densityDelta: number; consumesVisualCard: boolean } {
+  if (block.type === 'heading') {
+    const height = block.level <= 2 ? 34 : 28;
+    return {
+      height: height + 10,
+      densityDelta: block.level <= 2 ? 0.55 : 0.35,
+      consumesVisualCard: false,
+    };
+  }
+
+  if (block.type === 'paragraph') {
+    const paragraph = fitParagraphBlockToHeight({
+      text: block.text,
+      widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+      fontSizePx: 16,
+      lineHeightPx: 22,
+      maxHeightPx: 960,
+      color: '#334155',
+    });
+    const densityDelta = 0.9 + Math.min(0.95, block.text.length / 850);
+    return {
+      height: paragraph.height + CARD_INSET_Y * 2 + 10,
+      densityDelta,
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'bullet_list') {
+    const tone = getProfileTokens('general').cardPalettes[visualBlockIndex % 4];
+    const bulletList = fitBulletListBlockToHeight({
+      items: block.items,
+      widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+      fontSizePx: 16,
+      lineHeightPx: 20,
+      maxHeightPx: 960,
+      color: '#334155',
+      bulletColor: tone.accent,
+    });
+    const totalChars = block.items.reduce((sum, item) => sum + item.length, 0);
+    const densityDelta = 1.1 + block.items.length * 0.18 + Math.min(0.8, totalChars / 1600);
+    return {
+      height: bulletList.height + CARD_INSET_Y * 2 + 10,
+      densityDelta,
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'equation') {
+    return {
+      height:
+        estimateLatexDisplayHeight(block.latex, block.display) +
+        CARD_INSET_Y * 2 +
+        (block.caption ? 22 : 0) +
+        10,
+      densityDelta: block.display ? 1.2 : 1.0,
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'matrix') {
+    const rows = block.rows.length;
+    const cols = Math.max(...block.rows.map((row) => row.length));
+    return {
+      height:
+        estimateLatexDisplayHeight(matrixBlockToLatex(block), true) +
+        CARD_INSET_Y * 2 +
+        (block.label ? 24 : 0) +
+        (block.caption ? 22 : 0) +
+        10,
+      densityDelta: 1.45 + rows * 0.12 + cols * 0.08,
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'code_block') {
+    const lineCount = block.code.split('\n').length;
+    return {
+      height: estimateCodeBlockHeight(block.code, block.caption ? 1 : 0) + 12,
+      densityDelta: 1.6 + Math.min(1.2, lineCount * 0.08),
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'code_walkthrough') {
+    const titleHeight = block.title ? 34 : 0;
+    const codeHeight = estimateCodeBlockHeight(block.code, block.caption ? 1 : 0) + 10;
+    const stepItems = block.steps.map((step, idx) => {
+      const focus = step.title || step.focus;
+      return `${idx + 1}. ${focus ? `${focus}: ` : ''}${step.explanation}`;
+    });
+    const stepHeight =
+      Math.min(180, Math.max(56, estimateParagraphStackHeight(stepItems, 34, 20))) +
+      CARD_INSET_Y * 2 +
+      10;
+    const outputHeight = block.output ? estimateCodeBlockHeight(block.output, 1) + 10 : 0;
+    return {
+      height: titleHeight + codeHeight + stepHeight + outputHeight,
+      densityDelta:
+        2.3 +
+        Math.min(1.1, block.code.split('\n').length * 0.05) +
+        Math.min(1.0, block.steps.length * 0.22),
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'table') {
+    const rowCount = block.rows.length + (block.headers?.length ? 1 : 0);
+    const colCount = Math.max(
+      block.headers?.length ?? 0,
+      ...block.rows.map((row) => row.length),
+      1,
+    );
+    return {
+      height: Math.min(220, Math.max(72, rowCount * 34 + 12)) + (block.caption ? 38 : 12),
+      densityDelta: 1.4 + rowCount * 0.12 + colCount * 0.08,
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'callout') {
+    return {
+      height: estimateParagraphHeight(block.text, 36, 20) + (block.title ? 28 : 12) + 12,
+      densityDelta: 0.95 + Math.min(0.75, block.text.length / 900),
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'definition') {
+    return {
+      height: estimateParagraphHeight(block.text, 36, 20) + 40,
+      densityDelta: 1.0 + Math.min(0.7, block.text.length / 1000),
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'theorem') {
+    const supportLength = block.proofIdea?.length ?? 0;
+    return {
+      height:
+        estimateParagraphHeight(
+          supportLength > 0 ? `${block.text}\n${block.proofIdea}` : block.text,
+          36,
+          20,
+        ) + 40,
+      densityDelta: 1.15 + Math.min(0.85, (block.text.length + supportLength) / 1200),
+      consumesVisualCard: true,
+    };
+  }
+
+  if (block.type === 'chem_formula' || block.type === 'chem_equation') {
+    return {
+      height: 34 + (block.caption ? 24 : 0) + CARD_INSET_Y * 2 + 10,
+      densityDelta: 1.05,
+      consumesVisualCard: true,
+    };
+  }
+
+  return {
+    height: language === 'en-US' ? 110 : 100,
+    densityDelta: 1.0,
+    consumesVisualCard: true,
+  };
+}
+
+export function assessNotebookContentDocumentForSlide(
+  document: NotebookContentDocument,
+): NotebookSlideContentBudgetAssessment {
+  const language = document.language || 'zh-CN';
+  const profile = resolveNotebookContentProfile(document);
+  const blocks = expandBlocks(document.blocks, language);
+  const maxDensityScore = getProfileDensityBudget(profile);
+
+  let cursorTop = 116;
+  let visualBlockIndex = 0;
+  let densityScore = 0.5;
+
+  for (const block of blocks) {
+    const estimate = assessExpandedBlockHeight(block, language, visualBlockIndex);
+    cursorTop += estimate.height;
+    densityScore += estimate.densityDelta;
+    if (estimate.consumesVisualCard) {
+      visualBlockIndex += 1;
+    }
+  }
+
+  const overflowPx = Math.max(0, cursorTop - CONTENT_BOTTOM);
+  const reasons: string[] = [];
+
+  if (overflowPx > 0) {
+    reasons.push(`estimated_content_height_overflow:${Math.ceil(overflowPx)}`);
+  }
+
+  if (densityScore > maxDensityScore) {
+    reasons.push(`density_score:${densityScore.toFixed(2)}/${maxDensityScore.toFixed(2)}`);
+  }
+
+  if (blocks.length > 8) {
+    reasons.push(`too_many_blocks:${blocks.length}`);
+  }
+
+  return {
+    fits: reasons.length === 0,
+    estimatedBottom: cursorTop,
+    overflowPx,
+    densityScore,
+    maxDensityScore,
+    expandedBlockCount: blocks.length,
+    reasons,
+  };
+}

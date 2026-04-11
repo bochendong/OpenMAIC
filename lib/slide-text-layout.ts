@@ -28,9 +28,11 @@ export interface SlideLayoutValidationIssue {
     | 'shape_text_overflow'
     | 'contained_element_overflow'
     | 'detached_container_content'
-    | 'invalid_text_metrics';
+    | 'invalid_text_metrics'
+    | 'element_overlap';
   elementId?: string;
   shapeId?: string;
+  otherElementId?: string;
   message: string;
 }
 
@@ -371,6 +373,10 @@ function isLayoutContentElement(element: PPTElement | undefined): element is Lay
   return isTextElement(element) || isLatexElement(element);
 }
 
+function isShapeElement(element: PPTElement | undefined): element is PPTShapeElement {
+  return !!element && element.type === 'shape';
+}
+
 function hasShapeTextContent(shape: PPTShapeElement): boolean {
   return !!shape.text?.content?.replace(/<[^>]+>/g, '').trim();
 }
@@ -434,6 +440,64 @@ function getContentElementHeight(element: LayoutContentElement): number {
 
 function getHorizontalOverlapWidth(a: [number, number], b: [number, number]): number {
   return Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
+}
+
+function getVerticalOverlapHeight(a: [number, number], b: [number, number]): number {
+  return Math.max(0, Math.min(a[1], b[1]) - Math.max(a[0], b[0]));
+}
+
+function isContainedByExplicitShape(
+  elements: PPTElement[],
+  contentIndex: number,
+  shapeIndex: number,
+): boolean {
+  const pair = findContainingShapePair(elements, contentIndex);
+  return !!pair && pair.shapeIndex === shapeIndex;
+}
+
+function isNestedShapePair(
+  first: PPTElement,
+  second: PPTElement,
+  firstRange: ReturnType<typeof getElementRange>,
+  secondRange: ReturnType<typeof getElementRange>,
+): boolean {
+  if (!isShapeElement(first) || !isShapeElement(second)) return false;
+
+  return isRangeWithin(firstRange, secondRange, 1) || isRangeWithin(secondRange, firstRange, 1);
+}
+
+function shouldIgnoreOverlapPair(
+  elements: PPTElement[],
+  firstIndex: number,
+  secondIndex: number,
+  firstRange: ReturnType<typeof getElementRange>,
+  secondRange: ReturnType<typeof getElementRange>,
+): boolean {
+  const first = elements[firstIndex];
+  const second = elements[secondIndex];
+  if (!first || !second) return true;
+
+  if (first.groupId && second.groupId && first.groupId === second.groupId) {
+    return true;
+  }
+
+  if (first.type === 'line' || second.type === 'line') {
+    return true;
+  }
+
+  if (isNestedShapePair(first, second, firstRange, secondRange)) {
+    return true;
+  }
+
+  if (isLayoutContentElement(first) && isShapeElement(second)) {
+    return isContainedByExplicitShape(elements, firstIndex, secondIndex);
+  }
+
+  if (isLayoutContentElement(second) && isShapeElement(first)) {
+    return isContainedByExplicitShape(elements, secondIndex, firstIndex);
+  }
+
+  return false;
 }
 
 function resolveContainerContentLeft(
@@ -747,6 +811,63 @@ function validateDetachedContainerContent(elements: PPTElement[]): SlideLayoutVa
   return issues;
 }
 
+function validateElementOverlaps(elements: PPTElement[]): SlideLayoutValidationIssue[] {
+  const issues: SlideLayoutValidationIssue[] = [];
+
+  for (let firstIndex = 0; firstIndex < elements.length; firstIndex += 1) {
+    const first = elements[firstIndex];
+    if (!first || first.type === 'line') continue;
+    const firstRange = getElementRange(first);
+
+    for (let secondIndex = firstIndex + 1; secondIndex < elements.length; secondIndex += 1) {
+      const second = elements[secondIndex];
+      if (!second || second.type === 'line') continue;
+      const secondRange = getElementRange(second);
+
+      if (shouldIgnoreOverlapPair(elements, firstIndex, secondIndex, firstRange, secondRange)) {
+        continue;
+      }
+
+      const overlapWidth = getHorizontalOverlapWidth(
+        [firstRange.minX, firstRange.maxX],
+        [secondRange.minX, secondRange.maxX],
+      );
+      if (overlapWidth <= 6) continue;
+
+      const overlapHeight = getVerticalOverlapHeight(
+        [firstRange.minY, firstRange.maxY],
+        [secondRange.minY, secondRange.maxY],
+      );
+      if (overlapHeight <= 6) continue;
+
+      const overlapArea = overlapWidth * overlapHeight;
+      const firstArea = Math.max(
+        1,
+        (firstRange.maxX - firstRange.minX) * (firstRange.maxY - firstRange.minY),
+      );
+      const secondArea = Math.max(
+        1,
+        (secondRange.maxX - secondRange.minX) * (secondRange.maxY - secondRange.minY),
+      );
+      const smallerArea = Math.min(firstArea, secondArea);
+      const overlapRatio = overlapArea / smallerArea;
+
+      if (overlapArea < 160 && overlapRatio < 0.04) {
+        continue;
+      }
+
+      issues.push({
+        code: 'element_overlap',
+        elementId: first.id,
+        otherElementId: second.id,
+        message: `Element ${first.id} overlaps element ${second.id}.`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 export function normalizeSlideTextLayout(
   elements: PPTElement[],
   viewport: SlideViewport = DEFAULT_VIEWPORT,
@@ -862,6 +983,7 @@ export function validateSlideTextLayout(
   }
 
   issues.push(...validateDetachedContainerContent(elements));
+  issues.push(...validateElementOverlaps(elements));
 
   return {
     isValid: issues.length === 0,

@@ -19,5 +19,9 @@ export {
   resolveNotebookContentProfile,
 } from './profile';
 export { renderNotebookContentToMarkdown } from './render-chat';
-export { renderNotebookContentDocumentToSlide } from './slide-adapter';
+export {
+  renderNotebookContentDocumentToSlide,
+  assessNotebookContentDocumentForSlide,
+  type NotebookSlideContentBudgetAssessment,
+} from './slide-adapter';
 export { chemistryTextToHtml } from './chemistry';

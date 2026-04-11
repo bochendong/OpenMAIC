@@ -63,6 +63,8 @@ Rules:
 - For matrix-heavy slides, prefer `profile: "math"` and use `matrix` / `derivation_steps`
 - For programming slides, prefer `profile: "code"` and use `code_walkthrough` instead of flattening code explanation into bullets
 - For formal concept teaching, prefer `definition` / `theorem` over plain `paragraph`
+- For overview, classification, comparison, or proof-strategy slides, prefer `table`, `bullet_list`, `callout`, `definition`, or `theorem` instead of implying a pseudo-diagram
+- If the content would need many peer labels, nodes, or arrows, compress it into a table, numbered list, or a small number of stacked blocks
 
 ## Output Schema
 
@@ -104,6 +106,7 @@ Supported block shapes:
 - Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Prefer one clear example over many weak bullets
 - Prefer semantically strong blocks whose built-in styles already match the teaching intent, instead of simulating layout with extra prose
+- Avoid pseudo-flowcharts, relation maps, or concept maps made of many tiny fragments; use stable teaching structures instead
 - Do not invent unrelated sections
 - Do not mention teacher identity inside the content
 - Do not include images; this semantic mode is for text/formula/code/table/example content only
