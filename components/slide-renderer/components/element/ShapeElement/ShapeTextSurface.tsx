@@ -1,6 +1,6 @@
 'use client';
 
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 export type ShapeTextVerticalAlign = 'top' | 'middle' | 'bottom';
@@ -61,14 +61,62 @@ export interface ShapeTextSurfaceProps {
   readonly style?: CSSProperties;
   readonly className?: string;
   readonly children: ReactNode;
+  readonly onSizeChange?: (size: { requiredHeight: number; clientHeight: number }) => void;
 }
 
 /**
  * Shared “glass / keynote” treatment for shape text (playback + editor).
  */
-export function ShapeTextSurface({ align, style, className, children }: ShapeTextSurfaceProps) {
+export function ShapeTextSurface({
+  align,
+  style,
+  className,
+  children,
+  onSizeChange,
+}: ShapeTextSurfaceProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onSizeChange) return;
+    let rafId = 0;
+
+    const measure = () => {
+      const requiredHeight = Math.ceil(container.scrollHeight);
+      const clientHeight = Math.ceil(container.clientHeight);
+      if (requiredHeight <= 0 || clientHeight <= 0) {
+        return;
+      }
+      onSizeChange({ requiredHeight, clientHeight });
+    };
+
+    const queueMeasure = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(measure);
+    };
+
+    queueMeasure();
+
+    const resizeObserver = new ResizeObserver(queueMeasure);
+    resizeObserver.observe(container);
+
+    const mutationObserver = new MutationObserver(queueMeasure);
+    mutationObserver.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [children, align, onSizeChange]);
+
   return (
     <div
+      ref={containerRef}
       className={cn(
         'shape-text group/shape-text subpixel-antialiased flex flex-col absolute inset-0',
         'px-3 py-3 sm:px-3.5 sm:py-3.5 leading-relaxed break-words',

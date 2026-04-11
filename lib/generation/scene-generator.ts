@@ -24,6 +24,7 @@ import { createStageAPI } from '@/lib/api/stage-api';
 import { generatePBLContent } from '@/lib/pbl/generate-pbl';
 import {
   assessNotebookContentDocumentForSlide,
+  buildNotebookContentDocumentFromInsert,
   paginateNotebookContentDocument,
   parseNotebookContentDocument,
   renderNotebookContentDocumentToSlide,
@@ -303,8 +304,11 @@ function buildSemanticBudgetRetryReason(language: 'zh-CN' | 'en-US', reasons: st
   ].join('\n');
 }
 
-function buildValidatedFallbackSlideContent(outline: SceneOutline): GeneratedSlideContent | null {
-  const fallback = buildFallbackSlideContentFromOutline(outline);
+export function buildValidatedFallbackSlideContent(
+  outline: SceneOutline,
+): GeneratedSlideContent | null {
+  const fallback = buildSemanticFallbackSlideContent(outline);
+  if (!fallback) return null;
   const normalizedElements = normalizeSlideTextLayout(fallback.elements, SLIDE_LAYOUT_VIEWPORT);
   const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
   if (!layoutValidation.isValid) {
@@ -318,6 +322,69 @@ function buildValidatedFallbackSlideContent(outline: SceneOutline): GeneratedSli
   return {
     ...fallback,
     elements: normalizedElements,
+  };
+}
+
+function buildSemanticFallbackSlideContent(outline: SceneOutline): GeneratedSlideContent | null {
+  const language = outline.language || 'zh-CN';
+  const fallbackDocumentBase = buildNotebookContentDocumentFromInsert({
+    title: outline.title || (language === 'zh-CN' ? '未命名页面' : 'Untitled Slide'),
+    description: outline.description || outline.title || '',
+    keyPoints: outline.keyPoints || [],
+    language,
+  });
+  const fallbackDocument: NotebookContentDocument = {
+    ...fallbackDocumentBase,
+    profile: outline.contentProfile || fallbackDocumentBase.profile,
+    archetype: outline.archetype || fallbackDocumentBase.archetype,
+    title: outline.title || fallbackDocumentBase.title,
+  };
+
+  const paginationResult = paginateNotebookContentDocument({
+    document: fallbackDocument,
+    rootOutlineId: outline.continuation?.rootOutlineId || outline.id,
+  });
+  if (paginationResult.pages.length === 0) return null;
+
+  const renderedPages = paginationResult.pages.map((pageDocument) => {
+    const renderedSlide = renderNotebookContentDocumentToSlide({
+      document: pageDocument,
+      fallbackTitle: outline.title,
+    });
+    const normalizedElements = normalizeSlideTextLayout(
+      renderedSlide.elements,
+      SLIDE_LAYOUT_VIEWPORT,
+    );
+    const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
+    return {
+      elements: normalizedElements,
+      background: renderedSlide.background,
+      theme: renderedSlide.theme,
+      contentDocument: pageDocument,
+      layoutValidation,
+    };
+  });
+
+  const invalidPage = renderedPages.find((page) => !page.layoutValidation.isValid);
+  if (invalidPage) return null;
+
+  const [primaryPage, ...continuationPages] = renderedPages;
+  return {
+    elements: primaryPage.elements,
+    background: primaryPage.background,
+    theme: primaryPage.theme,
+    remark: outline.description,
+    contentDocument: primaryPage.contentDocument,
+    continuationPages: continuationPages.map((page, index) => ({
+      outline: buildContinuationSceneOutline(outline, index + 2, renderedPages.length),
+      content: {
+        elements: page.elements,
+        background: page.background,
+        theme: page.theme,
+        remark: outline.description,
+        contentDocument: page.contentDocument,
+      },
+    })),
   };
 }
 
@@ -529,66 +596,60 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
       height: 46,
       fill: accent,
     }),
-    createTextElement({
-      name: 'slide_title',
-      left: 72,
-      top: 28,
-      width: 860,
-      height: 56,
-      content: toTextHtml(
-        splitIntoLines(
-          outline.title || (lang === 'zh-CN' ? '未命名页面' : 'Untitled Slide'),
-          30,
-          2,
+    (() => {
+      const titlePanel = createRectElement({
+        name: 'slide_title_panel',
+        left: 72,
+        top: 28,
+        width: 860,
+        height: 56,
+        fill: '#fcfcfd',
+      });
+      titlePanel.text = {
+        content: toTextHtml(
+          splitIntoLines(outline.title || (lang === 'zh-CN' ? '未命名页面' : 'Untitled Slide'), 30, 2),
+          {
+            fontSize: 30,
+            color: '#0f172a',
+            bold: true,
+          },
         ),
-        {
-          fontSize: 30,
-          color: '#0f172a',
-          bold: true,
-        },
-      ),
-      defaultColor: '#0f172a',
-      textType: 'title',
-    }),
-    createRectElement({
-      name: 'summary_panel',
-      left: 44,
-      top: 106,
-      width: 912,
-      height: 118,
-      fill: panel,
-      outlineColor: accentSoft,
-    }),
-    createTextElement({
-      name: 'summary_label',
-      left: 64,
-      top: 124,
-      width: 120,
-      height: 24,
-      content: toTextHtml([lang === 'zh-CN' ? '内容概览' : 'Overview'], {
-        fontSize: 16,
-        color: accent,
-        bold: true,
-      }),
-      defaultColor: accent,
-      textType: 'itemTitle',
-    }),
-    createTextElement({
-      name: 'summary_text',
-      left: 64,
-      top: 154,
-      width: 872,
-      height: 50,
-      content: toTextHtml(splitIntoLines(summary, 78, 2), {
-        fontSize: 17,
-        color: '#334155',
-        lineHeight: 1.42,
-      }),
-      defaultColor: '#334155',
-      textType: 'content',
-    }),
+        defaultFontName: DEFAULT_FONT,
+        defaultColor: '#0f172a',
+        align: 'top',
+        lineHeight: 1.34,
+        paragraphSpace: 6,
+        type: 'title',
+      };
+      return titlePanel;
+    })(),
+    (() => {
+      const summaryPanel = createRectElement({
+        name: 'summary_panel',
+        left: 44,
+        top: 106,
+        width: 912,
+        height: 118,
+        fill: panel,
+        outlineColor: accentSoft,
+      });
+      summaryPanel.text = {
+        content: toTextHtml(splitIntoLines(summary, 78, 2), {
+          fontSize: 17,
+          color: '#334155',
+          lineHeight: 1.42,
+        }),
+        defaultFontName: DEFAULT_FONT,
+        defaultColor: '#334155',
+        align: 'top',
+        lineHeight: 1.4,
+        paragraphSpace: 6,
+        type: 'content',
+      };
+      return summaryPanel;
+    })(),
     ...buildInfoCard(
-      lang === 'zh-CN' ? '核心要点' : 'Key Points',
+      undefined,
       keyPoints,
       { left: 44, top: 252, width: 566, height: 258 },
       {
@@ -601,7 +662,7 @@ export function buildFallbackSlideContentFromOutline(outline: SceneOutline): Gen
       'fallback_keypoints',
     ),
     ...buildInfoCard(
-      lang === 'zh-CN' ? '讲解提示' : 'Teaching Notes',
+      undefined,
       takeaway,
       { left: 636, top: 252, width: 320, height: 258 },
       {
@@ -1341,7 +1402,7 @@ function getRolePalette(role: WorkedExampleConfig['role']): {
 }
 
 function buildInfoCard(
-  label: string,
+  label: string | undefined,
   items: string[],
   layout: { left: number; top: number; width: number; height: number },
   palette: ReturnType<typeof getRolePalette>,
@@ -1358,20 +1419,26 @@ function buildInfoCard(
   });
 
   // Keep fallback card copy inside the shape text layer, so it remains anchored to the card.
-  card.text = {
-    content: [
-      toTextHtml([label], {
+  const labelText = (label || '').trim();
+  const headingHtml = labelText
+    ? toTextHtml([labelText], {
         fontSize: 16,
         color: palette.accent,
         bold: true,
         lineHeight: 1.34,
-      }),
+      })
+    : '';
+  card.text = {
+    content: [
+      headingHtml,
       toBulletHtml(items, {
         fontSize: 15,
         color: '#0f172a',
         bulletColor: palette.accent,
       }),
-    ].join(''),
+    ]
+      .filter(Boolean)
+      .join(''),
     defaultFontName: DEFAULT_FONT,
     defaultColor: '#0f172a',
     align: 'top',
@@ -1381,6 +1448,41 @@ function buildInfoCard(
   };
 
   return [card];
+}
+
+function alignNamedShapeRow(
+  elements: PPTElement[],
+  shapeNames: string[],
+): PPTElement[] {
+  const indices = elements
+    .map((element, index) => ({ element, index }))
+    .filter(
+      (item): item is { element: PPTShapeElement; index: number } =>
+        item.element.type === 'shape' && shapeNames.includes(item.element.name || ''),
+    );
+  if (indices.length < 2) return elements;
+
+  const top = Math.min(...indices.map((item) => item.element.top));
+  const height = Math.max(...indices.map((item) => item.element.height));
+
+  return elements.map((element) => {
+    if (element.type !== 'shape') return element;
+    if (!shapeNames.includes(element.name || '')) return element;
+    return {
+      ...element,
+      top,
+      height,
+    };
+  });
+}
+
+function alignFallbackCardRows(elements: PPTElement[]): PPTElement[] {
+  const rows: string[][] = [
+    ['fallback_keypoints_card', 'fallback_takeaway_card'],
+    ['summary_takeaways_card', 'summary_pitfalls_card'],
+  ];
+
+  return rows.reduce((acc, rowNames) => alignNamedShapeRow(acc, rowNames), elements);
 }
 
 function getAspectRatioValue(ratio?: '16:9' | '4:3' | '1:1' | '9:16' | '3:4' | '21:9'): number {
@@ -2316,7 +2418,7 @@ function buildWorkedExampleSlideContent(
   }
 
   return {
-    elements,
+    elements: alignFallbackCardRows(elements),
     background: { type: 'solid', color: '#fcfcfd' },
     remark: outline.description,
   };
@@ -2552,6 +2654,28 @@ async function generateSlideContent(
   skipSemanticPipeline = false,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
+  const useLegacyElementPipeline = false;
+
+  if (!useLegacyElementPipeline) {
+    const semanticContent = await generateSemanticSlideContent(
+      outline,
+      aiCall,
+      agents,
+      courseContext,
+      rewriteReason,
+    );
+    if (semanticContent) {
+      log.info(`Using semantic slide content pipeline for: ${outline.title}`);
+      return semanticContent;
+    }
+
+    const fallbackContent = buildValidatedFallbackSlideContent(outline);
+    if (fallbackContent) {
+      log.warn(`Using semantic fallback slide content for: ${outline.title}`);
+      return fallbackContent;
+    }
+    return null;
+  }
 
   if (outline.workedExampleConfig && shouldUseLocalWorkedExampleTemplate(outline)) {
     const localTemplate = buildWorkedExampleSlideContent(outline, {

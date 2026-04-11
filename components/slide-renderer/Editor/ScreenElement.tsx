@@ -18,9 +18,15 @@ interface ScreenElementProps {
   readonly elementInfo: PPTElement;
   readonly elementIndex: number;
   readonly animate?: boolean;
+  readonly onElementAutoHeightChange?: (elementId: string, nextHeight: number) => void;
 }
 
-export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElementProps) {
+export function ScreenElement({
+  elementInfo,
+  elementIndex,
+  animate,
+  onElementAutoHeightChange,
+}: ScreenElementProps) {
   const CurrentElementComponent = useMemo(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- element components have varying prop signatures
     const elementTypeMap: Record<string, any> = {
@@ -64,7 +70,16 @@ export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElem
         fontFamily: theme.fontName,
       }}
     >
-      <CurrentElementComponent elementInfo={elementInfo} animate={animate} />
+      <CurrentElementComponent
+        elementInfo={elementInfo}
+        animate={animate}
+        onAutoHeightChange={
+          (elementInfo.type === ElementTypes.SHAPE || elementInfo.type === ElementTypes.TEXT) &&
+          onElementAutoHeightChange
+            ? (nextHeight: number) => onElementAutoHeightChange(elementInfo.id, nextHeight)
+            : undefined
+        }
+      />
     </div>
   );
 }

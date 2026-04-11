@@ -126,6 +126,7 @@ export function formatSceneArchetypeForPrompt(
       '页面骨架：concept',
       '- 用于概念讲解、直觉解释、性质说明。',
       '- 优先使用 paragraph、bullet_list、callout，必要时再加少量 equation。',
+      '- 如果核心是顺序性的机制、方法或操作流程，可改用 process_flow。',
       '- 保持一条主解释线，不要把页面拆成很多并列小片段。',
     ],
     definition: [
@@ -137,13 +138,14 @@ export function formatSceneArchetypeForPrompt(
     example: [
       '页面骨架：example',
       '- 用于讲题、走读、证明步骤、代码 walkthrough。',
-      '- 优先使用 example、equation、derivation_steps、code_walkthrough、callout。',
+      '- 优先使用 example、process_flow、equation、derivation_steps、code_walkthrough、callout。',
+      '- 短流程可用 horizontal process_flow，长流程或易续页流程优先 vertical process_flow。',
       '- 强调顺序性和连续讲解，不要平铺太多并列卡片。',
     ],
     bridge: [
       '页面骨架：bridge',
       '- 用于承上启下、关系梳理、分类、比较、框架总览。',
-      '- 优先使用 table、bullet_list、callout、definition、theorem。',
+      '- 优先使用 table、bullet_list、callout、definition、theorem，必要时可用 process_flow 做阶段关系。',
       '- 禁止用很多小标签、箭头、节点去暗示关系图；要压缩成稳定结构。',
     ],
     summary: [
@@ -165,6 +167,7 @@ export function formatSceneArchetypeForPrompt(
       'Slide archetype: concept',
       '- Use for concept explanation, intuition, and property-focused teaching.',
       '- Prefer paragraph, bullet_list, and callout, with only light equation support if needed.',
+      '- If the core teaching job is a sequence or mechanism, a process_flow is also acceptable.',
       '- Keep one clear explanatory thread instead of many parallel fragments.',
     ],
     definition: [
@@ -176,13 +179,14 @@ export function formatSceneArchetypeForPrompt(
     example: [
       'Slide archetype: example',
       '- Use for worked examples, walkthroughs, proof steps, and code tracing.',
-      '- Prefer example, equation, derivation_steps, code_walkthrough, and callout.',
+      '- Prefer example, process_flow, equation, derivation_steps, code_walkthrough, and callout.',
+      '- Use horizontal process_flow for short sequences and vertical process_flow for longer or continuation-prone flows.',
       '- Preserve order and continuity instead of spreading the content into parallel cards.',
     ],
     bridge: [
       'Slide archetype: bridge',
       '- Use for transitions, comparisons, classifications, relationships, and framework overviews.',
-      '- Prefer table, bullet_list, callout, definition, and theorem.',
+      '- Prefer table, bullet_list, callout, definition, and theorem; process_flow is acceptable for staged relationships.',
       '- Do not simulate a relationship graph with many small labels, nodes, or arrows; compress it into stable structures.',
     ],
     summary: [

@@ -76,6 +76,7 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   const currentSceneId = useStageStore((s) => s.currentSceneId);
   const outlines = useStageStore((s) => s.outlines);
   const failedOutlines = useStageStore((s) => s.failedOutlines);
+  const fallbackUsageCount = useStageStore((s) => s.fallbackUsageCount);
 
   /** 与 use-scene-generator 一致：按 order 对比大纲与已生成页，避免 generatingOutlines 残留导致顶栏误判 */
   const completedOrders = useMemo(() => new Set(scenes.map((s) => s.order)), [scenes]);
@@ -472,6 +473,25 @@ export function Header({ currentSceneTitle, titleActions }: HeaderProps) {
   const metaChipsRow = (
     <TooltipProvider delayDuration={250}>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-2">
+        {fallbackUsageCount > 0 ? (
+          <span
+            className={cn(
+              'inline-flex max-w-[min(100%,260px)] items-center rounded-lg border px-2 py-1 text-[11px] font-medium leading-tight',
+              'border-violet-200/80 bg-violet-50/90 text-violet-800',
+              'dark:border-violet-500/30 dark:bg-violet-950/35 dark:text-violet-100',
+            )}
+            title={
+              locale === 'zh-CN'
+                ? `当前会话已触发 ${fallbackUsageCount} 次生成兜底`
+                : `${fallbackUsageCount} fallback generation(s) used in this session`
+            }
+          >
+            {locale === 'zh-CN'
+              ? `Fallback ${fallbackUsageCount} 次`
+              : `Fallback ${fallbackUsageCount}`}
+          </span>
+        ) : null}
+
         {speechTtsBanner.variant === 'ready' ? (
           <Tooltip>
             <TooltipTrigger asChild>

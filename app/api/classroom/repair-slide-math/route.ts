@@ -181,6 +181,7 @@ function buildFallbackDocumentFromSlideContent(args: {
     version: 1,
     language: args.language,
     profile: 'math',
+    layout: { mode: 'stack' },
     archetype: 'definition',
     title: args.sceneTitle,
     blocks:

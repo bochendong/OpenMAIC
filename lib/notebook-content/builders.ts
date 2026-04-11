@@ -44,6 +44,7 @@ export function buildNotebookContentDocumentFromText(args: {
     version: 1,
     language: args.language || 'zh-CN',
     profile,
+    layout: { mode: 'stack' },
     archetype: 'concept',
     title: args.title,
     blocks: [
@@ -114,6 +115,7 @@ export function buildNotebookContentDocumentFromInsert(args: {
     version: 1,
     language: args.language || 'zh-CN',
     profile,
+    layout: { mode: 'stack' },
     archetype: profile === 'code' ? 'example' : 'concept',
     title: args.title,
     blocks,

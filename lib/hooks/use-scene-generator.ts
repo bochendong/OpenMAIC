@@ -39,6 +39,7 @@ interface SceneContentResult {
   contents?: unknown[];
   effectiveOutline?: SceneOutline;
   effectiveOutlines?: SceneOutline[];
+  fallbackUsed?: boolean;
   error?: string;
 }
 
@@ -46,6 +47,7 @@ interface SceneActionsResult {
   success: boolean;
   scene?: Scene;
   previousSpeeches?: string[];
+  fallbackUsed?: boolean;
   error?: string;
 }
 
@@ -599,6 +601,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               break;
             }
 
+            if (actionsResult.fallbackUsed) {
+              store.getState().incrementFallbackUsageCount();
+            }
+
             store.getState().addScene(actionsResult.scene);
             {
               const nextState = store.getState();
@@ -729,6 +735,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
           return;
         }
 
+        if (contentResult.fallbackUsed) {
+          store.getState().incrementFallbackUsageCount();
+        }
+
         const pageBundle = resolveGeneratedPageBundle(contentResult, outline);
         let outlines = [...state.outlines];
         let effectiveOutlines = pageBundle.effectiveOutlines;
@@ -768,6 +778,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
           if (!actionsResult.success || !actionsResult.scene) {
             store.getState().addFailedOutline(pageOutline);
             return;
+          }
+
+          if (actionsResult.fallbackUsed) {
+            store.getState().incrementFallbackUsageCount();
           }
 
           if (signal.aborted) {

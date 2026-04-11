@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import type {
   PPTElement,
   PPTLatexElement,
+  PPTLineElement,
   PPTShapeElement,
   ShapeText,
   PPTTableElement,
@@ -15,6 +16,8 @@ import type {
   NotebookContentBlock,
   NotebookContentContinuation,
   NotebookContentDocument,
+  NotebookContentGridLayout,
+  NotebookContentLayout,
   NotebookContentProfile,
   NotebookSlideArchetype,
 } from './schema';
@@ -26,6 +29,7 @@ import {
 import { chemistryTextToHtml } from './chemistry';
 import { resolveNotebookContentProfile } from './profile';
 import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
+import { applyAutoHeightReflow } from '@/lib/slide-layout-reflow';
 
 const CANVAS_WIDTH = 1000;
 const CANVAS_HEIGHT = 562.5;
@@ -34,6 +38,10 @@ const CONTENT_WIDTH = 872;
 const CONTENT_BOTTOM = 522;
 const CARD_INSET_X = 18;
 const CARD_INSET_Y = 12;
+const GRID_GAP_X = 14;
+const GRID_GAP_Y = 12;
+const GRID_MIN_CELL_HEIGHT = 112;
+const STACK_UNDERFILL_THRESHOLD = 0.72;
 const CJK_TEXT_REGEX = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 type ContentCardTone = {
   fill: string;
@@ -47,6 +55,7 @@ type ArchetypeLayoutSettings = {
   titleFontSize: number;
   accentHeight: number;
 };
+type ProcessFlowBlock = Extract<NotebookContentBlock, { type: 'process_flow' }>;
 const DEFAULT_ARCHETYPE: NotebookSlideArchetype = 'concept';
 const ARCHETYPE_ALLOWED_BLOCKS: Record<NotebookSlideArchetype, NotebookContentBlock['type'][]> = {
   intro: ['heading', 'paragraph', 'bullet_list', 'callout', 'definition', 'theorem', 'equation'],
@@ -59,6 +68,7 @@ const ARCHETYPE_ALLOWED_BLOCKS: Record<NotebookSlideArchetype, NotebookContentBl
     'derivation_steps',
     'code_block',
     'code_walkthrough',
+    'process_flow',
     'table',
     'callout',
     'definition',
@@ -93,6 +103,7 @@ const ARCHETYPE_ALLOWED_BLOCKS: Record<NotebookSlideArchetype, NotebookContentBl
     'definition',
     'theorem',
     'example',
+    'process_flow',
     'chem_formula',
     'chem_equation',
   ],
@@ -101,6 +112,7 @@ const ARCHETYPE_ALLOWED_BLOCKS: Record<NotebookSlideArchetype, NotebookContentBl
     'paragraph',
     'bullet_list',
     'equation',
+    'process_flow',
     'table',
     'callout',
     'definition',
@@ -113,6 +125,7 @@ const ARCHETYPE_ALLOWED_BLOCKS: Record<NotebookSlideArchetype, NotebookContentBl
     'paragraph',
     'bullet_list',
     'equation',
+    'process_flow',
     'table',
     'callout',
     'definition',
@@ -126,6 +139,31 @@ function resolveDocumentArchetype(
   document: Pick<NotebookContentDocument, 'archetype'>,
 ): NotebookSlideArchetype {
   return document.archetype || DEFAULT_ARCHETYPE;
+}
+
+function resolveDocumentLayout(
+  document: Pick<NotebookContentDocument, 'layout'>,
+): NotebookContentLayout {
+  return document.layout || { mode: 'stack' };
+}
+
+function resolveGridLayout(
+  layout: NotebookContentGridLayout,
+  args: { blockCount: number; bodyHeight: number },
+): { columns: number; rows: number; capacity: number } {
+  const columns = Math.max(1, Math.min(3, layout.columns || 2));
+  const maxRowsByHeight = Math.max(
+    1,
+    Math.floor((args.bodyHeight + GRID_GAP_Y) / (GRID_MIN_CELL_HEIGHT + GRID_GAP_Y)),
+  );
+  const fallbackRows = Math.max(1, Math.min(2, maxRowsByHeight));
+  const requestedRows = layout.rows || fallbackRows;
+  const rows = Math.max(1, Math.min(Math.min(3, maxRowsByHeight), requestedRows));
+  return {
+    columns,
+    rows,
+    capacity: columns * rows,
+  };
 }
 
 function getArchetypeLayoutSettings(archetype: NotebookSlideArchetype): ArchetypeLayoutSettings {
@@ -560,6 +598,29 @@ function createRectShape(args: {
   };
 }
 
+function createLineElement(args: {
+  start: [number, number];
+  end: [number, number];
+  color: string;
+  width?: number;
+  points?: [PPTLineElement['points'][0], PPTLineElement['points'][1]];
+  groupId?: string;
+}): PPTLineElement {
+  return {
+    id: `line_${nanoid(8)}`,
+    type: 'line',
+    left: 0,
+    top: 0,
+    groupId: args.groupId,
+    width: args.width ?? 2,
+    start: args.start,
+    end: args.end,
+    style: 'solid',
+    color: args.color,
+    points: args.points || ['', ''],
+  };
+}
+
 function createCardGroupId(prefix = 'semantic_card'): string {
   return `${prefix}_${nanoid(8)}`;
 }
@@ -706,6 +767,557 @@ function createTableElement(args: {
   return elements;
 }
 
+function getProcessFlowContextTone(
+  tone: ProcessFlowBlock['context'][number]['tone'],
+  fallbackAccent: string,
+): ContentCardTone {
+  switch (tone) {
+    case 'info':
+      return { fill: '#eff6ff', border: '#bfdbfe', accent: '#2563eb' };
+    case 'warning':
+      return { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' };
+    case 'success':
+      return { fill: '#ecfdf5', border: '#a7f3d0', accent: '#16a34a' };
+    case 'neutral':
+    default:
+      return { fill: '#ffffff', border: '#cbd5e1', accent: fallbackAccent };
+  }
+}
+
+function measureProcessFlowContextLayout(
+  context: ProcessFlowBlock['context'],
+): {
+  columns: number;
+  cellWidth: number;
+  gapX: number;
+  gapY: number;
+  rowHeights: number[];
+  totalHeight: number;
+} {
+  if (context.length === 0) {
+    return {
+      columns: 0,
+      cellWidth: CONTENT_WIDTH,
+      gapX: 10,
+      gapY: 10,
+      rowHeights: [],
+      totalHeight: 0,
+    };
+  }
+
+  const columns = context.length === 4 ? 2 : Math.min(3, context.length);
+  const gapX = 10;
+  const gapY = 10;
+  const cellWidth = (CONTENT_WIDTH - Math.max(0, columns - 1) * gapX) / columns;
+  const rowCount = Math.ceil(context.length / columns);
+  const rowHeights = Array.from({ length: rowCount }, () => 0);
+
+  context.forEach((item, index) => {
+    const row = Math.floor(index / columns);
+    const bodyHeight = fitParagraphBlockToHeight({
+      text: item.text,
+      widthPx: Math.max(120, cellWidth - CARD_INSET_X * 2),
+      fontSizePx: 14,
+      lineHeightPx: 18,
+      maxHeightPx: 220,
+      color: '#334155',
+    }).height;
+    rowHeights[row] = Math.max(rowHeights[row], Math.min(132, Math.max(72, bodyHeight + 34)));
+  });
+
+  return {
+    columns,
+    cellWidth,
+    gapX,
+    gapY,
+    rowHeights,
+    totalHeight:
+      rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(0, rowHeights.length - 1) * gapY,
+  };
+}
+
+function estimateProcessFlowSummaryHeight(
+  summary: string,
+  widthPx: number,
+): number {
+  const paragraph = fitParagraphBlockToHeight({
+    text: summary,
+    widthPx,
+    fontSizePx: 14,
+    lineHeightPx: 20,
+    maxHeightPx: 220,
+    color: '#334155',
+  });
+  return paragraph.height + 26;
+}
+
+function fitProcessFlowSummaryCard(args: {
+  summary: string;
+  language: 'zh-CN' | 'en-US';
+  widthPx: number;
+  maxHeightPx: number;
+  accent: string;
+}): { html: string; height: number } {
+  const paragraph = fitParagraphBlockToHeight({
+    text: args.summary,
+    widthPx: args.widthPx,
+    fontSizePx: 14,
+    lineHeightPx: 20,
+    maxHeightPx: Math.max(28, args.maxHeightPx - 28),
+    color: '#334155',
+  });
+
+  return {
+    html: [
+      `<p style="font-size:13px;color:${args.accent};"><strong>${escapeHtml(
+        args.language === 'en-US' ? 'Flow Summary' : '流程收束',
+      )}</strong></p>`,
+      paragraph.html,
+    ].join(''),
+    height: Math.min(args.maxHeightPx, Math.max(58, paragraph.height + 26)),
+  };
+}
+
+function fitProcessFlowContextCard(args: {
+  item: ProcessFlowBlock['context'][number];
+  widthPx: number;
+  maxHeightPx: number;
+  tone: ContentCardTone;
+}): { html: string; height: number } {
+  const body = fitParagraphBlockToHeight({
+    text: args.item.text,
+    widthPx: args.widthPx,
+    fontSizePx: 14,
+    lineHeightPx: 18,
+    maxHeightPx: Math.max(24, args.maxHeightPx - 30),
+    color: '#334155',
+  });
+
+  return {
+    html: [
+      `<p style="font-size:13px;color:${args.tone.accent};"><strong>${renderInlineLatexToHtml(args.item.label)}</strong></p>`,
+      body.html,
+    ].join(''),
+    height: Math.min(args.maxHeightPx, Math.max(72, body.height + 34)),
+  };
+}
+
+function estimateProcessFlowStepCardHeight(args: {
+  step: ProcessFlowBlock['steps'][number];
+  widthPx: number;
+  orientation: ProcessFlowBlock['orientation'];
+}): number {
+  const titleHeight = fitGridHeadingToHeight({
+    text: args.step.title,
+    widthPx: args.widthPx,
+    maxHeightPx: 48,
+    color: '#0f172a',
+  }).height;
+  const detailHeight = fitParagraphBlockToHeight({
+    text: args.step.detail,
+    widthPx: args.widthPx,
+    fontSizePx: args.orientation === 'horizontal' ? 13 : 14,
+    lineHeightPx: args.orientation === 'horizontal' ? 18 : 20,
+    maxHeightPx: 260,
+    color: '#334155',
+  }).height;
+  const noteHeight = args.step.note
+    ? fitParagraphBlockToHeight({
+        text: args.step.note,
+        widthPx: args.widthPx,
+        fontSizePx: 12,
+        lineHeightPx: 16,
+        maxHeightPx: 80,
+        color: '#475569',
+      }).height + 6
+    : 0;
+
+  return Math.max(
+    args.orientation === 'horizontal' ? 112 : 84,
+    titleHeight + detailHeight + noteHeight + 28,
+  );
+}
+
+function fitProcessFlowStepCard(args: {
+  step: ProcessFlowBlock['steps'][number];
+  stepIndex: number;
+  language: 'zh-CN' | 'en-US';
+  widthPx: number;
+  maxHeightPx: number;
+  orientation: ProcessFlowBlock['orientation'];
+  tone: ContentCardTone;
+}): { html: string; height: number } {
+  const titleFit = fitGridHeadingToHeight({
+    text: args.step.title,
+    widthPx: args.widthPx,
+    maxHeightPx: 48,
+    color: '#0f172a',
+  });
+  const labelHtml = `<p style="font-size:12px;color:${args.tone.accent};"><strong>${escapeHtml(
+    args.language === 'en-US' ? `Step ${args.stepIndex + 1}` : `步骤 ${args.stepIndex + 1}`,
+  )}</strong></p>`;
+  const noteReserve = args.step.note ? 28 : 0;
+  const detailFit = fitParagraphBlockToHeight({
+    text: args.step.detail,
+    widthPx: args.widthPx,
+    fontSizePx: args.orientation === 'horizontal' ? 13 : 14,
+    lineHeightPx: args.orientation === 'horizontal' ? 18 : 20,
+    maxHeightPx: Math.max(28, args.maxHeightPx - titleFit.height - noteReserve - 24),
+    color: '#334155',
+  });
+  const noteHtml = args.step.note
+    ? fitParagraphBlockToHeight({
+        text: args.step.note,
+        widthPx: args.widthPx,
+        fontSizePx: 12,
+        lineHeightPx: 16,
+        maxHeightPx: 56,
+        color: '#475569',
+      }).html
+    : '';
+
+  const height =
+    18 +
+    titleFit.height +
+    detailFit.height +
+    (args.step.note ? 22 : 0);
+
+  return {
+    html: [labelHtml, titleFit.html, detailFit.html, noteHtml].filter(Boolean).join(''),
+    height: Math.min(args.maxHeightPx, Math.max(72, height)),
+  };
+}
+
+function estimateProcessFlowBlockHeight(args: {
+  block: ProcessFlowBlock;
+  language: 'zh-CN' | 'en-US';
+}): number {
+  const titleHeight = args.block.title ? 34 : 0;
+  const contextLayout = measureProcessFlowContextLayout(args.block.context);
+  const contextHeight = contextLayout.totalHeight > 0 ? contextLayout.totalHeight + 14 : 0;
+  const summaryHeight = args.block.summary
+    ? estimateProcessFlowSummaryHeight(args.block.summary, CONTENT_WIDTH - CARD_INSET_X * 2) + 12
+    : 0;
+
+  if (args.block.orientation === 'horizontal') {
+    const gapX = args.block.steps.length > 3 ? 14 : 18;
+    const stepWidth =
+      (CONTENT_WIDTH - Math.max(0, args.block.steps.length - 1) * gapX) /
+      Math.max(args.block.steps.length, 1);
+    const innerWidth = Math.max(104, stepWidth - CARD_INSET_X * 2);
+    const stepHeight = Math.min(
+      170,
+      Math.max(
+        112,
+        ...args.block.steps.map((step) =>
+          estimateProcessFlowStepCardHeight({
+            step,
+            widthPx: innerWidth,
+            orientation: 'horizontal',
+          }),
+        ),
+      ),
+    );
+    return titleHeight + contextHeight + stepHeight + summaryHeight + 12;
+  }
+
+  const stepWidth = CONTENT_WIDTH - 84;
+  const stepHeights = args.block.steps.map((step) =>
+    Math.min(
+      132,
+      estimateProcessFlowStepCardHeight({
+        step,
+        widthPx: stepWidth - CARD_INSET_X * 2,
+        orientation: 'vertical',
+      }),
+    ),
+  );
+
+  return (
+    titleHeight +
+    contextHeight +
+    stepHeights.reduce((sum, value) => sum + value, 0) +
+    Math.max(0, stepHeights.length - 1) * 12 +
+    summaryHeight +
+    12
+  );
+}
+
+function renderProcessFlowBlock(args: {
+  block: ProcessFlowBlock;
+  top: number;
+  language: 'zh-CN' | 'en-US';
+  titleAccent: string;
+  cardPalettes: readonly ContentCardTone[];
+}): { elements: PPTElement[]; height: number } {
+  const elements: PPTElement[] = [];
+  const groupId = createCardGroupId('process_flow');
+  let cursorTop = args.top;
+
+  if (args.block.title) {
+    elements.push(
+      createTextElement({
+        left: CONTENT_LEFT,
+        top: cursorTop,
+        width: CONTENT_WIDTH,
+        height: 28,
+        groupId,
+        html: `<p style="font-size:18px;color:${args.titleAccent};"><strong>${renderInlineLatexToHtml(args.block.title)}</strong></p>`,
+        color: args.titleAccent,
+        textType: 'itemTitle',
+      }),
+    );
+    cursorTop += 34;
+  }
+
+  const contextLayout = measureProcessFlowContextLayout(args.block.context);
+  if (args.block.context.length > 0) {
+    let rowCursorTop = cursorTop;
+    let rowIndex = 0;
+    args.block.context.forEach((item, index) => {
+      const column = index % contextLayout.columns;
+      const row = Math.floor(index / contextLayout.columns);
+      if (row !== rowIndex) {
+        rowCursorTop += contextLayout.rowHeights[rowIndex] + contextLayout.gapY;
+        rowIndex = row;
+      }
+      const left = CONTENT_LEFT + column * (contextLayout.cellWidth + contextLayout.gapX);
+      const rowHeight = contextLayout.rowHeights[row];
+      const fallbackAccent = args.cardPalettes[index % args.cardPalettes.length]?.accent || args.titleAccent;
+      const tone = getProcessFlowContextTone(item.tone, fallbackAccent);
+      const fitted = fitProcessFlowContextCard({
+        item,
+        widthPx: Math.max(120, contextLayout.cellWidth - CARD_INSET_X * 2),
+        maxHeightPx: rowHeight,
+        tone,
+      });
+
+      elements.push(
+        createRectShape({
+          left,
+          top: rowCursorTop,
+          width: contextLayout.cellWidth,
+          height: rowHeight,
+          fill: tone.fill,
+          outlineColor: tone.border,
+          groupId,
+          text: createShapeText({
+            html: fitted.html,
+            color: '#334155',
+            textType: 'content',
+            lineHeight: 1.32,
+            paragraphSpace: 4,
+            align: 'top',
+          }),
+        }),
+      );
+    });
+
+    cursorTop += contextLayout.totalHeight + 14;
+  }
+
+  if (args.block.orientation === 'horizontal') {
+    const gapX = args.block.steps.length > 3 ? 14 : 18;
+    const stepWidth =
+      (CONTENT_WIDTH - Math.max(0, args.block.steps.length - 1) * gapX) /
+      Math.max(args.block.steps.length, 1);
+    const innerWidth = Math.max(104, stepWidth - CARD_INSET_X * 2);
+    const stepHeight = Math.min(
+      170,
+      Math.max(
+        112,
+        ...args.block.steps.map((step) =>
+          estimateProcessFlowStepCardHeight({
+            step,
+            widthPx: innerWidth,
+            orientation: 'horizontal',
+          }),
+        ),
+      ),
+    );
+
+    const connectorY = cursorTop + stepHeight / 2;
+    args.block.steps.forEach((step, index) => {
+      const left = CONTENT_LEFT + index * (stepWidth + gapX);
+      const tone = args.cardPalettes[index % args.cardPalettes.length];
+      const fitted = fitProcessFlowStepCard({
+        step,
+        stepIndex: index,
+        language: args.language,
+        widthPx: innerWidth,
+        maxHeightPx: stepHeight - CARD_INSET_Y * 2,
+        orientation: 'horizontal',
+        tone,
+      });
+
+      if (index < args.block.steps.length - 1) {
+        const nextLeft = CONTENT_LEFT + (index + 1) * (stepWidth + gapX);
+        elements.push(
+          createLineElement({
+            start: [left + stepWidth, connectorY],
+            end: [nextLeft - 3, connectorY],
+            color: '#94a3b8',
+            width: 2,
+            points: ['', 'arrow'],
+            groupId,
+          }),
+        );
+      }
+
+      elements.push(
+        createRectShape({
+          left,
+          top: cursorTop,
+          width: stepWidth,
+          height: stepHeight,
+          fill: tone.fill,
+          outlineColor: tone.border,
+          groupId,
+          text: createShapeText({
+            html: fitted.html,
+            color: '#334155',
+            textType: 'content',
+            lineHeight: 1.32,
+            paragraphSpace: 4,
+            align: 'top',
+          }),
+        }),
+      );
+    });
+
+    cursorTop += stepHeight + 12;
+  } else {
+    const markerSize = 24;
+    const markerLeft = CONTENT_LEFT;
+    const timelineX = markerLeft + markerSize / 2;
+    const cardLeft = CONTENT_LEFT + 44;
+    const cardWidth = CONTENT_WIDTH - 44;
+    const stepWidth = Math.max(140, cardWidth - CARD_INSET_X * 2);
+    const stepHeights = args.block.steps.map((step) =>
+      Math.min(
+        132,
+        estimateProcessFlowStepCardHeight({
+          step,
+          widthPx: stepWidth,
+          orientation: 'vertical',
+        }),
+      ),
+    );
+    const markerCenters: number[] = [];
+    let localTop = cursorTop;
+
+    stepHeights.forEach((height) => {
+      markerCenters.push(localTop + 18);
+      localTop += height + 12;
+    });
+
+    if (markerCenters.length > 1) {
+      elements.push(
+        createLineElement({
+          start: [timelineX, markerCenters[0]],
+          end: [timelineX, markerCenters[markerCenters.length - 1]],
+          color: '#cbd5e1',
+          width: 3,
+          groupId,
+        }),
+      );
+    }
+
+    localTop = cursorTop;
+    args.block.steps.forEach((step, index) => {
+      const tone = args.cardPalettes[index % args.cardPalettes.length];
+      const stepHeight = stepHeights[index];
+      const fitted = fitProcessFlowStepCard({
+        step,
+        stepIndex: index,
+        language: args.language,
+        widthPx: stepWidth,
+        maxHeightPx: stepHeight - CARD_INSET_Y * 2,
+        orientation: 'vertical',
+        tone,
+      });
+      const markerCenterY = markerCenters[index];
+
+      elements.push(
+        createRectShape({
+          left: markerLeft,
+          top: markerCenterY - markerSize / 2,
+          width: markerSize,
+          height: markerSize,
+          fill: tone.accent,
+          groupId,
+        }),
+        createTextElement({
+          left: markerLeft,
+          top: markerCenterY - markerSize / 2 + 2,
+          width: markerSize,
+          height: markerSize - 4,
+          groupId,
+          html: `<p style="font-size:12px;color:#ffffff;text-align:center;"><strong>${index + 1}</strong></p>`,
+          color: '#ffffff',
+          textType: 'notes',
+        }),
+        createRectShape({
+          left: cardLeft,
+          top: localTop,
+          width: cardWidth,
+          height: stepHeight,
+          fill: tone.fill,
+          outlineColor: tone.border,
+          groupId,
+          text: createShapeText({
+            html: fitted.html,
+            color: '#334155',
+            textType: 'content',
+            lineHeight: 1.32,
+            paragraphSpace: 4,
+            align: 'top',
+          }),
+        }),
+      );
+
+      localTop += stepHeight + 12;
+    });
+
+    cursorTop = localTop;
+  }
+
+  if (args.block.summary) {
+    const fittedSummary = fitProcessFlowSummaryCard({
+      summary: args.block.summary,
+      language: args.language,
+      widthPx: CONTENT_WIDTH - CARD_INSET_X * 2,
+      maxHeightPx: 120,
+      accent: args.titleAccent,
+    });
+    elements.push(
+      createRectShape({
+        left: CONTENT_LEFT,
+        top: cursorTop,
+        width: CONTENT_WIDTH,
+        height: fittedSummary.height,
+        fill: '#f8fafc',
+        outlineColor: '#cbd5e1',
+        groupId,
+        text: createShapeText({
+          html: fittedSummary.html,
+          color: '#334155',
+          textType: 'content',
+          lineHeight: 1.32,
+          paragraphSpace: 4,
+          align: 'top',
+        }),
+      }),
+    );
+    cursorTop += fittedSummary.height + 12;
+  }
+
+  return {
+    elements,
+    height: cursorTop - args.top,
+  };
+}
+
 function expandBlocks(
   blocks: NotebookContentDocument['blocks'],
   language: 'zh-CN' | 'en-US',
@@ -842,6 +1454,80 @@ function splitCodeWalkthroughBlockForPagination(
   return chunks;
 }
 
+function splitProcessFlowBlockForPagination(
+  block: ProcessFlowBlock,
+): NotebookContentBlock[] {
+  if (block.orientation === 'horizontal') {
+    const hasDenseStep = block.steps.some(
+      (step) =>
+        step.title.length > 28 || step.detail.length > 100 || (step.note?.length ?? 0) > 72,
+    );
+    const maxStepsPerPage = hasDenseStep || block.context.length >= 3 ? 3 : 4;
+    if (block.steps.length <= maxStepsPerPage) return [block];
+
+    const chunks: NotebookContentBlock[] = [];
+    for (let index = 0; index < block.steps.length; index += maxStepsPerPage) {
+      const isFirst = index === 0;
+      const isLast = index + maxStepsPerPage >= block.steps.length;
+      chunks.push({
+        ...block,
+        context: isFirst ? block.context : [],
+        steps: block.steps.slice(index, index + maxStepsPerPage),
+        summary: isLast ? block.summary : undefined,
+      });
+    }
+    return chunks;
+  }
+
+  const maxBlockHeight = 334;
+  const chunks: NotebookContentBlock[] = [];
+  let currentSteps: ProcessFlowBlock['steps'] = [];
+
+  const buildCandidate = (
+    steps: ProcessFlowBlock['steps'],
+    includeContext: boolean,
+    includeSummary: boolean,
+  ): ProcessFlowBlock => ({
+    ...block,
+    context: includeContext ? block.context : [],
+    steps,
+    summary: includeSummary ? block.summary : undefined,
+  });
+
+  for (let index = 0; index < block.steps.length; index += 1) {
+    const step = block.steps[index];
+    const candidateSteps = [...currentSteps, step];
+    const hasMoreSteps = index < block.steps.length - 1;
+    const candidateBlock = buildCandidate(
+      candidateSteps,
+      chunks.length === 0,
+      !hasMoreSteps && Boolean(block.summary),
+    );
+    const candidateHeight = estimateProcessFlowBlockHeight({
+      block: candidateBlock,
+      language: 'zh-CN',
+    });
+
+    if (currentSteps.length > 0 && candidateHeight > maxBlockHeight) {
+      chunks.push(
+        buildCandidate(currentSteps, chunks.length === 0, false),
+      );
+      currentSteps = [step];
+      continue;
+    }
+
+    currentSteps = candidateSteps;
+  }
+
+  if (currentSteps.length > 0) {
+    chunks.push(
+      buildCandidate(currentSteps, chunks.length === 0, Boolean(block.summary)),
+    );
+  }
+
+  return chunks.length > 0 ? chunks : [block];
+}
+
 function prepareBlocksForPagination(
   blocks: NotebookContentDocument['blocks'],
   language: 'zh-CN' | 'en-US',
@@ -864,10 +1550,318 @@ function prepareBlocksForPagination(
       continue;
     }
 
+    if (block.type === 'process_flow') {
+      preSplitBlocks.push(...splitProcessFlowBlockForPagination(block));
+      continue;
+    }
+
     preSplitBlocks.push(block);
   }
 
   return expandBlocks(preSplitBlocks, language);
+}
+
+function deriveGridHeadingFromText(text: string, language: 'zh-CN' | 'en-US'): string {
+  const raw = text.replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  const splitRegex = language === 'en-US' ? /[.;:!?]/ : /[。；：！？]/;
+  const firstSegment = raw.split(splitRegex)[0]?.trim() || raw;
+  const maxChars = language === 'en-US' ? 34 : 18;
+  if (firstSegment.length <= maxChars) return firstSegment;
+  return `${firstSegment.slice(0, maxChars).trim()}…`;
+}
+
+function blockToGridHeading(language: 'zh-CN' | 'en-US', block: NotebookContentBlock): string {
+  switch (block.type) {
+    case 'heading':
+      return block.text;
+    case 'paragraph':
+      return deriveGridHeadingFromText(block.text, language);
+    case 'bullet_list':
+      return deriveGridHeadingFromText(block.items[0] || '', language);
+    case 'equation':
+      return language === 'en-US' ? 'Formula' : '公式';
+    case 'matrix':
+      return block.label || (language === 'en-US' ? 'Matrix' : '矩阵');
+    case 'derivation_steps':
+      return block.title || (language === 'en-US' ? 'Derivation' : '推导');
+    case 'code_block':
+      return block.caption || (language === 'en-US' ? 'Code' : '代码');
+    case 'code_walkthrough':
+      return block.title || (language === 'en-US' ? 'Code Walkthrough' : '代码讲解');
+    case 'table':
+      return block.caption || (language === 'en-US' ? 'Table' : '表格');
+    case 'callout':
+      return block.title || (language === 'en-US' ? 'Callout' : '提示');
+    case 'definition':
+      return block.title || (language === 'en-US' ? 'Definition' : '定义');
+    case 'theorem':
+      return block.title || (language === 'en-US' ? 'Theorem' : '定理');
+    case 'example':
+      return block.title || (language === 'en-US' ? 'Example' : '例题');
+    case 'process_flow':
+      return block.title || (language === 'en-US' ? 'Flow' : '流程');
+    case 'chem_formula':
+      return language === 'en-US' ? 'Chemical Formula' : '化学式';
+    case 'chem_equation':
+      return language === 'en-US' ? 'Chemical Equation' : '化学方程式';
+    default:
+      return language === 'en-US' ? 'Content' : '内容';
+  }
+}
+
+function blockToGridBody(language: 'zh-CN' | 'en-US', block: NotebookContentBlock): string[] {
+  switch (block.type) {
+    case 'heading':
+      return [];
+    case 'paragraph':
+      return [block.text];
+    case 'bullet_list':
+      return block.items.slice(0, 6);
+    case 'equation':
+      return [block.latex, ...(block.caption ? [block.caption] : [])];
+    case 'matrix':
+      return [
+        ...block.rows.slice(0, 3).map((row) => row.join('  ')),
+        ...(block.caption ? [block.caption] : []),
+      ];
+    case 'derivation_steps':
+      return block.steps.slice(0, 4).map((step, idx) => {
+        const prefix = language === 'en-US' ? `Step ${idx + 1}: ` : `步骤 ${idx + 1}：`;
+        return `${prefix}${step.expression}${step.explanation ? ` — ${step.explanation}` : ''}`;
+      });
+    case 'code_block':
+      return block.code.split('\n').slice(0, 6);
+    case 'code_walkthrough':
+      return block.steps.slice(0, 4).map((step, idx) => {
+        const label = step.title || step.focus;
+        const prefix = language === 'en-US' ? `Step ${idx + 1}: ` : `步骤 ${idx + 1}：`;
+        return `${prefix}${label ? `${label} - ` : ''}${step.explanation}`;
+      });
+    case 'table': {
+      const header = block.headers?.length ? [block.headers.join(' | ')] : [];
+      const rows = block.rows.slice(0, 4).map((row) => row.join(' | '));
+      return [...header, ...rows];
+    }
+    case 'callout':
+      return [block.text];
+    case 'definition':
+      return [block.text];
+    case 'theorem':
+      return [block.text, ...(block.proofIdea ? [block.proofIdea] : [])];
+    case 'example':
+      return [
+        block.problem,
+        ...block.steps.slice(0, 3).map(
+          (step, idx) => `${language === 'en-US' ? `Step ${idx + 1}` : `步骤 ${idx + 1}`}：${step}`,
+        ),
+      ];
+    case 'process_flow':
+      return [
+        ...block.context.slice(0, 3).map((item) => `${item.label}: ${item.text}`),
+        ...block.steps.slice(0, 3).map(
+          (step, idx) =>
+            `${language === 'en-US' ? `Step ${idx + 1}` : `步骤 ${idx + 1}`}：${step.title} - ${step.detail}`,
+        ),
+        ...(block.summary ? [block.summary] : []),
+      ];
+    case 'chem_formula':
+      return [block.formula, ...(block.caption ? [block.caption] : [])];
+    case 'chem_equation':
+      return [block.equation, ...(block.caption ? [block.caption] : [])];
+    default:
+      return [];
+  }
+}
+
+function fitGridHeadingToHeight(args: {
+  text: string;
+  widthPx: number;
+  maxHeightPx: number;
+  color: string;
+}): { html: string; height: number } {
+  if (!args.text.trim()) {
+    return { html: '', height: 0 };
+  }
+  const maxChars = estimateCharsPerLine(args.text, args.widthPx, 16);
+  const wrapped = wrapTextToLines(args.text, maxChars);
+  const maxLines = Math.max(1, Math.min(2, Math.floor((args.maxHeightPx - 10) / 22)));
+  const fitted = clampWrappedLines(wrapped, maxLines, maxChars);
+  return {
+    html: fitted
+      .map(
+        (line) =>
+          `<p style="font-size:16px;color:${args.color};line-height:22px;"><strong>${renderInlineLatexToHtml(line)}</strong></p>`,
+      )
+      .join(''),
+    height: Math.max(24, fitted.length * 22 + 8),
+  };
+}
+
+function fitGridBodyToHeight(args: {
+  language: 'zh-CN' | 'en-US';
+  block: NotebookContentBlock;
+  widthPx: number;
+  maxHeightPx: number;
+  tone: ContentCardTone;
+}): { html: string; height: number } {
+  if (args.maxHeightPx <= 24) return { html: '', height: 0 };
+
+  if (args.block.type === 'paragraph') {
+    return fitParagraphBlockToHeight({
+      text: args.block.text,
+      widthPx: args.widthPx,
+      fontSizePx: 14,
+      lineHeightPx: 20,
+      maxHeightPx: args.maxHeightPx,
+      color: '#334155',
+    });
+  }
+
+  if (args.block.type === 'bullet_list') {
+    return fitBulletListBlockToHeight({
+      items: args.block.items,
+      widthPx: args.widthPx,
+      fontSizePx: 14,
+      lineHeightPx: 20,
+      maxHeightPx: args.maxHeightPx,
+      color: '#334155',
+      bulletColor: args.tone.accent,
+      paragraphGapPx: 5,
+    });
+  }
+
+  const bodyLines = blockToGridBody(args.language, args.block);
+  return fitBulletListBlockToHeight({
+    items: bodyLines,
+    widthPx: args.widthPx,
+    fontSizePx: 14,
+    lineHeightPx: 20,
+    maxHeightPx: args.maxHeightPx,
+    color: '#334155',
+    bulletColor: args.tone.accent,
+    paragraphGapPx: 5,
+  });
+}
+
+function hasBoxGeometry(element: PPTElement): element is PPTElement & {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+} {
+  return (
+    typeof (element as { left?: unknown }).left === 'number' &&
+    typeof (element as { top?: unknown }).top === 'number' &&
+    typeof (element as { width?: unknown }).width === 'number' &&
+    typeof (element as { height?: unknown }).height === 'number'
+  );
+}
+
+type ShapeBoxElement = PPTShapeElement & {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function buildStackUnderfillExpansionRequests(args: {
+  elements: PPTElement[];
+  bodyTop: number;
+  usedBottom: number;
+}): Record<string, number> {
+  const contentHeight = CONTENT_BOTTOM - args.bodyTop;
+  const usedHeight = Math.max(0, args.usedBottom - args.bodyTop);
+  const fillRatio = contentHeight > 0 ? usedHeight / contentHeight : 1;
+  if (fillRatio >= STACK_UNDERFILL_THRESHOLD) return {};
+
+  const extraSpace = Math.max(0, CONTENT_BOTTOM - args.usedBottom);
+  if (extraSpace < 18) return {};
+
+  const candidates = args.elements.filter((element): element is ShapeBoxElement => {
+    if (element.type !== 'shape') return false;
+    if (!hasBoxGeometry(element)) return false;
+    if (element.top < args.bodyTop - 1) return false;
+    if (element.left > CONTENT_LEFT + 4) return false;
+    if (element.width < CONTENT_WIDTH * 0.75) return false;
+    return Boolean(element.text?.content?.trim());
+  });
+  if (candidates.length === 0) return {};
+
+  const totalWeight = candidates.reduce((sum, item) => sum + Math.max(40, item.height), 0);
+  if (totalWeight <= 0) return {};
+
+  const requestedHeights: Record<string, number> = {};
+  candidates.forEach((candidate, index) => {
+    const weight = Math.max(40, candidate.height);
+    const rawDelta = (extraSpace * weight) / totalWeight;
+    const roundedDelta = index === candidates.length - 1 ? rawDelta : Math.floor(rawDelta);
+    requestedHeights[candidate.id] = Math.max(candidate.height, candidate.height + roundedDelta);
+  });
+  return requestedHeights;
+}
+
+function estimateGridBodyHeight(args: {
+  language: 'zh-CN' | 'en-US';
+  block: NotebookContentBlock;
+  widthPx: number;
+}): number {
+  if (args.block.type === 'paragraph') {
+    const charsPerLine = estimateCharsPerLine(args.block.text, args.widthPx, 14);
+    return estimateParagraphHeight(args.block.text, charsPerLine, 20);
+  }
+
+  if (args.block.type === 'bullet_list') {
+    const joined = args.block.items.join('\n');
+    const charsPerLine = estimateCharsPerLine(joined, Math.max(120, args.widthPx - 16), 14);
+    return estimateParagraphStackHeight(args.block.items, charsPerLine, 20, 5);
+  }
+
+  const bodyLines = blockToGridBody(args.language, args.block);
+  const joined = bodyLines.join('\n');
+  const charsPerLine = estimateCharsPerLine(joined, Math.max(120, args.widthPx - 16), 14);
+  return estimateParagraphStackHeight(bodyLines, charsPerLine, 20, 5);
+}
+
+function computeAdaptiveGridRowHeights(args: {
+  gridRows: number;
+  gridColumns: number;
+  blockCount: number;
+  bodyHeight: number;
+  rowDesiredHeights: number[];
+}): { rowHeights: number[]; rowTops: number[] } {
+  const usedRows = Math.max(1, Math.min(args.gridRows, Math.ceil(args.blockCount / args.gridColumns)));
+  const gapTotal = Math.max(0, usedRows - 1) * GRID_GAP_Y;
+  const availableHeight = Math.max(usedRows * 48, args.bodyHeight - gapTotal);
+  const baseMinHeight = Math.max(72, Math.floor(availableHeight / usedRows) - 2);
+  const minTotal = baseMinHeight * usedRows;
+
+  const desired = Array.from({ length: usedRows }, (_, index) =>
+    Math.max(baseMinHeight, args.rowDesiredHeights[index] || baseMinHeight),
+  );
+  const desiredTotal = desired.reduce((sum, value) => sum + value, 0);
+
+  let rowHeights: number[];
+  if (desiredTotal <= availableHeight) {
+    const leftover = availableHeight - desiredTotal;
+    const extraPerRow = leftover / usedRows;
+    rowHeights = desired.map((value) => value + extraPerRow);
+  } else {
+    const desiredExtras = desired.map((value) => Math.max(0, value - baseMinHeight));
+    const desiredExtraTotal = desiredExtras.reduce((sum, value) => sum + value, 0);
+    const availableExtra = Math.max(0, availableHeight - minTotal);
+    const scale = desiredExtraTotal > 0 ? Math.min(1, availableExtra / desiredExtraTotal) : 0;
+    rowHeights = desiredExtras.map((extra) => baseMinHeight + extra * scale);
+  }
+
+  const rowTops: number[] = [];
+  let cursor = 0;
+  for (let i = 0; i < rowHeights.length; i += 1) {
+    rowTops.push(cursor);
+    cursor += rowHeights[i] + GRID_GAP_Y;
+  }
+
+  return { rowHeights, rowTops };
 }
 
 export interface NotebookDocumentArchetypeValidation {
@@ -908,26 +1902,28 @@ export function renderNotebookContentDocumentToSlide(args: {
   const language = args.document.language || 'zh-CN';
   const profile = resolveNotebookContentProfile(args.document);
   const archetype = resolveDocumentArchetype(args.document);
-  const layout = getArchetypeLayoutSettings(archetype);
+  const archetypeLayout = getArchetypeLayoutSettings(archetype);
+  const documentLayout = resolveDocumentLayout(args.document);
   const tokens = getProfileTokens(profile);
   const cardPalettes = tokens.cardPalettes;
-  const blocks = expandBlocks(args.document.blocks, language);
+  const blocks =
+    documentLayout.mode === 'grid' ? args.document.blocks : expandBlocks(args.document.blocks, language);
   const elements: PPTElement[] = [];
 
   elements.push(
     createRectShape({
       left: CONTENT_LEFT,
-      top: layout.titleTop + 4,
+      top: archetypeLayout.titleTop + 4,
       width: 10,
-      height: layout.accentHeight,
+      height: archetypeLayout.accentHeight,
       fill: tokens.titleAccent,
     }),
     createTextElement({
       left: CONTENT_LEFT + 22,
-      top: layout.titleTop,
+      top: archetypeLayout.titleTop,
       width: CONTENT_WIDTH - 22,
-      height: layout.titleHeight,
-      html: `<p style="font-size:${layout.titleFontSize}px;"><strong>${renderInlineLatexToHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
+      height: archetypeLayout.titleHeight,
+      html: `<p style="font-size:${archetypeLayout.titleFontSize}px;"><strong>${renderInlineLatexToHtml(args.document.title || args.fallbackTitle)}</strong></p>`,
       color: tokens.titleText,
       textType: 'title',
     }),
@@ -941,7 +1937,7 @@ export function renderNotebookContentDocumentToSlide(args: {
     elements.push(
       createRectShape({
         left: CONTENT_LEFT + CONTENT_WIDTH - 178,
-        top: layout.titleTop + 6,
+        top: archetypeLayout.titleTop + 6,
         width: 158,
         height: 24,
         fill: '#eef2ff',
@@ -949,7 +1945,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       }),
       createTextElement({
         left: CONTENT_LEFT + CONTENT_WIDTH - 170,
-        top: layout.titleTop + 8,
+        top: archetypeLayout.titleTop + 8,
         width: 142,
         height: 20,
         html: `<p style="font-size:12px;color:#4f46e5;text-align:center;"><strong>${escapeHtml(chipLabel)}</strong></p>`,
@@ -959,7 +1955,117 @@ export function renderNotebookContentDocumentToSlide(args: {
     );
   }
 
-  let cursorTop = layout.bodyTop;
+  if (documentLayout.mode === 'grid') {
+    const bodyTop = archetypeLayout.bodyTop;
+    const bodyHeight = CONTENT_BOTTOM - bodyTop;
+    const grid = resolveGridLayout(documentLayout, { blockCount: blocks.length, bodyHeight });
+    const visibleBlocks = blocks.slice(0, grid.capacity);
+    const cellWidth =
+      (CONTENT_WIDTH - Math.max(0, grid.columns - 1) * GRID_GAP_X) / Math.max(grid.columns, 1);
+    const innerWidth = Math.max(120, cellWidth - CARD_INSET_X * 2);
+    const rowDesiredHeights = Array.from({ length: grid.rows }, () => GRID_MIN_CELL_HEIGHT);
+    visibleBlocks.forEach((block, index) => {
+      const row = Math.floor(index / grid.columns);
+      if (row >= grid.rows) return;
+      const heading = blockToGridHeading(language, block);
+      const headingHeight = fitGridHeadingToHeight({
+        text: heading,
+        widthPx: innerWidth,
+        maxHeightPx: 52,
+        color: '#0f172a',
+      }).height;
+      const bodyHeightEstimate = estimateGridBodyHeight({
+        language,
+        block,
+        widthPx: innerWidth,
+      });
+      rowDesiredHeights[row] = Math.max(
+        rowDesiredHeights[row],
+        Math.ceil(headingHeight + bodyHeightEstimate + 20),
+      );
+    });
+    const adaptive = computeAdaptiveGridRowHeights({
+      gridRows: grid.rows,
+      gridColumns: grid.columns,
+      blockCount: visibleBlocks.length,
+      bodyHeight,
+      rowDesiredHeights,
+    });
+
+    visibleBlocks.forEach((block, index) => {
+      const row = Math.floor(index / grid.columns);
+      const col = index % grid.columns;
+      const left = CONTENT_LEFT + col * (cellWidth + GRID_GAP_X);
+      if (row >= adaptive.rowHeights.length) return;
+      const cellHeight = adaptive.rowHeights[row];
+      const top = bodyTop + adaptive.rowTops[row];
+      const tone = cardPalettes[index % cardPalettes.length];
+      const heading = blockToGridHeading(language, block);
+      const headingFit = fitGridHeadingToHeight({
+        text: heading,
+        widthPx: innerWidth,
+        maxHeightPx: 52,
+        color: tone.accent,
+      });
+      const bodyFit = fitGridBodyToHeight({
+        language,
+        block,
+        widthPx: innerWidth,
+        maxHeightPx: Math.max(24, cellHeight - headingFit.height - 20),
+        tone,
+      });
+
+      elements.push(
+        createRectShape({
+          left,
+          top,
+          width: cellWidth,
+          height: cellHeight,
+          fill: tone.fill,
+          outlineColor: tone.border,
+          text: createShapeText({
+            html: `${headingFit.html}${bodyFit.html}`,
+            color: '#334155',
+            textType: 'content',
+            lineHeight: 1.35,
+            paragraphSpace: 5,
+            align: 'top',
+          }),
+        }),
+      );
+    });
+
+    return {
+      id: `slide_${nanoid(8)}`,
+      viewportSize: CANVAS_WIDTH,
+      viewportRatio: CANVAS_HEIGHT / CANVAS_WIDTH,
+      theme: {
+        backgroundColor: tokens.backgroundColors[0],
+        themeColors: tokens.themeColors,
+        fontColor: tokens.titleText,
+        fontName: 'Microsoft YaHei',
+      },
+      elements: normalizeSlideTextLayout(elements, {
+        width: CANVAS_WIDTH,
+        height: CANVAS_HEIGHT,
+      }),
+      background: {
+        type: 'gradient',
+        gradient: {
+          type: 'linear',
+          rotate: 135,
+          colors: [
+            { pos: 0, color: tokens.backgroundColors[0] },
+            { pos: 55, color: tokens.backgroundColors[1] },
+            { pos: 100, color: tokens.backgroundColors[2] },
+          ],
+        },
+      },
+      type: 'content',
+    };
+  }
+
+  let cursorTop = archetypeLayout.bodyTop;
   let visualBlockIndex = 0;
   for (const block of blocks) {
     if (cursorTop >= CONTENT_BOTTOM) break;
@@ -1293,6 +2399,20 @@ export function renderNotebookContentDocumentToSlide(args: {
       continue;
     }
 
+    if (block.type === 'process_flow') {
+      const rendered = renderProcessFlowBlock({
+        block,
+        top: cursorTop,
+        language,
+        titleAccent: tokens.titleAccent,
+        cardPalettes,
+      });
+      elements.push(...rendered.elements);
+      cursorTop += rendered.height;
+      visualBlockIndex += Math.max(1, block.steps.length);
+      continue;
+    }
+
     if (block.type === 'table') {
       const groupId = createCardGroupId('table_block');
       const tableEls = createTableElement({
@@ -1416,6 +2536,19 @@ export function renderNotebookContentDocumentToSlide(args: {
     }
   }
 
+  const usedBottom = elements
+    .filter(hasBoxGeometry)
+    .reduce((maxBottom, element) => Math.max(maxBottom, element.top + element.height), archetypeLayout.bodyTop);
+  const underfillExpansion = buildStackUnderfillExpansionRequests({
+    elements,
+    bodyTop: archetypeLayout.bodyTop,
+    usedBottom,
+  });
+  const reflowedElements = applyAutoHeightReflow({
+    elements,
+    requestedHeights: underfillExpansion,
+  });
+
   return {
     id: `slide_${nanoid(8)}`,
     viewportSize: CANVAS_WIDTH,
@@ -1426,7 +2559,7 @@ export function renderNotebookContentDocumentToSlide(args: {
       fontColor: tokens.titleText,
       fontName: 'Microsoft YaHei',
     },
-    elements: normalizeSlideTextLayout(elements, {
+    elements: normalizeSlideTextLayout(reflowedElements, {
       width: CANVAS_WIDTH,
       height: CANVAS_HEIGHT,
     }),
@@ -1610,6 +2743,17 @@ function assessExpandedBlockHeight(
     };
   }
 
+  if (block.type === 'process_flow') {
+    return {
+      height: estimateProcessFlowBlockHeight({ block, language }),
+      densityDelta:
+        1.8 +
+        Math.min(1.2, block.steps.length * 0.2) +
+        Math.min(0.7, block.context.length * 0.16),
+      consumesVisualCard: true,
+    };
+  }
+
   if (block.type === 'table') {
     const rowCount = block.rows.length + (block.headers?.length ? 1 : 0);
     const colCount = Math.max(
@@ -1675,6 +2819,28 @@ export function assessNotebookContentDocumentForSlide(
   const language = document.language || 'zh-CN';
   const profile = resolveNotebookContentProfile(document);
   const archetype = resolveDocumentArchetype(document);
+  const documentLayout = resolveDocumentLayout(document);
+  if (documentLayout.mode === 'grid') {
+    const archetypeLayout = getArchetypeLayoutSettings(archetype);
+    const grid = resolveGridLayout(documentLayout, {
+      blockCount: document.blocks.length,
+      bodyHeight: CONTENT_BOTTOM - archetypeLayout.bodyTop,
+    });
+    const reasons: string[] = [];
+    if (document.blocks.length > grid.capacity) {
+      reasons.push(`too_many_blocks_for_grid:${document.blocks.length}/${grid.capacity}`);
+    }
+
+    return {
+      fits: reasons.length === 0,
+      estimatedBottom: CONTENT_BOTTOM,
+      overflowPx: 0,
+      densityScore: document.blocks.length,
+      maxDensityScore: grid.capacity,
+      expandedBlockCount: document.blocks.length,
+      reasons,
+    };
+  }
   const layout = getArchetypeLayoutSettings(archetype);
   const blocks = prepareBlocksForPagination(document.blocks, language);
   const maxDensityScore = getArchetypeDensityBudget(profile, archetype);
@@ -1726,6 +2892,53 @@ export function paginateNotebookContentDocument(args: {
   const language = args.document.language || 'zh-CN';
   const profile = resolveNotebookContentProfile(args.document);
   const archetype = resolveDocumentArchetype(args.document);
+  const documentLayout = resolveDocumentLayout(args.document);
+  if (documentLayout.mode === 'grid') {
+    const archetypeLayout = getArchetypeLayoutSettings(archetype);
+    const grid = resolveGridLayout(documentLayout, {
+      blockCount: args.document.blocks.length,
+      bodyHeight: CONTENT_BOTTOM - archetypeLayout.bodyTop,
+    });
+    const capacity = Math.max(1, grid.capacity);
+    const pages: NotebookContentDocument[] = [];
+
+    for (let index = 0; index < args.document.blocks.length; index += capacity) {
+      const partBlocks = args.document.blocks.slice(index, index + capacity);
+      if (partBlocks.length === 0) continue;
+      pages.push({
+        ...args.document,
+        layout: documentLayout,
+        blocks: partBlocks,
+      });
+    }
+
+    if (pages.length === 0) {
+      return {
+        pages: [],
+        wasSplit: false,
+        reasons: ['no_renderable_blocks_after_pagination'],
+        unpageableBlockTypes: [],
+      };
+    }
+
+    const totalParts = pages.length;
+    return {
+      pages: pages.map((page, index) => ({
+        ...page,
+        continuation:
+          totalParts > 1 && index > 0
+            ? ({
+                rootOutlineId: args.rootOutlineId,
+                partNumber: index + 1,
+                totalParts,
+              } satisfies NotebookContentContinuation)
+            : undefined,
+      })),
+      wasSplit: totalParts > 1,
+      reasons: totalParts > 1 ? [`split_into_pages:${totalParts}`] : [],
+      unpageableBlockTypes: [],
+    };
+  }
   const layout = getArchetypeLayoutSettings(archetype);
   const maxDensityScore = getArchetypeDensityBudget(profile, archetype);
   const maxBlocksPerPage = getArchetypeBlockBudget(archetype);

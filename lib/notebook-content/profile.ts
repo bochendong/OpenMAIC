@@ -93,6 +93,13 @@ function collectBlockText(block: NotebookContentBlock): string[] {
         block.answer || '',
         ...block.pitfalls,
       ];
+    case 'process_flow':
+      return [
+        block.title || '',
+        ...block.context.flatMap((item) => [item.label, item.text]),
+        ...block.steps.flatMap((step) => [step.title, step.detail, step.note || '']),
+        block.summary || '',
+      ];
     case 'chem_formula':
       return [block.caption || '', block.formula];
     case 'chem_equation':

@@ -40,6 +40,11 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
   const { outlineWidth, outlineColor, strokeDashArray } = useElementOutline(elementInfo.outline);
 
   const [editable, setEditable] = useState(false);
+  const [renderHeight, setRenderHeight] = useState(elementInfo.height);
+
+  useEffect(() => {
+    setRenderHeight(elementInfo.height);
+  }, [elementInfo.id, elementInfo.height, elementInfo.text?.content]);
 
   const handleSelectElement = (e: React.MouseEvent | React.TouchEvent, canMove = true) => {
     if (elementInfo.lock) return;
@@ -105,7 +110,7 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
         top: `${elementInfo.top}px`,
         left: `${elementInfo.left}px`,
         width: `${elementInfo.width}px`,
-        height: `${elementInfo.height}px`,
+        height: `${renderHeight}px`,
       }}
     >
       <div
@@ -128,7 +133,7 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
           <svg
             overflow="visible"
             width={elementInfo.width}
-            height={elementInfo.height}
+            height={renderHeight}
             className="transform-origin-[0_0] block"
           >
             <defs>
@@ -146,7 +151,7 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
             </defs>
             <g
               transform={`scale(${elementInfo.width / elementInfo.viewBox[0]}, ${
-                elementInfo.height / elementInfo.viewBox[1]
+                renderHeight / elementInfo.viewBox[1]
               }) translate(0,0) matrix(1,0,0,1,0,0)`}
             >
               <path
@@ -166,6 +171,11 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
           <ShapeTextSurface
             align={text.align}
             className={editable || text.content ? 'pointer-events-auto' : 'pointer-events-none'}
+            onSizeChange={({ requiredHeight, clientHeight }) => {
+              if (requiredHeight <= clientHeight + 1) return;
+              const needed = Math.max(elementInfo.height, requiredHeight);
+              setRenderHeight((prev) => (needed > prev + 1 ? needed : prev));
+            }}
             style={{
               lineHeight: text.lineHeight,
               letterSpacing: `${text.wordSpace || 0}px`,

@@ -87,6 +87,7 @@ interface StageState {
   generationStatus: 'idle' | 'generating' | 'paused' | 'completed' | 'error';
   currentGeneratingOrder: number;
   failedOutlines: SceneOutline[];
+  fallbackUsageCount: number;
 
   // Actions
   setStage: (stage: Stage) => void;
@@ -108,6 +109,8 @@ interface StageState {
   addFailedOutline: (outline: SceneOutline) => void;
   clearFailedOutlines: () => void;
   retryFailedOutline: (outlineId: string) => void;
+  incrementFallbackUsageCount: (delta?: number) => void;
+  resetFallbackUsageCount: () => void;
 
   // Getters
   getCurrentScene: () => Scene | null;
@@ -138,6 +141,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   generationStatus: 'idle' as const,
   currentGeneratingOrder: -1,
   failedOutlines: [],
+  fallbackUsageCount: 0,
 
   // Actions
   setStage: (stage) => {
@@ -147,6 +151,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       currentSceneId: null,
       chats: [],
       generationEpoch: s.generationEpoch + 1,
+      fallbackUsageCount: 0,
       storageSaveState: 'saving',
       storageSaveError: null,
     }));
@@ -276,6 +281,13 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     });
   },
 
+  incrementFallbackUsageCount: (delta = 1) => {
+    if (!Number.isFinite(delta) || delta <= 0) return;
+    set((s) => ({ fallbackUsageCount: s.fallbackUsageCount + Math.round(delta) }));
+  },
+
+  resetFallbackUsageCount: () => set({ fallbackUsageCount: 0 }),
+
   // Getters
   getCurrentScene: () => {
     const { scenes, currentSceneId } = get();
@@ -357,6 +369,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
           currentSceneId: resolvedCurrentSceneId,
           chats: loadedChats,
           outlines,
+          fallbackUsageCount: 0,
           storageSaveState: 'idle',
           storageSaveScope: 'remote',
           storageSavedAt: null,
@@ -390,6 +403,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       currentGeneratingOrder: -1,
       failedOutlines: [],
       generatingOutlines: [],
+      fallbackUsageCount: 0,
     }));
     log.info('Store cleared');
   },

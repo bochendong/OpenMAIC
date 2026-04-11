@@ -38,6 +38,7 @@ Use:
 - `code_walkthrough` for code plus line-by-line / phase-by-phase explanation
 - `table` for tabular comparisons / matrices that fit naturally as cells
 - `example` for worked examples with explicit problem + steps + answer
+- `process_flow` for ordered explanation flows, question-solving pipelines, algorithm steps, or staged teaching sequences
 - `callout` for warnings / takeaways
 - `chem_formula` / `chem_equation` for chemistry-style expressions
 
@@ -73,6 +74,17 @@ Rules:
 - For formal concept teaching, prefer `definition` / `theorem` over plain `paragraph`
 - For overview, classification, comparison, or proof-strategy slides, prefer `table`, `bullet_list`, `callout`, `definition`, or `theorem` instead of implying a pseudo-diagram
 - If the content would need many peer labels, nodes, or arrows, compress it into a table, numbered list, or a small number of stacked blocks
+- If the core teaching job is "show the sequence of how to do this", prefer `process_flow` instead of many loose bullets
+- When the slide naturally breaks into "problem / analysis / cautions / solving flow", put the setup cards in `process_flow.context` and the true solving sequence in `process_flow.steps`
+
+## Common Teaching Patterns
+
+- comparison / taxonomy / dimension breakdown: prefer `table` or `layout.mode = "grid"`
+- definitions / theorems / criteria: prefer `definition`, `theorem`, `equation`
+- derivation / proof chain: prefer `derivation_steps`
+- code trace / execution story: prefer `code_walkthrough`
+- worked example / method flow / algorithm flow: prefer `example` or `process_flow`
+- pitfalls / reminders / recap: prefer `callout`, `bullet_list`
 
 ## Output Schema
 
@@ -83,11 +95,25 @@ Return ONE JSON object in this exact top-level shape:
   "version": 1,
   "language": "{{language}}",
   "profile": "general",
+  "layout": {"mode":"stack"},
   "archetype": "concept",
   "title": "string",
   "blocks": []
 }
 ```
+
+Supported layout shapes:
+
+```json
+{"mode":"stack"}
+{"mode":"grid","columns":2,"rows":2}
+```
+
+Grid notes:
+- Use `layout.mode = "grid"` when the page is naturally a comparison / checklist / compact matrix of peer items.
+- Keep each cell concise; renderer enforces equal row height and card alignment.
+- `columns` should be 1-3, `rows` should be 1-3.
+- Do not simulate ordered flows with grid; real sequence pages should usually use `process_flow` with `layout.mode = "stack"`.
 
 Supported block shapes:
 
@@ -105,15 +131,25 @@ Supported block shapes:
 {"type":"table","headers":["..."],"rows":[["..."]],"caption":"optional"}
 {"type":"callout","tone":"info|success|warning|danger|tip","title":"optional","text":"..."}
 {"type":"example","title":"optional","problem":"...","givens":["..."],"goal":"optional","steps":["..."],"answer":"optional","pitfalls":["..."]}
+{"type":"process_flow","title":"optional","orientation":"horizontal|vertical","context":[{"label":"Problem","text":"...","tone":"neutral|info|warning|success"}],"steps":[{"title":"Step title","detail":"Concrete action or reasoning","note":"optional"}],"summary":"optional"}
 {"type":"chem_formula","formula":"...","caption":"optional"}
 {"type":"chem_equation","equation":"...","caption":"optional"}
 ```
+
+`process_flow` rules:
+- `context` is for 1-4 compact setup cards such as "Problem", "Analysis", "Caution", or "Goal".
+- Put the actual sequence in `steps`; every step should contain concrete reasoning or action.
+- `orientation = "horizontal"`: use when there are 2-4 short steps and readers should scan the whole chain at a glance.
+- `orientation = "vertical"`: use when there are many steps, longer step detail, or the flow may need automatic continuation across pages.
+- If the flow is long, prefer `vertical` instead of forcing a crowded horizontal layout.
 
 ## Additional Constraints
 
 - Usually keep `blocks` between 2 and 8
 - Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Set `archetype` to exactly match the requested slide archetype
+- Use `layout.mode = "grid"` for side-by-side structures; otherwise use `stack`
+- Prefer `process_flow` for true sequence teaching; do not fake a flowchart with heading + paragraph + bullet_list fragments
 - Prefer one clear example over many weak bullets
 - Prefer semantically strong blocks whose built-in styles already match the teaching intent, instead of simulating layout with extra prose
 - Avoid pseudo-flowcharts, relation maps, or concept maps made of many tiny fragments; use stable teaching structures instead

@@ -418,6 +418,135 @@ export const NotebookContentView = memo(function NotebookContentView({
                 ) : null}
               </div>
             );
+          case 'process_flow': {
+            const contextToneClass = {
+              neutral: 'border-slate-200 bg-slate-50/80 text-slate-900 dark:border-slate-800 dark:bg-slate-900/30 dark:text-slate-100',
+              info: 'border-blue-200 bg-blue-50/80 text-blue-950 dark:border-blue-900/50 dark:bg-blue-950/20 dark:text-blue-100',
+              warning:
+                'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-100',
+              success:
+                'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-100',
+            } as const;
+            const contextColumns =
+              block.context.length === 4 ? 2 : Math.min(3, Math.max(1, block.context.length));
+
+            return (
+              <div
+                key={index}
+                className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
+              >
+                {block.title ? (
+                  <p
+                    className="text-sm font-semibold text-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
+                  />
+                ) : null}
+
+                {block.context.length > 0 ? (
+                  <div
+                    className="grid gap-3"
+                    style={{ gridTemplateColumns: `repeat(${contextColumns}, minmax(0, 1fr))` }}
+                  >
+                    {block.context.map((item, itemIdx) => (
+                      <div
+                        key={itemIdx}
+                        className={cn(
+                          'rounded-xl border px-3 py-2.5',
+                          contextToneClass[item.tone || 'neutral'],
+                        )}
+                      >
+                        <p
+                          className="text-xs font-semibold uppercase tracking-wide"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item.label) }}
+                        />
+                        <p
+                          className="mt-1 whitespace-pre-wrap text-sm leading-6"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item.text) }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {block.orientation === 'horizontal' ? (
+                  <div className="overflow-x-auto pb-1">
+                    <div
+                      className="grid min-w-[720px] gap-3"
+                      style={{
+                        gridTemplateColumns: `repeat(${Math.max(1, block.steps.length)}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {block.steps.map((step, stepIdx) => (
+                        <div
+                          key={stepIdx}
+                          className="rounded-xl border border-border/70 bg-background/80 px-3 py-3"
+                        >
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                            {document.language === 'en-US'
+                              ? `Step ${stepIdx + 1}`
+                              : `步骤 ${stepIdx + 1}`}
+                          </p>
+                          <p
+                            className="mt-1 text-sm font-semibold text-foreground"
+                            dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.title) }}
+                          />
+                          <p
+                            className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground"
+                            dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.detail) }}
+                          />
+                          {step.note ? (
+                            <p
+                              className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted-foreground"
+                              dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.note) }}
+                            />
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3 border-l border-border/70 pl-4">
+                    {block.steps.map((step, stepIdx) => (
+                      <div
+                        key={stepIdx}
+                        className="relative rounded-xl border border-border/70 bg-background/80 px-4 py-3"
+                      >
+                        <div className="absolute -left-[1.2rem] top-3 flex size-7 items-center justify-center rounded-full bg-foreground text-[11px] font-semibold text-background">
+                          {stepIdx + 1}
+                        </div>
+                        <p
+                          className="text-sm font-semibold text-foreground"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.title) }}
+                        />
+                        <p
+                          className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground"
+                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.detail) }}
+                        />
+                        {step.note ? (
+                          <p
+                            className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted-foreground"
+                            dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.note) }}
+                          />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {block.summary ? (
+                  <div className="rounded-xl border border-border/70 bg-background/70 px-3 py-2.5">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {document.language === 'en-US' ? 'Summary' : '收束'}
+                    </p>
+                    <p
+                      className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.summary) }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
           case 'chem_formula':
             return (
               <div key={index} className="space-y-1">

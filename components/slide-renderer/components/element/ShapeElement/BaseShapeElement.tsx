@@ -13,12 +13,13 @@ import { ShapeTextSurface } from './ShapeTextSurface';
 
 export interface BaseShapeElementProps {
   elementInfo: PPTShapeElement;
+  onAutoHeightChange?: (nextHeight: number) => void;
 }
 
 /**
  * Base shape element for read-only/playback mode
  */
-export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
+export function BaseShapeElement({ elementInfo, onAutoHeightChange }: BaseShapeElementProps) {
   const { fill } = useElementFill(elementInfo, 'base');
   const { outlineWidth, outlineColor, strokeDashArray } = useElementOutline(elementInfo.outline);
   const { shadowStyle } = useElementShadow(elementInfo.shadow);
@@ -95,6 +96,11 @@ export function BaseShapeElement({ elementInfo }: BaseShapeElementProps) {
 
           <ShapeTextSurface
             align={text.align}
+            onSizeChange={({ requiredHeight, clientHeight }) => {
+              if (requiredHeight <= clientHeight + 1) return;
+              const needed = Math.max(elementInfo.height, requiredHeight);
+              onAutoHeightChange?.(needed);
+            }}
             style={{
               lineHeight: text.lineHeight,
               letterSpacing: `${text.wordSpace || 0}px`,

@@ -92,6 +92,30 @@ function renderBlock(block: NotebookContentBlock, language: 'zh-CN' | 'en-US'): 
         .filter(Boolean)
         .join('\n\n');
     }
+    case 'process_flow':
+      return [
+        `### ${block.title || (language === 'en-US' ? 'Process Flow' : '流程讲解')}`,
+        block.context.length > 0
+          ? `${language === 'en-US' ? 'Context' : '背景'}:\n${block.context
+              .map((item) => `- ${item.label}: ${item.text}`)
+              .join('\n')}`
+          : '',
+        `${language === 'en-US' ? 'Steps' : '步骤'}:\n${block.steps
+          .map((step, idx) => {
+            const note = step.note
+              ? language === 'en-US'
+                ? `\n   Note: ${step.note}`
+                : `\n   提示：${step.note}`
+              : '';
+            return `${idx + 1}. ${step.title}\n   ${step.detail}${note}`;
+          })
+          .join('\n')}`,
+        block.summary
+          ? `${language === 'en-US' ? 'Summary' : '收束'}: ${block.summary}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n');
     case 'chem_formula':
       return block.caption ? `${block.caption}\n${block.formula}` : block.formula;
     case 'chem_equation':

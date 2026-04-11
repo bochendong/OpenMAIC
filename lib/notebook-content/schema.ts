@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const notebookContentLanguageSchema = z.enum(['zh-CN', 'en-US']);
 export const notebookContentProfileSchema = z.enum(['general', 'math', 'code']);
+export const notebookContentLayoutModeSchema = z.enum(['stack', 'grid']);
 export const notebookSlideArchetypeSchema = z.enum([
   'intro',
   'concept',
@@ -9,6 +10,18 @@ export const notebookSlideArchetypeSchema = z.enum([
   'example',
   'bridge',
   'summary',
+]);
+export const notebookContentStackLayoutSchema = z.object({
+  mode: z.literal('stack'),
+});
+export const notebookContentGridLayoutSchema = z.object({
+  mode: z.literal('grid'),
+  columns: z.number().int().min(1).max(3).default(2),
+  rows: z.number().int().min(1).max(3).optional(),
+});
+export const notebookContentLayoutSchema = z.discriminatedUnion('mode', [
+  notebookContentStackLayoutSchema,
+  notebookContentGridLayoutSchema,
 ]);
 export const notebookContentContinuationSchema = z.object({
   rootOutlineId: z.string().trim().min(1).max(200),
@@ -128,6 +141,27 @@ export const notebookContentExampleBlockSchema = z.object({
   pitfalls: z.array(z.string().trim().min(1).max(1000)).max(12).default([]),
 });
 
+export const notebookContentProcessFlowContextItemSchema = z.object({
+  label: z.string().trim().min(1).max(80),
+  text: z.string().trim().min(1).max(1200),
+  tone: z.enum(['neutral', 'info', 'warning', 'success']).default('neutral'),
+});
+
+export const notebookContentProcessFlowStepSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  detail: z.string().trim().min(1).max(1200),
+  note: z.string().trim().max(400).optional(),
+});
+
+export const notebookContentProcessFlowBlockSchema = z.object({
+  type: z.literal('process_flow'),
+  title: z.string().trim().max(200).optional(),
+  orientation: z.enum(['horizontal', 'vertical']).default('horizontal'),
+  context: z.array(notebookContentProcessFlowContextItemSchema).max(4).default([]),
+  steps: z.array(notebookContentProcessFlowStepSchema).min(2).max(20),
+  summary: z.string().trim().max(1000).optional(),
+});
+
 export const notebookContentChemFormulaBlockSchema = z.object({
   type: z.literal('chem_formula'),
   formula: z.string().trim().min(1).max(2000),
@@ -154,6 +188,7 @@ export const notebookContentBlockSchema = z.discriminatedUnion('type', [
   notebookContentDefinitionBlockSchema,
   notebookContentTheoremBlockSchema,
   notebookContentExampleBlockSchema,
+  notebookContentProcessFlowBlockSchema,
   notebookContentChemFormulaBlockSchema,
   notebookContentChemEquationBlockSchema,
 ]);
@@ -162,6 +197,7 @@ export const notebookContentDocumentSchema = z.object({
   version: z.literal(1).default(1),
   language: notebookContentLanguageSchema.default('zh-CN'),
   profile: notebookContentProfileSchema.default('general'),
+  layout: notebookContentLayoutSchema.default({ mode: 'stack' }),
   archetype: notebookSlideArchetypeSchema.default('concept'),
   continuation: notebookContentContinuationSchema.optional(),
   title: z.string().trim().max(300).optional(),
@@ -170,6 +206,10 @@ export const notebookContentDocumentSchema = z.object({
 
 export type NotebookContentLanguage = z.infer<typeof notebookContentLanguageSchema>;
 export type NotebookContentProfile = z.infer<typeof notebookContentProfileSchema>;
+export type NotebookContentLayoutMode = z.infer<typeof notebookContentLayoutModeSchema>;
+export type NotebookContentStackLayout = z.infer<typeof notebookContentStackLayoutSchema>;
+export type NotebookContentGridLayout = z.infer<typeof notebookContentGridLayoutSchema>;
+export type NotebookContentLayout = z.infer<typeof notebookContentLayoutSchema>;
 export type NotebookSlideArchetype = z.infer<typeof notebookSlideArchetypeSchema>;
 export type NotebookContentContinuation = z.infer<typeof notebookContentContinuationSchema>;
 export type NotebookContentHeadingBlock = z.infer<typeof notebookContentHeadingBlockSchema>;
@@ -187,6 +227,11 @@ export type NotebookContentCalloutBlock = z.infer<typeof notebookContentCalloutB
 export type NotebookContentDefinitionBlock = z.infer<typeof notebookContentDefinitionBlockSchema>;
 export type NotebookContentTheoremBlock = z.infer<typeof notebookContentTheoremBlockSchema>;
 export type NotebookContentExampleBlock = z.infer<typeof notebookContentExampleBlockSchema>;
+export type NotebookContentProcessFlowContextItem = z.infer<
+  typeof notebookContentProcessFlowContextItemSchema
+>;
+export type NotebookContentProcessFlowStep = z.infer<typeof notebookContentProcessFlowStepSchema>;
+export type NotebookContentProcessFlowBlock = z.infer<typeof notebookContentProcessFlowBlockSchema>;
 export type NotebookContentChemFormulaBlock = z.infer<typeof notebookContentChemFormulaBlockSchema>;
 export type NotebookContentChemEquationBlock = z.infer<
   typeof notebookContentChemEquationBlockSchema

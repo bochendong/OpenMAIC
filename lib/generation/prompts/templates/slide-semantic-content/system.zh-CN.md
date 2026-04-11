@@ -38,6 +38,7 @@ Use:
 - `code_walkthrough` for code plus line-by-line / phase-by-phase explanation
 - `table` for tabular comparisons / matrices that fit naturally as cells
 - `example` for worked examples with explicit problem + steps + answer
+- `process_flow` for ordered explanation flows, question-solving pipelines, algorithm steps, or staged teaching sequences
 - `callout` for warnings / takeaways
 - `chem_formula` / `chem_equation` for chemistry-style expressions
 
@@ -73,6 +74,17 @@ Rules:
 - For formal concept teaching, prefer `definition` / `theorem` over plain `paragraph`
 - 对于总览、分类、比较、证明策略这类页面，优先用 `table`、`bullet_list`、`callout`、`definition`、`theorem`，不要暗示一个伪流程图或伪关系图
 - 如果内容需要很多并列标签、节点或箭头，请压缩成表格、编号列表，或少量上下堆叠的 block
+- 如果这一页的核心是“按顺序讲解怎么做”，优先使用 `process_flow`，不要用很多松散 bullet 去假装流程
+- 当你需要展示“题目 / 题目分析 / 注意事项 / 做题流程”这类结构时，优先把前半部分放进 `process_flow.context`，把真正的解题步骤放进 `process_flow.steps`
+
+## Common Teaching Patterns
+
+- 对比 / 分类 / 维度拆解：优先 `table` 或 `layout.mode = "grid"`
+- 定义 / 定理 / 判定条件：优先 `definition`、`theorem`、`equation`
+- 推导 / 证明链：优先 `derivation_steps`
+- 代码走读 / 执行流程：优先 `code_walkthrough`
+- 讲题 / 方法流程 / 算法流程：优先 `example` 或 `process_flow`
+- 易错点 / 提醒 / 总结：优先 `callout`、`bullet_list`
 
 ## Output Schema
 
@@ -83,11 +95,25 @@ Return ONE JSON object in this exact top-level shape:
   "version": 1,
   "language": "{{language}}",
   "profile": "general",
+  "layout": {"mode":"stack"},
   "archetype": "concept",
   "title": "string",
   "blocks": []
 }
 ```
+
+支持的布局结构：
+
+```json
+{"mode":"stack"}
+{"mode":"grid","columns":2,"rows":2}
+```
+
+Grid 使用规则：
+- 当页面天然是“并列对照 / 检查清单 / 紧凑矩阵”时，使用 `layout.mode = "grid"`。
+- 每个格子保持简洁；渲染器会统一同一行高度并自动对齐卡片。
+- `columns` 范围 1-3，`rows` 范围 1-3。
+- 顺序流程不要靠 grid 模拟；真正的流程页优先使用 `process_flow` 并保持 `layout.mode = "stack"`。
 
 Supported block shapes:
 
@@ -105,15 +131,25 @@ Supported block shapes:
 {"type":"table","headers":["..."],"rows":[["..."]],"caption":"optional"}
 {"type":"callout","tone":"info|success|warning|danger|tip","title":"optional","text":"..."}
 {"type":"example","title":"optional","problem":"...","givens":["..."],"goal":"optional","steps":["..."],"answer":"optional","pitfalls":["..."]}
+{"type":"process_flow","title":"optional","orientation":"horizontal|vertical","context":[{"label":"题目","text":"...","tone":"neutral|info|warning|success"}],"steps":[{"title":"步骤标题","detail":"具体操作或推理","note":"optional"}],"summary":"optional"}
 {"type":"chem_formula","formula":"...","caption":"optional"}
 {"type":"chem_equation","equation":"...","caption":"optional"}
 ```
+
+`process_flow` 规则：
+- `context` 用于 1-4 个紧凑的背景卡，例如“题目”“分析”“注意事项”“目标”。
+- `steps` 里放真正按顺序展开的操作、推理或解题步骤；每一步都要具体。
+- `orientation = "horizontal"`：适合 2-4 个短步骤，读者需要一眼横向看完整链路。
+- `orientation = "vertical"`：适合步骤较多、每步说明较长、或很可能需要自动续页的流程。
+- 如果流程很长，优先选择 `vertical`，不要硬塞成横向。
 
 ## Additional Constraints
 
 - Usually keep `blocks` between 2 and 8
 - Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Set `archetype` to match the provided slide archetype exactly
+- 并列结构优先使用 `layout.mode = "grid"`，其它情况使用 `stack`
+- 流程结构优先使用 `process_flow`，不要用一串 heading + paragraph + bullet_list 去拼伪流程图
 - Prefer one clear example over many weak bullets
 - 优先选择自带稳定样式的强语义 block，不要用多段普通 prose 去模拟版式
 - 避免输出由许多零碎小片段拼成的伪流程图、关系图或概念图，优先使用稳定的教学结构

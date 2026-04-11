@@ -10,8 +10,8 @@ import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
 import {
   applyOutlineFallbacks,
+  buildValidatedFallbackSlideContent,
   generateSceneContent,
-  buildFallbackSlideContentFromOutline,
   buildVisionUserContent,
 } from '@/lib/generation/generation-pipeline';
 import { flattenGeneratedSlideContentPages } from '@/lib/generation/continuation-pages';
@@ -206,7 +206,15 @@ export async function POST(req: NextRequest) {
                 ? String(generationError)
                 : 'parse-failed-or-empty',
         });
-        const fallbackContent = buildFallbackSlideContentFromOutline(effectiveOutline);
+        const fallbackContent = buildValidatedFallbackSlideContent(effectiveOutline);
+        if (!fallbackContent) {
+          return apiError(
+            'GENERATION_FAILED',
+            500,
+            `Failed to generate content: ${effectiveOutline.title}`,
+            generationError instanceof Error ? generationError.message : undefined,
+          );
+        }
         const flattenedFallback = flattenGeneratedSlideContentPages({
           content: fallbackContent,
           effectiveOutline,

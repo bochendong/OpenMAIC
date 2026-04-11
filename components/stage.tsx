@@ -139,6 +139,13 @@ function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
             ...(block.goal ? [block.goal] : []),
             ...block.steps,
           ];
+        case 'process_flow':
+          return [
+            block.title || '',
+            ...block.context.flatMap((item) => [item.label, item.text]),
+            ...block.steps.flatMap((step) => [step.title, step.detail, step.note || '']),
+            ...(block.summary ? [block.summary] : []),
+          ];
         default:
           return [];
       }
