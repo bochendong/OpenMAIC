@@ -12,7 +12,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { streamLLM } from '@/lib/ai/llm';
+import { callLLM, streamLLM } from '@/lib/ai/llm';
 import { buildPrompt, PROMPT_IDS } from '@/lib/generation/prompts';
 import { normalizeSceneOutlineContentProfile } from '@/lib/generation/content-profile';
 import {
@@ -470,6 +470,40 @@ export async function POST(req: NextRequest) {
                     index: parsedOutlines.length - 1,
                   });
                   controller.enqueue(encoder.encode(`data: ${event}\n\n`));
+                }
+              }
+
+              // Stream may occasionally end without usable chunks (provider hiccup).
+              // In that case, do one non-stream completion as a recovery path.
+              if (parsedOutlines.length === 0) {
+                const fallbackResult = await runWithRequestContext(
+                  req,
+                  '/api/generate/scene-outlines-stream',
+                  () =>
+                    callLLM(streamParams, 'scene-outlines-stream-fallback', {
+                      retries: 1,
+                    }),
+                  usageContext,
+                );
+                const fallbackText = fallbackResult.text || '';
+                if (fallbackText.trim()) {
+                  const recoveredOutlines = extractNewOutlines(fallbackText, 0);
+                  for (const outline of recoveredOutlines) {
+                    const enriched = {
+                      ...normalizeSceneOutlineContentProfile(outline),
+                      id: outline.id || nanoid(),
+                      order: parsedOutlines.length + 1,
+                      language: requirements.language,
+                    };
+                    parsedOutlines.push(enriched);
+
+                    const event = JSON.stringify({
+                      type: 'outline',
+                      data: enriched,
+                      index: parsedOutlines.length - 1,
+                    });
+                    controller.enqueue(encoder.encode(`data: ${event}\n\n`));
+                  }
                 }
               }
 

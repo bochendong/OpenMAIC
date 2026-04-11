@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { ChatAttachmentBubble } from '@/components/chat/chat-attachment-bubble';
 import { cn } from '@/lib/utils';
+import { safeJsonStringify } from '@/lib/utils/safe-json';
 import {
   getStoredApplyNotebookWrites,
   subscribeApplyNotebookWrites,
@@ -3670,7 +3671,7 @@ export function ChatPageClient() {
                     <div className="mt-3">
                       <p className="mb-1 text-xs text-muted-foreground">payload</p>
                       <pre className="max-h-72 overflow-auto rounded bg-black/90 p-3 text-[11px] leading-relaxed text-slate-100">
-                        {JSON.stringify(selectedChildTask.lastEnvelope.payload, null, 2)}
+                        {safeJsonStringify(selectedChildTask.lastEnvelope.payload)}
                       </pre>
                     </div>
                   </div>

@@ -438,6 +438,9 @@ export async function listUserNotifications(
   const rows = await db.creditTransaction.findMany({
     where: {
       userId,
+      accountType: {
+        in: ['CASH', 'COMPUTE', 'PURCHASE'],
+      },
       delta: {
         not: 0,
       },

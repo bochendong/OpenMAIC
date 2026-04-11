@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-export type AuthMode = 'none' | 'local' | 'oauth';
+export type AuthMode = 'none' | 'email' | 'oauth';
 
 interface AuthState {
   isLoggedIn: boolean;
@@ -11,7 +11,7 @@ interface AuthState {
   name: string;
   email: string;
   role: 'USER' | 'ADMIN';
-  /** oauth：NextAuth 会话；local：昵称+邮箱演示登录 */
+  /** oauth：NextAuth 会话；email：邮箱登录（不验证邮箱所有权） */
   authMode: AuthMode;
   login: (payload: { name: string; email: string }) => void;
   syncFromOAuth: (payload: {
@@ -46,7 +46,7 @@ export const useAuthStore = create<AuthState>()(
           name: name.trim(),
           email: email.trim().toLowerCase(),
           role: 'USER',
-          authMode: 'local',
+          authMode: 'email',
         }),
       syncFromOAuth: ({ userId, name, email, role }) =>
         set({
@@ -71,7 +71,18 @@ export const useAuthStore = create<AuthState>()(
       name: 'synatra-auth',
       version: 1,
       migrate: (persisted, fromVersion) => {
-        const p = (persisted ?? {}) as Partial<AuthState>;
+        const p = (persisted ?? {}) as Partial<AuthState> & { authMode?: string };
+        const migratedAuthMode: AuthMode =
+          p.authMode === 'oauth'
+            ? 'oauth'
+            : p.authMode === 'email' || p.authMode === 'local'
+              ? 'email'
+              : 'none';
+        const normalizedAuthMode: AuthMode = p.isLoggedIn
+          ? migratedAuthMode === 'none'
+            ? 'email'
+            : migratedAuthMode
+          : 'none';
         if (fromVersion === 0) {
           return {
             isLoggedIn: p.isLoggedIn ?? false,
@@ -79,10 +90,13 @@ export const useAuthStore = create<AuthState>()(
             name: p.name ?? '',
             email: p.email ?? '',
             role: p.role ?? 'USER',
-            authMode: p.authMode ?? (p.isLoggedIn ? 'local' : 'none'),
+            authMode: normalizedAuthMode,
           };
         }
-        return persisted as AuthState;
+        return {
+          ...(persisted as AuthState),
+          authMode: normalizedAuthMode,
+        };
       },
       partialize: (s) => ({
         isLoggedIn: s.isLoggedIn,

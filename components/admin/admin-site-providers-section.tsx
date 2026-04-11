@@ -28,7 +28,7 @@ function mergeWithRegistry(
   const ordered: SiteProviderAdminRow[] = registryIds.map((id) => {
     const hit = map.get(id);
     if (hit) return hit;
-    return { id, hasApiKey: false, baseUrl: null, models: null };
+    return { id, hasApiKey: false, apiKeyLast4: null, baseUrl: null, models: null };
   });
 
   for (const r of fromServer) {
@@ -168,7 +168,9 @@ export function AdminSiteProvidersSection({ kind }: { kind: AdminSiteProviderKin
                       <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
                       <td className="px-3 py-2">
                         {row.hasApiKey ? (
-                          <span className="text-emerald-600 dark:text-emerald-400">已配置</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            已配置{row.apiKeyLast4 ? `（后四位 ${row.apiKeyLast4}）` : ''}
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">未配置</span>
                         )}

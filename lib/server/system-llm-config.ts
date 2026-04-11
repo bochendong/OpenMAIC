@@ -35,6 +35,7 @@ function maskApiKey(value: string): string {
 
 export async function getSystemLLMRuntimeConfig(): Promise<SystemLLMRuntimeConfig> {
   const prisma = getPrismaOrNull();
+  const preferDbInDev = process.env.NODE_ENV === 'development';
   if (prisma) {
     try {
       const row = await prisma.systemLLMConfig.findUnique({ where: { id: 'default' } });
@@ -46,6 +47,11 @@ export async function getSystemLLMRuntimeConfig(): Promise<SystemLLMRuntimeConfi
           apiKey: row.apiKey.trim(),
           source: 'database',
         };
+      }
+      if (preferDbInDev) {
+        log.warn(
+          'Development mode: System LLM config row has no API key, falling back to env OPENAI_API_KEY.',
+        );
       }
     } catch (error) {
       log.warn('Failed to read DB system config, falling back to env:', error);

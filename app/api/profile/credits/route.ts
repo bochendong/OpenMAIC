@@ -56,7 +56,12 @@ export async function GET(request: Request) {
   const [balances, recentTransactions] = await Promise.all([
     getUserCreditBalances(prisma, auth.userId),
     prisma.creditTransaction.findMany({
-      where: { userId: auth.userId },
+      where: {
+        userId: auth.userId,
+        accountType: {
+          in: ['CASH', 'COMPUTE', 'PURCHASE'],
+        },
+      },
       orderBy: { createdAt: 'desc' },
       skip,
       take: pageSize,

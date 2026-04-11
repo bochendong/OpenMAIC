@@ -175,9 +175,13 @@ async function resolveIdentity(): Promise<AdminIdentity | null> {
   const session = await requireServerSession();
   const sessionUserId = session?.user?.id?.trim();
   if (sessionUserId) {
-    await ensureUserForApi(sessionUserId);
-    return {
+    const resolvedUserId = (await ensureUserForApi({
       userId: sessionUserId,
+      email: session?.user?.email,
+      name: session?.user?.name,
+    })) || sessionUserId;
+    return {
+      userId: resolvedUserId,
       email: session?.user?.email?.trim().toLowerCase() || undefined,
       name: session?.user?.name?.trim() || undefined,
     };
@@ -187,9 +191,14 @@ async function resolveIdentity(): Promise<AdminIdentity | null> {
   const userId = h.get('x-user-id')?.trim();
   if (!userId) return null;
 
-  await ensureUserForApi(userId);
+  const resolvedUserId =
+    (await ensureUserForApi({
+      userId,
+      email: h.get('x-user-email'),
+      name: h.get('x-user-name'),
+    })) || userId;
   return {
-    userId,
+    userId: resolvedUserId,
     email: h.get('x-user-email')?.trim().toLowerCase() || undefined,
     name: h.get('x-user-name')?.trim() || undefined,
   };

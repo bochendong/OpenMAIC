@@ -3,6 +3,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { safeJsonStringify } from '@/lib/utils/safe-json';
 import type { ToolUIPart } from 'ai';
 import {
   CheckCircleIcon,
@@ -94,7 +95,7 @@ export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
       Parameters
     </h4>
     <div className="rounded-md bg-muted/50">
-      <CodeBlock code={JSON.stringify(input, null, 2)} language="json" />
+      <CodeBlock code={safeJsonStringify(input)} language="json" />
     </div>
   </div>
 );
@@ -112,7 +113,7 @@ export const ToolOutput = ({ className, output, errorText, ...props }: ToolOutpu
   let Output = <div>{output as ReactNode}</div>;
 
   if (typeof output === 'object' && !isValidElement(output)) {
-    Output = <CodeBlock code={JSON.stringify(output, null, 2)} language="json" />;
+    Output = <CodeBlock code={safeJsonStringify(output)} language="json" />;
   } else if (typeof output === 'string') {
     Output = <CodeBlock code={output} language="json" />;
   }

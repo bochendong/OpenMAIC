@@ -44,7 +44,7 @@ function mergeWithRegistry(rows?: SiteProviderAdminRow[]): SiteProviderAdminRow[
   const ordered: SiteProviderAdminRow[] = Object.keys(PROVIDERS).map((id) => {
     const row = map.get(id);
     if (row) return row;
-    return { id, hasApiKey: false, baseUrl: null, models: null };
+    return { id, hasApiKey: false, apiKeyLast4: null, baseUrl: null, models: null };
   });
   for (const r of rows || []) {
     if (!PROVIDERS[r.id as keyof typeof PROVIDERS]) ordered.push(r);
@@ -165,7 +165,9 @@ export function AdminLLMSection() {
                       <td className="px-3 py-2 font-mono text-xs">{row.id}</td>
                       <td className="px-3 py-2">
                         {row.hasApiKey ? (
-                          <span className="text-emerald-600 dark:text-emerald-400">已配置</span>
+                          <span className="text-emerald-600 dark:text-emerald-400">
+                            已配置{row.apiKeyLast4 ? `（后四位 ${row.apiKeyLast4}）` : ''}
+                          </span>
                         ) : (
                           <span className="text-muted-foreground">未配置</span>
                         )}

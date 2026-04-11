@@ -1347,50 +1347,40 @@ function buildInfoCard(
   palette: ReturnType<typeof getRolePalette>,
   name: string,
 ): PPTElement[] {
-  const elements: PPTElement[] = [
-    createRectElement({
-      name: `${name}_card`,
-      left: layout.left,
-      top: layout.top,
-      width: layout.width,
-      height: layout.height,
-      fill: palette.panelAlt,
-      outlineColor: palette.accentSoft,
-    }),
-    createTextElement({
-      name: `${name}_label`,
-      left: layout.left + 16,
-      top: layout.top + 14,
-      width: layout.width - 32,
-      height: 24,
-      content: toTextHtml([label], {
+  const card = createRectElement({
+    name: `${name}_card`,
+    left: layout.left,
+    top: layout.top,
+    width: layout.width,
+    height: layout.height,
+    fill: palette.panelAlt,
+    outlineColor: palette.accentSoft,
+  });
+
+  // Keep fallback card copy inside the shape text layer, so it remains anchored to the card.
+  card.text = {
+    content: [
+      toTextHtml([label], {
         fontSize: 16,
         color: palette.accent,
         bold: true,
+        lineHeight: 1.34,
       }),
-      defaultColor: palette.accent,
-      textType: 'itemTitle',
-    }),
-  ];
-
-  elements.push(
-    createTextElement({
-      name: `${name}_content`,
-      left: layout.left + 16,
-      top: layout.top + 44,
-      width: layout.width - 32,
-      height: layout.height - 56,
-      content: toBulletHtml(items, {
+      toBulletHtml(items, {
         fontSize: 15,
         color: '#0f172a',
         bulletColor: palette.accent,
       }),
-      defaultColor: '#0f172a',
-      textType: 'content',
-    }),
-  );
+    ].join(''),
+    defaultFontName: DEFAULT_FONT,
+    defaultColor: '#0f172a',
+    align: 'top',
+    lineHeight: 1.4,
+    paragraphSpace: 6,
+    type: 'content',
+  };
 
-  return elements;
+  return [card];
 }
 
 function getAspectRatioValue(ratio?: '16:9' | '4:3' | '1:1' | '9:16' | '3:4' | '21:9'): number {

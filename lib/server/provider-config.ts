@@ -413,9 +413,16 @@ export function resolveWebSearchApiKey(clientKey?: string): string {
 export type { SiteProviderAdminRow } from '@/lib/types/admin-site-providers';
 
 function rowsFromSection(section: Record<string, ServerProviderEntry>): SiteProviderAdminRow[] {
+  const getApiKeyLast4 = (apiKey?: string): string | null => {
+    const trimmed = apiKey?.trim() || '';
+    if (!trimmed) return null;
+    return trimmed.length <= 4 ? trimmed : trimmed.slice(-4);
+  };
+
   return Object.entries(section).map(([id, entry]) => ({
     id,
     hasApiKey: Boolean(entry.apiKey?.trim()),
+    apiKeyLast4: getApiKeyLast4(entry.apiKey),
     baseUrl: entry.baseUrl ?? null,
     models: entry.models ?? null,
   }));

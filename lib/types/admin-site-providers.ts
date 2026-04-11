@@ -2,6 +2,7 @@
 export interface SiteProviderAdminRow {
   id: string;
   hasApiKey: boolean;
+  apiKeyLast4?: string | null;
   baseUrl?: string | null;
   models?: string[] | null;
 }

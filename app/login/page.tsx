@@ -74,7 +74,7 @@ export default function LoginPage() {
   };
 
   const hasOauth = Boolean(oauth && (oauth.google || oauth.github));
-  const showLocalLoggedIn = isLoggedIn && authMode === 'local' && status !== 'authenticated';
+  const showEmailLoggedIn = isLoggedIn && authMode === 'email' && status !== 'authenticated';
 
   if (status === 'loading' || oauth === null) {
     return (
@@ -190,14 +190,14 @@ export default function LoginPage() {
               </p>
             </motion.div>
 
-            {showLocalLoggedIn ? (
+            {showEmailLoggedIn ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="rounded-2xl border border-emerald-200/70 bg-emerald-50/80 p-4 text-center dark:border-emerald-400/30 dark:bg-emerald-400/10"
               >
                 <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                  当前已登录（本地演示）：{currentName || '用户'}
+                  当前已登录（邮箱登录）：{currentName || '用户'}
                 </p>
                 <button
                   type="button"
@@ -264,7 +264,7 @@ export default function LoginPage() {
                   <div className="relative flex items-center justify-center py-1">
                     <div className="absolute inset-x-0 top-1/2 h-px bg-black/[0.06] dark:bg-white/[0.08]" />
                     <span className="apple-glass relative rounded-full px-4 py-0.5 text-xs text-[#86868b]">
-                      或使用本地演示（不验证邮箱）
+                      或使用邮箱登录（不验证邮箱所有权）
                     </span>
                   </div>
                 ) : null}
@@ -310,7 +310,7 @@ export default function LoginPage() {
                     type="submit"
                     className="apple-btn apple-btn-primary h-11 w-full rounded-xl text-sm"
                   >
-                    {hasOauth ? '本地演示登录' : '登录并进入我的课程'}
+                    {hasOauth ? '邮箱登录并进入我的课程' : '登录并进入我的课程'}
                   </button>
                 </form>
                 <div className="flex items-center justify-center gap-1.5 rounded-xl border border-slate-200/70 bg-white/60 px-3 py-2 text-[11px] text-slate-500 dark:border-white/10 dark:bg-white/5 dark:text-slate-400">

@@ -14,7 +14,9 @@ export interface EnsureUserPayload {
  * 保证 User 表中存在该行，以满足 Course/Notebook 等 ownerId 外键。
  * NextAuth 用户通常已存在；客户端 zustand 用邮箱派生的 id（如 user-foo）时需在此补一行。
  */
-export async function ensureUserForApi(payload: string | EnsureUserPayload): Promise<void> {
+export async function ensureUserForApi(
+  payload: string | EnsureUserPayload,
+): Promise<string | undefined> {
   const normalized =
     typeof payload === 'string'
       ? { userId: payload }
@@ -28,24 +30,58 @@ export async function ensureUserForApi(payload: string | EnsureUserPayload): Pro
   if (!id) return;
 
   const prisma = getOptionalPrisma();
-  if (!prisma) return;
+  if (!prisma) return id;
 
   try {
+    const normalizedEmail = normalized.email?.toLowerCase() || null;
+    if (normalizedEmail) {
+      const existingByEmail = await prisma.user.findUnique({
+        where: { email: normalizedEmail },
+        select: { id: true },
+      });
+      if (existingByEmail?.id) {
+        if (normalized.name) {
+          await prisma.user.update({
+            where: { id: existingByEmail.id },
+            data: { name: normalized.name },
+          });
+        }
+        await ensureUserCreditsInitialized(prisma, existingByEmail.id);
+        return existingByEmail.id;
+      }
+    }
+
     await prisma.user.upsert({
       where: { id },
       create: {
         id,
-        email: normalized.email,
+        email: normalizedEmail,
         name: normalized.name,
       },
       update: {
-        ...(normalized.email ? { email: normalized.email } : {}),
+        ...(normalizedEmail ? { email: normalizedEmail } : {}),
         ...(normalized.name ? { name: normalized.name } : {}),
       },
     });
     await ensureUserCreditsInitialized(prisma, id);
+    return id;
   } catch (error) {
+    if (normalized.email) {
+      try {
+        const existingByEmail = await prisma.user.findUnique({
+          where: { email: normalized.email.toLowerCase() },
+          select: { id: true },
+        });
+        if (existingByEmail?.id) {
+          await ensureUserCreditsInitialized(prisma, existingByEmail.id);
+          return existingByEmail.id;
+        }
+      } catch {
+        // fall through to warning below
+      }
+    }
     // 在无数据库或数据库暂不可用的本地优先模式下，不应让整个请求链路直接失败。
     log.warn('Failed to ensure user in database:', error);
+    return id;
   }
 }

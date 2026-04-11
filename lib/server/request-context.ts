@@ -46,13 +46,14 @@ export async function runWithRequestContext<T>(
   if (headerUserId) {
     const headerUserEmail = req.headers.get('x-user-email')?.trim() || undefined;
     const headerUserName = req.headers.get('x-user-name')?.trim() || undefined;
-    await ensureUserForApi({
-      userId: headerUserId,
-      email: headerUserEmail,
-      name: headerUserName,
-    });
+    const resolvedUserId =
+      (await ensureUserForApi({
+        userId: headerUserId,
+        email: headerUserEmail,
+        name: headerUserName,
+      })) || headerUserId;
     user = {
-      id: headerUserId,
+      id: resolvedUserId,
       email: headerUserEmail,
       name: headerUserName,
     };
@@ -61,13 +62,14 @@ export async function runWithRequestContext<T>(
     const session = await requireServerSession();
     const sessionUserId = session?.user?.id?.trim();
     if (sessionUserId) {
-      await ensureUserForApi({
-        userId: sessionUserId,
-        email: session?.user?.email,
-        name: session?.user?.name,
-      });
+      const resolvedUserId =
+        (await ensureUserForApi({
+          userId: sessionUserId,
+          email: session?.user?.email,
+          name: session?.user?.name,
+        })) || sessionUserId;
       user = {
-        id: sessionUserId,
+        id: resolvedUserId,
         email: session?.user?.email?.trim() || undefined,
         name: session?.user?.name?.trim() || undefined,
       };

@@ -7,24 +7,26 @@ export async function requireUserId() {
   const session = await requireServerSession();
   const userId = session?.user?.id?.trim();
   if (userId) {
-    await ensureUserForApi({
-      userId,
-      email: session?.user?.email,
-      name: session?.user?.name,
-    });
-    return { userId } as const;
+    const resolvedUserId =
+      (await ensureUserForApi({
+        userId,
+        email: session?.user?.email,
+        name: session?.user?.name,
+      })) || userId;
+    return { userId: resolvedUserId } as const;
   }
 
   // Temporary compatibility path: allow existing client-side auth store userId.
   const h = await headers();
   const fallbackUserId = h.get('x-user-id')?.trim();
   if (fallbackUserId) {
-    await ensureUserForApi({
-      userId: fallbackUserId,
-      email: h.get('x-user-email'),
-      name: h.get('x-user-name'),
-    });
-    return { userId: fallbackUserId } as const;
+    const resolvedUserId =
+      (await ensureUserForApi({
+        userId: fallbackUserId,
+        email: h.get('x-user-email'),
+        name: h.get('x-user-name'),
+      })) || fallbackUserId;
+    return { userId: resolvedUserId } as const;
   }
 
   return { response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) } as const;
