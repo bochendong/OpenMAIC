@@ -19,6 +19,9 @@ const MAX_CONTAINER_STACK_GAP_PX = 18;
 const CONTAINER_ATTACH_GAP_PX = 20;
 const MAX_CONTAINER_CONTENT_COUNT = 3;
 const MAX_CONTAINER_MIGRATION_EXTRA_HEIGHT_PX = 96;
+const MAX_PAIRED_SHAPE_VERTICAL_INSET_PX = 32;
+const MIN_SHAPE_TEXT_BOX_HEIGHT_PX = 88;
+const SHAPE_TEXT_SHRINK_THRESHOLD_PX = 24;
 
 export interface SlideViewport {
   width: number;
@@ -488,6 +491,27 @@ function resolveContainerContentLeft(
   return Math.round(clamp(element.left, minLeft, maxLeft));
 }
 
+function createSyntheticTextElementFromShape(shape: PPTShapeElement): PPTTextElement | null {
+  if (!shape.text?.content?.trim()) return null;
+
+  return {
+    id: `${shape.id}__shape_text`,
+    type: 'text',
+    left: shape.left,
+    top: shape.top,
+    width: shape.width,
+    height: shape.height,
+    rotate: shape.rotate,
+    content: shape.text.content,
+    defaultFontName: shape.text.defaultFontName,
+    defaultColor: shape.text.defaultColor,
+    lineHeight: shape.text.lineHeight,
+    wordSpace: shape.text.wordSpace,
+    paragraphSpace: shape.text.paragraphSpace,
+    textType: shape.text.type,
+  };
+}
+
 function cloneElement<T extends PPTElement>(element: T): T {
   return {
     ...element,
@@ -692,6 +716,28 @@ function applyContentHeight(
   return element;
 }
 
+function normalizeStandaloneShapeTextContainers(elements: PPTElement[]): PPTElement[] {
+  return elements.map((element) => {
+    if (element.type !== 'shape') return cloneElement(element);
+
+    const syntheticText = createSyntheticTextElementFromShape(element);
+    if (!syntheticText) return cloneElement(element);
+
+    const estimatedHeight = estimateTextElementContentHeight(syntheticText);
+    const requiredHeight = Math.max(MIN_SHAPE_TEXT_BOX_HEIGHT_PX, estimatedHeight);
+    const shrinkDelta = element.height - requiredHeight;
+
+    if (shrinkDelta < SHAPE_TEXT_SHRINK_THRESHOLD_PX) {
+      return cloneElement(element);
+    }
+
+    return {
+      ...cloneElement(element),
+      height: requiredHeight,
+    };
+  });
+}
+
 function applyContainerContentLayout(
   elements: PPTElement[],
   shapeIndex: number,
@@ -758,7 +804,7 @@ function applyContainerContentLayout(
   }
   const updatedShape: PPTShapeElement = {
     ...shape,
-    height: Math.max(shape.height, requiredShapeHeight),
+    height: requiredShapeHeight,
   };
 
   nextElements[shapeIndex] = updatedShape;
@@ -806,17 +852,29 @@ function applyShapePairLayout(
   const oldTextRange = getElementRange(text);
 
   const updatedText = applyTextHeight(text, allowTightHeight);
-  const requiredShapeHeight = Math.ceil(pair.insets.top + updatedText.height + pair.insets.bottom);
+  const normalizedTopInset = clamp(
+    pair.insets.top,
+    DEFAULT_CONTAINER_INSET_PX,
+    MAX_PAIRED_SHAPE_VERTICAL_INSET_PX,
+  );
+  const normalizedBottomInset = clamp(
+    pair.insets.bottom,
+    DEFAULT_CONTAINER_INSET_PX,
+    MAX_PAIRED_SHAPE_VERTICAL_INSET_PX,
+  );
+  const requiredShapeHeight = Math.ceil(
+    normalizedTopInset + updatedText.height + normalizedBottomInset,
+  );
 
   const updatedShape: PPTShapeElement = {
     ...shape,
-    height: Math.max(shape.height, requiredShapeHeight),
+    height: requiredShapeHeight,
   };
 
   const positionedText: PPTTextElement = {
     ...updatedText,
     left: updatedShape.left + pair.insets.left,
-    top: updatedShape.top + pair.insets.top,
+    top: updatedShape.top + normalizedTopInset,
   };
 
   nextElements[pair.shapeIndex] = updatedShape;
@@ -929,7 +987,8 @@ export function normalizeSlideTextLayout(
   elements: PPTElement[],
   viewport: SlideViewport = DEFAULT_VIEWPORT,
 ): PPTElement[] {
-  let normalized = normalizeContainerBoundContent(elements);
+  let normalized = normalizeStandaloneShapeTextContainers(elements);
+  normalized = normalizeContainerBoundContent(normalized);
 
   for (let index = 0; index < normalized.length; index += 1) {
     if (normalized[index]?.type !== 'text') continue;
