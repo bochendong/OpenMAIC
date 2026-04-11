@@ -58,6 +58,8 @@ import {
   normalizeSlideTextLayout,
   validateSlideTextLayout,
   type SlideLayoutValidationResult,
+  MIN_TEXT_LINE_HEIGHT_RATIO,
+  MAX_TEXT_LINE_HEIGHT_RATIO,
 } from '@/lib/slide-text-layout';
 import type {
   AgentInfo,
@@ -82,6 +84,99 @@ function appendRewriteReason(base?: string, extra?: string): string | undefined 
   return trimmedBase ? `${trimmedBase}\n\n${trimmedExtra}` : trimmedExtra;
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function sanitizeLineHeightStyleValue(rawValue: string, fontSizePx: number | null): string {
+  const trimmed = rawValue.trim();
+  const pxMatch = trimmed.match(/^(-?\d+(?:\.\d+)?)px$/i);
+  if (pxMatch) {
+    const px = Number.parseFloat(pxMatch[1]);
+    if (!Number.isFinite(px)) return rawValue;
+    const safeFontSize = fontSizePx ?? 16;
+    const clampedPx = clampNumber(
+      px,
+      safeFontSize * MIN_TEXT_LINE_HEIGHT_RATIO,
+      safeFontSize * MAX_TEXT_LINE_HEIGHT_RATIO,
+    );
+    return `${Number(clampedPx.toFixed(2))}px`;
+  }
+
+  const numericMatch = trimmed.match(/^-?\d+(?:\.\d+)?$/);
+  if (numericMatch) {
+    const ratio = Number.parseFloat(numericMatch[0]);
+    if (!Number.isFinite(ratio)) return rawValue;
+    return String(
+      Number(clampNumber(ratio, MIN_TEXT_LINE_HEIGHT_RATIO, MAX_TEXT_LINE_HEIGHT_RATIO).toFixed(3)),
+    );
+  }
+
+  return rawValue;
+}
+
+function sanitizeTextHtmlMetrics(html: string): string {
+  if (!html) return html;
+
+  return html.replace(/style=(['"])([\s\S]*?)\1/gi, (full, quote: string, styleText: string) => {
+    const declarations = styleText
+      .split(';')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    let fontSizePx: number | null = null;
+    for (const declaration of declarations) {
+      const colonIndex = declaration.indexOf(':');
+      if (colonIndex === -1) continue;
+      const key = declaration.slice(0, colonIndex).trim().toLowerCase();
+      const value = declaration.slice(colonIndex + 1).trim();
+      if (key !== 'font-size') continue;
+      const match = value.match(/^(-?\d+(?:\.\d+)?)px$/i);
+      if (!match) continue;
+      const parsed = Number.parseFloat(match[1]);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        fontSizePx = parsed;
+      }
+    }
+
+    const normalized = declarations.map((declaration) => {
+      const colonIndex = declaration.indexOf(':');
+      if (colonIndex === -1) return declaration;
+      const key = declaration.slice(0, colonIndex).trim();
+      const lowerKey = key.toLowerCase();
+      const value = declaration.slice(colonIndex + 1).trim();
+
+      if (lowerKey === 'line-height') {
+        return `${key}:${sanitizeLineHeightStyleValue(value, fontSizePx)}`;
+      }
+
+      return `${key}:${value}`;
+    });
+
+    return `style=${quote}${normalized.join(';')}${quote}`;
+  });
+}
+
+function sanitizeTextMetrics<T extends { lineHeight?: number; paragraphSpace?: number }>(
+  textLike: T,
+): T {
+  const next = { ...textLike };
+
+  if (next.lineHeight !== undefined) {
+    next.lineHeight = clampNumber(
+      next.lineHeight,
+      MIN_TEXT_LINE_HEIGHT_RATIO,
+      MAX_TEXT_LINE_HEIGHT_RATIO,
+    );
+  }
+
+  if (next.paragraphSpace !== undefined) {
+    next.paragraphSpace = Math.max(0, next.paragraphSpace);
+  }
+
+  return next;
+}
+
 function formatLayoutIssueForRetry(
   issue: SlideLayoutValidationResult['issues'][number],
   language: 'zh-CN' | 'en-US',
@@ -98,6 +193,8 @@ function formatLayoutIssueForRetry(
         return '背景容器内的文字或公式超出容器边界';
       case 'detached_container_content':
         return '不要输出空背景框，再把正文或公式放在框外或框下';
+      case 'invalid_text_metrics':
+        return '文字样式存在非法度量，例如过小的 line-height，导致整行文字被压扁';
       default:
         return issue.message;
     }
@@ -114,6 +211,8 @@ function formatLayoutIssueForRetry(
       return 'text or latex exceeds its containing background shape';
     case 'detached_container_content':
       return 'do not place an empty background shape above content that belongs inside it';
+    case 'invalid_text_metrics':
+      return 'text metrics are invalid, such as a line-height that crushes the glyphs';
     default:
       return issue.message;
   }
@@ -619,6 +718,20 @@ function fixElementDefaults(
         textEl.content = '';
       }
 
+      if (typeof textEl.content === 'string') {
+        textEl.content = sanitizeTextHtmlMetrics(textEl.content);
+      }
+      if (typeof textEl.lineHeight === 'number') {
+        textEl.lineHeight = clampNumber(
+          textEl.lineHeight,
+          MIN_TEXT_LINE_HEIGHT_RATIO,
+          MAX_TEXT_LINE_HEIGHT_RATIO,
+        );
+      }
+      if (typeof textEl.paragraphSpace === 'number') {
+        textEl.paragraphSpace = Math.max(0, textEl.paragraphSpace);
+      }
+
       return textEl as typeof el;
     }
 
@@ -673,6 +786,13 @@ function fixElementDefaults(
       }
       if (shapeEl.fixedRatio === undefined) {
         shapeEl.fixedRatio = false;
+      }
+      if (shapeEl.text && typeof shapeEl.text === 'object') {
+        const nextText = sanitizeTextMetrics(shapeEl.text as Record<string, unknown>);
+        if (typeof nextText.content === 'string') {
+          nextText.content = sanitizeTextHtmlMetrics(nextText.content);
+        }
+        shapeEl.text = nextText;
       }
 
       return shapeEl as typeof el;

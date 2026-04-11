@@ -13,6 +13,8 @@ const REPAIR_GAP_PX = 12;
 const DEFAULT_CONTAINER_INSET_PX = 10;
 const MAX_CONTAINER_INSET_PX = 24;
 const DETACHED_CONTAINER_MAX_GAP_PX = 28;
+export const MIN_TEXT_LINE_HEIGHT_RATIO = 1.1;
+export const MAX_TEXT_LINE_HEIGHT_RATIO = 2.2;
 
 export interface SlideViewport {
   width: number;
@@ -25,7 +27,8 @@ export interface SlideLayoutValidationIssue {
     | 'text_box_overflow'
     | 'shape_text_overflow'
     | 'contained_element_overflow'
-    | 'detached_container_content';
+    | 'detached_container_content'
+    | 'invalid_text_metrics';
   elementId?: string;
   shapeId?: string;
   message: string;
@@ -132,12 +135,28 @@ function parseLineHeightPx(
   fallbackRatio: number,
 ): number {
   const pxValue = parsePxValue(value);
-  if (pxValue !== null) return pxValue;
+  if (pxValue !== null) {
+    return clamp(
+      pxValue,
+      fontSizePx * MIN_TEXT_LINE_HEIGHT_RATIO,
+      fontSizePx * MAX_TEXT_LINE_HEIGHT_RATIO,
+    );
+  }
 
   const numeric = parseNumberish(value);
-  if (numeric !== null) return numeric * fontSizePx;
+  if (numeric !== null) {
+    return clamp(
+      numeric * fontSizePx,
+      fontSizePx * MIN_TEXT_LINE_HEIGHT_RATIO,
+      fontSizePx * MAX_TEXT_LINE_HEIGHT_RATIO,
+    );
+  }
 
-  return fallbackRatio * fontSizePx;
+  return clamp(
+    fallbackRatio * fontSizePx,
+    fontSizePx * MIN_TEXT_LINE_HEIGHT_RATIO,
+    fontSizePx * MAX_TEXT_LINE_HEIGHT_RATIO,
+  );
 }
 
 function normalizePlainText(html: string): string {
@@ -217,6 +236,28 @@ function extractHtmlParagraphs(element: PPTTextElement): HtmlParagraph[] {
       lineHeightPx: (element.lineHeight ?? 1.5) * defaultFontSizePx,
     },
   ];
+}
+
+function hasInvalidTextMetrics(element: PPTTextElement): boolean {
+  if (element.lineHeight !== undefined) {
+    if (
+      element.lineHeight < MIN_TEXT_LINE_HEIGHT_RATIO ||
+      element.lineHeight > MAX_TEXT_LINE_HEIGHT_RATIO
+    ) {
+      return true;
+    }
+  }
+
+  if (element.paragraphSpace !== undefined && element.paragraphSpace < 0) {
+    return true;
+  }
+
+  const paragraphs = extractHtmlParagraphs(element);
+  return paragraphs.some(
+    (paragraph) =>
+      paragraph.lineHeightPx < paragraph.fontSizePx * MIN_TEXT_LINE_HEIGHT_RATIO - 0.5 ||
+      paragraph.lineHeightPx > paragraph.fontSizePx * MAX_TEXT_LINE_HEIGHT_RATIO + 0.5,
+  );
 }
 
 function isCjkCharacter(char: string): boolean {
@@ -762,6 +803,13 @@ export function validateSlideTextLayout(
     if (element.type === 'shape' && hasShapeTextContent(element)) {
       const syntheticText = createSyntheticTextElementFromShape(element);
       if (!syntheticText) continue;
+      if (hasInvalidTextMetrics(syntheticText)) {
+        issues.push({
+          code: 'invalid_text_metrics',
+          shapeId: element.id,
+          message: `Shape ${element.id} uses invalid text metrics such as a line-height outside the supported range.`,
+        });
+      }
       const requiredHeight = estimateTextElementContentHeight(syntheticText, element.width);
       if (requiredHeight > element.height + 1) {
         issues.push({
@@ -774,6 +822,13 @@ export function validateSlideTextLayout(
     }
 
     if (element.type === 'text') {
+      if (hasInvalidTextMetrics(element)) {
+        issues.push({
+          code: 'invalid_text_metrics',
+          elementId: element.id,
+          message: `Text ${element.id} uses invalid text metrics such as a line-height outside the supported range.`,
+        });
+      }
       const requiredHeight = estimateTextElementContentHeight(element);
       if (requiredHeight > element.height + 1) {
         issues.push({
