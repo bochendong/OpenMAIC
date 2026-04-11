@@ -5,7 +5,7 @@ import type { PPTLatexElement } from '@/lib/types/slides';
 
 export { BaseLatexElement } from './BaseLatexElement';
 
-const MAX_KATEX_UPSCALE = 1.15;
+const MAX_KATEX_UPSCALE = 1;
 const ALIGN_MAP = {
   left: 'flex-start',
   center: 'center',
