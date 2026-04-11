@@ -182,7 +182,9 @@ export function ShapeElement({ elementInfo, selectElement }: ShapeElementProps) 
                 value={text.content}
                 onUpdate={({ value, ignore }) => updateText(value, ignore)}
                 onBlur={checkEmptyText}
-                onMouseDown={(e) => handleSelectElement(e as React.MouseEvent, false)}
+                onMouseDown={(e) =>
+                  handleSelectElement(e as React.MouseEvent, editable ? false : true)
+                }
               />
             )}
           </ShapeTextSurface>

@@ -62,14 +62,14 @@ export function BaseLatexElement({ elementInfo }: BaseLatexElementProps) {
 }
 
 // Formula boxes are often intentionally generous for layout safety.
-// Keep formulas close to their natural KaTeX size instead of filling the box aggressively.
-const MAX_KATEX_UPSCALE = 1;
+// Cap automatic upscaling so playback does not make equations look oversized.
+const MAX_KATEX_UPSCALE = 1.15;
 
 function KatexContent({
   html,
   width,
   height,
-  align: _align = 'center',
+  align = 'center',
 }: {
   html: string;
   width: number;

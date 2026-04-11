@@ -38,8 +38,7 @@ function FormulaBlock({ latex, display = true }: { latex: string; display?: bool
 }
 
 function renderInlineMathHtml(text: string): string {
-  const pattern =
-    /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
+  const pattern = /(\$\$([\s\S]+?)\$\$|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]|\$([^\n$]+?)\$)/g;
   let result = '';
   let lastIndex = 0;
 
@@ -181,79 +180,77 @@ export const NotebookContentView = memo(function NotebookContentView({
                 ))}
               </div>
             );
-          case 'code_block':
-            {
-              const codeLanguage = (block.language || 'text') as BundledLanguage;
-              return (
-                <div key={index} className="space-y-2">
-                  {block.caption ? (
-                    <p
-                      className="text-xs font-medium text-muted-foreground"
-                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
-                    />
-                  ) : null}
-                  <CodeBlock code={block.code} language={codeLanguage}>
-                    <CodeBlockCopyButton />
-                  </CodeBlock>
-                </div>
-              );
-            }
-          case 'code_walkthrough':
-            {
-              const codeLanguage = (block.language || 'text') as BundledLanguage;
-              const outputLanguage = 'text' as BundledLanguage;
-              return (
-                <div
-                  key={index}
-                  className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
-                >
-                  {block.title ? (
-                    <p
-                      className="text-sm font-semibold text-foreground"
-                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
-                    />
-                  ) : null}
-                  {block.caption ? (
-                    <p
-                      className="text-xs font-medium text-muted-foreground"
-                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
-                    />
-                  ) : null}
-                  <CodeBlock code={block.code} language={codeLanguage}>
-                    <CodeBlockCopyButton />
-                  </CodeBlock>
-                  <div className="space-y-2">
-                    {block.steps.map((step, stepIdx) => (
-                      <div
-                        key={stepIdx}
-                        className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
-                      >
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {document.language === 'en-US'
-                            ? `Step ${stepIdx + 1}`
-                            : `步骤 ${stepIdx + 1}`}
-                          {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
-                        </p>
-                        <p
-                          className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground"
-                          dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.explanation) }}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  {block.output ? (
-                    <div className="space-y-2">
-                      <p className="text-xs font-medium text-muted-foreground">
-                        {document.language === 'en-US' ? 'Output' : '输出'}
+          case 'code_block': {
+            const codeLanguage = (block.language || 'text') as BundledLanguage;
+            return (
+              <div key={index} className="space-y-2">
+                {block.caption ? (
+                  <p
+                    className="text-xs font-medium text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
+                ) : null}
+                <CodeBlock code={block.code} language={codeLanguage}>
+                  <CodeBlockCopyButton />
+                </CodeBlock>
+              </div>
+            );
+          }
+          case 'code_walkthrough': {
+            const codeLanguage = (block.language || 'text') as BundledLanguage;
+            const outputLanguage = 'text' as BundledLanguage;
+            return (
+              <div
+                key={index}
+                className="space-y-3 rounded-xl border border-border/70 bg-muted/20 px-4 py-3"
+              >
+                {block.title ? (
+                  <p
+                    className="text-sm font-semibold text-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.title) }}
+                  />
+                ) : null}
+                {block.caption ? (
+                  <p
+                    className="text-xs font-medium text-muted-foreground"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.caption) }}
+                  />
+                ) : null}
+                <CodeBlock code={block.code} language={codeLanguage}>
+                  <CodeBlockCopyButton />
+                </CodeBlock>
+                <div className="space-y-2">
+                  {block.steps.map((step, stepIdx) => (
+                    <div
+                      key={stepIdx}
+                      className="rounded-lg border border-border/60 bg-background/70 px-3 py-2"
+                    >
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {document.language === 'en-US'
+                          ? `Step ${stepIdx + 1}`
+                          : `步骤 ${stepIdx + 1}`}
+                        {step.title || step.focus ? ` · ${step.title || step.focus}` : ''}
                       </p>
-                      <CodeBlock code={block.output} language={outputLanguage}>
-                        <CodeBlockCopyButton />
-                      </CodeBlock>
+                      <p
+                        className="mt-1 whitespace-pre-wrap text-sm leading-6 text-foreground"
+                        dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(step.explanation) }}
+                      />
                     </div>
-                  ) : null}
+                  ))}
                 </div>
-              );
-            }
+                {block.output ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {document.language === 'en-US' ? 'Output' : '输出'}
+                    </p>
+                    <CodeBlock code={block.output} language={outputLanguage}>
+                      <CodeBlockCopyButton />
+                    </CodeBlock>
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
           case 'table': {
             const headers =
               block.headers && block.headers.length > 0
@@ -324,6 +321,42 @@ export const NotebookContentView = memo(function NotebookContentView({
               </div>
             );
           }
+          case 'definition':
+            return (
+              <div
+                key={index}
+                className="rounded-xl border border-sky-200 bg-sky-50/70 px-4 py-3 text-slate-900"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">
+                  {block.title || (document.language === 'en-US' ? 'Definition' : '定义')}
+                </p>
+                <p
+                  className="mt-1 whitespace-pre-wrap leading-7"
+                  dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
+                />
+              </div>
+            );
+          case 'theorem':
+            return (
+              <div
+                key={index}
+                className="rounded-xl border border-violet-200 bg-violet-50/80 px-4 py-3 text-slate-900"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+                  {block.title || (document.language === 'en-US' ? 'Theorem' : '定理')}
+                </p>
+                <p
+                  className="mt-1 whitespace-pre-wrap leading-7"
+                  dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
+                />
+                {block.proofIdea ? (
+                  <p
+                    className="mt-2 whitespace-pre-wrap text-sm leading-6 text-violet-950/75"
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.proofIdea) }}
+                  />
+                ) : null}
+              </div>
+            );
           case 'example':
             return (
               <div key={index} className="rounded-xl border border-border/70 bg-muted/20 px-4 py-3">
@@ -331,7 +364,8 @@ export const NotebookContentView = memo(function NotebookContentView({
                   className="text-sm font-semibold text-foreground"
                   dangerouslySetInnerHTML={{
                     __html: renderInlineMathHtml(
-                      block.title || (document.language === 'en-US' ? 'Worked Example' : '例题讲解'),
+                      block.title ||
+                        (document.language === 'en-US' ? 'Worked Example' : '例题讲解'),
                     ),
                   }}
                 />

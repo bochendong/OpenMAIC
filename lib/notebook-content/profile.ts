@@ -79,6 +79,10 @@ function collectBlockText(block: NotebookContentBlock): string[] {
       return [block.caption || '', ...(block.headers || []), ...block.rows.flat()];
     case 'callout':
       return [block.title || '', block.text];
+    case 'definition':
+      return [block.title || '', block.text];
+    case 'theorem':
+      return [block.title || '', block.text, block.proofIdea || ''];
     case 'example':
       return [
         block.title || '',

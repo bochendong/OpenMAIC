@@ -259,7 +259,6 @@ If the scene outline includes `mediaGenerations`, you may also use generated ima
 ```
 
 如果文案在语义上就是这个卡片或胶囊的一部分，优先使用 `shape.text`，不要再额外创建一个漂浮的 `TextElement`。
-不要输出一个空背景 shape，然后把真正的 `TextElement` 或 `LatexElement` 放在这个 shape 的下方或外部。
 
 **Common Shapes**:
 
@@ -675,7 +674,6 @@ Element 3: left = 660, width = 280  (gap = 20px)  ✓ (consistent)
 ### Rule 5: Text with Background Shape
 
 当文字放在背景形状内时，必须遵守下面的流程。这是硬性布局要求，不是风格建议。
-背景 shape 和它承载的正文不是“视觉上差不多挨着就行”，如果正文属于这个卡片，就必须在几何上完整落在卡片内部。
 
 #### Step 1: Design the background shape first
 
@@ -1049,7 +1047,6 @@ Before outputting JSON, verify:
 - text is centered: `text.left = shape.left + (shape.width - text.width) / 2`
 - text is centered: `text.top = shape.top + (shape.height - text.height) / 2`
 - 不能出现任何肉眼可见的文字越出形状边界
-- 卡片、提示框、容器里的正文优先使用 `shape.text`；不要留下空卡片，再把真正内容放在卡片下面
 
 14. ✓ No unintended element overlaps (especially check LaTeX elements — their rendered height may be much larger than specified)
 15. ✓ Image placed near related text (25-35px gap)

@@ -11,12 +11,18 @@ Your output is NOT slide coordinates and NOT HTML. Your output is a semantic con
 
 Prefer the strongest semantic block type instead of flattening everything into paragraphs.
 
+The renderer owns layout, background cards, and decorative accents with hard-rule styles.
+You are choosing semantic teaching blocks, not drawing slide chrome.
+If content belongs in a card, choose the correct block type and let the renderer attach the built-in background automatically.
+
 Respect the slide's declared content profile:
 - `math`: prioritize formula, matrix, proof, and derivation structure
 - `code`: prioritize code structure, execution flow, and code walkthrough blocks
 - `general`: prioritize concept clarity and compact explanatory structure
 
 Use:
+- `definition` for formal definitions or precise concept statements
+- `theorem` for named or theorem-like claims, propositions, lemmas, or proof targets
 - `equation` for formulas
 - `matrix` for standalone matrices that should stay structurally readable
 - `derivation_steps` for multi-step symbolic reasoning
@@ -32,6 +38,7 @@ Do not output:
 - HTML
 - slide element coordinates
 - raw PPT element definitions
+- separate "background box" ideas as content
 - vague placeholder text like "given a system", "compute the matrix", "show the steps"
 
 ## Content Philosophy
@@ -55,6 +62,7 @@ Rules:
 - For symbol-heavy math, use `equation` or `derivation_steps` instead of burying symbols in plain prose
 - For matrix-heavy slides, prefer `profile: "math"` and use `matrix` / `derivation_steps`
 - For programming slides, prefer `profile: "code"` and use `code_walkthrough` instead of flattening code explanation into bullets
+- For formal concept teaching, prefer `definition` / `theorem` over plain `paragraph`
 
 ## Output Schema
 
@@ -76,6 +84,8 @@ Supported block shapes:
 {"type":"heading","level":2,"text":"..."}
 {"type":"paragraph","text":"..."}
 {"type":"bullet_list","items":["..."]}
+{"type":"definition","title":"optional","text":"..."}
+{"type":"theorem","title":"optional","text":"...","proofIdea":"optional"}
 {"type":"equation","latex":"...","display":true,"caption":"optional"}
 {"type":"matrix","rows":[["a","b"],["c","d"]],"brackets":"bmatrix","label":"optional","caption":"optional"}
 {"type":"derivation_steps","title":"optional","steps":[{"expression":"...","format":"latex|text|chem","explanation":"optional"}]}
@@ -93,6 +103,7 @@ Supported block shapes:
 - Usually keep `blocks` between 2 and 8
 - Set `profile` to `math` for formula / proof / matrix-heavy slides, `code` for programming walkthroughs, otherwise `general`
 - Prefer one clear example over many weak bullets
+- Prefer semantically strong blocks whose built-in styles already match the teaching intent, instead of simulating layout with extra prose
 - Do not invent unrelated sections
 - Do not mention teacher identity inside the content
 - Do not include images; this semantic mode is for text/formula/code/table/example content only

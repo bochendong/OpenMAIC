@@ -211,7 +211,9 @@ export function TextElement({ elementInfo, selectElement }: TextElementProps) {
               editable={!elementInfo.lock}
               value={elementInfo.content}
               onUpdate={({ value, ignore }) => updateContent(value, ignore)}
-              onMouseDown={(e) => handleSelectElement(e as React.MouseEvent, false)}
+              onMouseDown={(e) =>
+                handleSelectElement(e as React.MouseEvent, elementInfo.groupId ? true : false)
+              }
             />
           </div>
 

@@ -91,6 +91,19 @@ export const notebookContentCalloutBlockSchema = z.object({
   text: z.string().trim().min(1).max(2000),
 });
 
+export const notebookContentDefinitionBlockSchema = z.object({
+  type: z.literal('definition'),
+  title: z.string().trim().max(200).optional(),
+  text: z.string().trim().min(1).max(2000),
+});
+
+export const notebookContentTheoremBlockSchema = z.object({
+  type: z.literal('theorem'),
+  title: z.string().trim().max(200).optional(),
+  text: z.string().trim().min(1).max(2000),
+  proofIdea: z.string().trim().max(1200).optional(),
+});
+
 export const notebookContentExampleBlockSchema = z.object({
   type: z.literal('example'),
   title: z.string().trim().max(200).optional(),
@@ -125,6 +138,8 @@ export const notebookContentBlockSchema = z.discriminatedUnion('type', [
   notebookContentCodeWalkthroughBlockSchema,
   notebookContentTableBlockSchema,
   notebookContentCalloutBlockSchema,
+  notebookContentDefinitionBlockSchema,
+  notebookContentTheoremBlockSchema,
   notebookContentExampleBlockSchema,
   notebookContentChemFormulaBlockSchema,
   notebookContentChemEquationBlockSchema,
@@ -152,6 +167,8 @@ export type NotebookContentCodeWalkthroughBlock = z.infer<
 >;
 export type NotebookContentTableBlock = z.infer<typeof notebookContentTableBlockSchema>;
 export type NotebookContentCalloutBlock = z.infer<typeof notebookContentCalloutBlockSchema>;
+export type NotebookContentDefinitionBlock = z.infer<typeof notebookContentDefinitionBlockSchema>;
+export type NotebookContentTheoremBlock = z.infer<typeof notebookContentTheoremBlockSchema>;
 export type NotebookContentExampleBlock = z.infer<typeof notebookContentExampleBlockSchema>;
 export type NotebookContentChemFormulaBlock = z.infer<typeof notebookContentChemFormulaBlockSchema>;
 export type NotebookContentChemEquationBlock = z.infer<

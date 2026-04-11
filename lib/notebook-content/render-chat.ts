@@ -59,6 +59,17 @@ function renderBlock(block: NotebookContentBlock, language: 'zh-CN' | 'en-US'): 
     }
     case 'callout':
       return `> ${block.title ? `${block.title}: ` : ''}${block.text}`;
+    case 'definition':
+      return `> ${block.title || (language === 'en-US' ? 'Definition' : '定义')}: ${block.text}`;
+    case 'theorem':
+      return [
+        `> ${block.title || (language === 'en-US' ? 'Theorem' : '定理')}: ${block.text}`,
+        block.proofIdea
+          ? `> ${language === 'en-US' ? 'Proof idea' : '证明思路'}: ${block.proofIdea}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
     case 'example': {
       const goalLine = block.goal
         ? language === 'en-US'
