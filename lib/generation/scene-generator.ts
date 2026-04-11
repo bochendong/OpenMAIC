@@ -54,7 +54,11 @@ import type {
 } from '@/lib/types/slides';
 import type { QuizQuestion } from '@/lib/types/stage';
 import type { Action } from '@/lib/types/action';
-import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
+import {
+  normalizeSlideTextLayout,
+  validateSlideTextLayout,
+  type SlideLayoutValidationResult,
+} from '@/lib/slide-text-layout';
 import type {
   AgentInfo,
   CoursePersonalizationContext,
@@ -67,6 +71,83 @@ import type {
 import { createLogger } from '@/lib/logger';
 import { verbalizeSpeechActions } from '@/lib/audio/spoken-text';
 const log = createLogger('Generation');
+const SLIDE_LAYOUT_VIEWPORT = { width: 1000, height: 562.5 } as const;
+const MAX_SLIDE_LAYOUT_RETRIES = 1;
+
+function appendRewriteReason(base?: string, extra?: string): string | undefined {
+  const trimmedExtra = extra?.trim();
+  if (!trimmedExtra) return base;
+
+  const trimmedBase = base?.trim();
+  return trimmedBase ? `${trimmedBase}\n\n${trimmedExtra}` : trimmedExtra;
+}
+
+function formatLayoutIssueForRetry(
+  issue: SlideLayoutValidationResult['issues'][number],
+  language: 'zh-CN' | 'en-US',
+): string {
+  if (language === 'zh-CN') {
+    switch (issue.code) {
+      case 'viewport_overflow':
+        return '元素超出画布边界';
+      case 'text_box_overflow':
+        return '文本框高度不足，正文放不下';
+      case 'shape_text_overflow':
+        return 'shape.text 内容超过背景容器高度';
+      case 'contained_element_overflow':
+        return '背景容器内的文字或公式超出容器边界';
+      case 'detached_container_content':
+        return '不要输出空背景框，再把正文或公式放在框外或框下';
+      default:
+        return issue.message;
+    }
+  }
+
+  switch (issue.code) {
+    case 'viewport_overflow':
+      return 'elements exceed the slide viewport';
+    case 'text_box_overflow':
+      return 'a text box is too short for its content';
+    case 'shape_text_overflow':
+      return 'shape.text content is taller than its container';
+    case 'contained_element_overflow':
+      return 'text or latex exceeds its containing background shape';
+    case 'detached_container_content':
+      return 'do not place an empty background shape above content that belongs inside it';
+    default:
+      return issue.message;
+  }
+}
+
+function buildLayoutRetryReason(
+  validation: SlideLayoutValidationResult,
+  language: 'zh-CN' | 'en-US',
+): string {
+  const issueSummary = validation.issues
+    .slice(0, 4)
+    .map((issue) => formatLayoutIssueForRetry(issue, language))
+    .join(language === 'zh-CN' ? '；' : '; ');
+
+  if (language === 'zh-CN') {
+    return [
+      '上一版因为版式几何校验失败，需要整页重写。',
+      `- 失败原因：${issueSummary || '文字与容器的几何关系不正确。'}`,
+      '- 必须保证所有文字框、公式框和 shape.text 在最终版式里完整落在各自容器内。',
+      '- 卡片、说明框、提示框里的正文，优先直接写到 shape.text；如果使用独立 TextElement 或 LatexElement，它必须几何上完整位于背景 shape 内。',
+      '- 不要输出空背景框，再把正文、项目符号或公式漂在框外、框下或相邻位置。',
+      '- 不允许通过缩小字号来解决布局问题；如果内容过多，请改布局、增大容器、拆成多块，或减少单页信息密度。',
+    ].join('\n');
+  }
+
+  return [
+    'The previous version failed geometric layout validation and must be fully rewritten.',
+    `- Failure summary: ${issueSummary || 'The text-to-container geometry was invalid.'}`,
+    '- Every text box, latex box, and shape.text block must be fully contained by its final container.',
+    '- For card, callout, or container copy, prefer shape.text. If you use a separate TextElement or LatexElement, it must be geometrically inside the background shape.',
+    '- Do not output an empty background shape and place the real copy, bullets, or formulas below or outside that shape.',
+    '- Do not solve layout by shrinking font sizes. If content is too dense, change the layout, enlarge the container, split the card, or reduce per-slide density.',
+  ].join('\n');
+}
 
 // ==================== Stage 2: Full Scenes (Two-Step) ====================
 
@@ -2143,9 +2224,21 @@ async function generateSemanticSlideContent(
     document: contentDocument,
     fallbackTitle: outline.title,
   });
+  const normalizedElements = normalizeSlideTextLayout(
+    renderedSlide.elements,
+    SLIDE_LAYOUT_VIEWPORT,
+  );
+  const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
+  if (!layoutValidation.isValid) {
+    log.warn(
+      `Semantic slide content layout invalid for: ${outline.title}`,
+      layoutValidation.issues.map((issue) => issue.message),
+    );
+    return null;
+  }
 
   return {
-    elements: renderedSlide.elements,
+    elements: normalizedElements,
     background: renderedSlide.background,
     theme: renderedSlide.theme,
     remark: outline.description,
@@ -2166,6 +2259,8 @@ async function generateSlideContent(
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
   rewriteReason?: string,
+  layoutRetryCount = 0,
+  skipSemanticPipeline = false,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
 
@@ -2176,12 +2271,28 @@ async function generateSlideContent(
       generatedMediaMapping,
     });
     if (localTemplate) {
-      log.info(`Using local worked-example template for: ${outline.title}`);
-      return localTemplate;
+      const normalizedElements = normalizeSlideTextLayout(
+        localTemplate.elements,
+        SLIDE_LAYOUT_VIEWPORT,
+      );
+      const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
+
+      if (!layoutValidation.isValid) {
+        log.warn(
+          `Local worked-example template layout invalid, falling back to AI generation: ${outline.title}`,
+          layoutValidation.issues.map((issue) => issue.message),
+        );
+      } else {
+        log.info(`Using local worked-example template for: ${outline.title}`);
+        return {
+          ...localTemplate,
+          elements: normalizedElements,
+        };
+      }
     }
   }
 
-  if (shouldUseSemanticSlideGeneration(outline, assignedImages)) {
+  if (!skipSemanticPipeline && shouldUseSemanticSlideGeneration(outline, assignedImages)) {
     const semanticContent = await generateSemanticSlideContent(
       outline,
       aiCall,
@@ -2357,7 +2468,33 @@ async function generateSlideContent(
     id: `${el.type}_${nanoid(8)}`,
     rotate: 0,
   })) as PPTElement[];
-  const normalizedElements = normalizeSlideTextLayout(processedElements);
+  const normalizedElements = normalizeSlideTextLayout(processedElements, SLIDE_LAYOUT_VIEWPORT);
+  const layoutValidation = validateSlideTextLayout(normalizedElements, SLIDE_LAYOUT_VIEWPORT);
+  if (!layoutValidation.isValid) {
+    log.warn(
+      `Generated slide layout invalid for: ${outline.title}`,
+      layoutValidation.issues.map((issue) => issue.message),
+    );
+
+    if (layoutRetryCount < MAX_SLIDE_LAYOUT_RETRIES) {
+      return generateSlideContent(
+        outline,
+        aiCall,
+        assignedImages,
+        imageMapping,
+        visionEnabled,
+        generatedMediaMapping,
+        agents,
+        courseContext,
+        appendRewriteReason(rewriteReason, buildLayoutRetryReason(layoutValidation, lang)),
+        layoutRetryCount + 1,
+        true,
+      );
+    }
+
+    log.error(`Slide layout validation failed after retry for: ${outline.title}`);
+    return null;
+  }
 
   // Process background
   let background: SlideBackground | undefined;

@@ -259,6 +259,7 @@ If the scene outline includes `mediaGenerations`, you may also use generated ima
 ```
 
 If the text is conceptually inside the card or pill, prefer `shape.text` instead of creating a separate free-floating `TextElement`.
+Never output an empty background shape and then place the real `TextElement` or `LatexElement` below or outside that shape.
 
 **Common Shapes**:
 
@@ -674,6 +675,7 @@ Element 3: left = 660, width = 280  (gap = 20px)  ✓ (consistent)
 ### Rule 5: Text with Background Shape
 
 When placing text on a background shape, follow this process. This is a hard layout requirement, not a style suggestion.
+The background shape and its content are not loose neighbors: if the text belongs to the card, it must be fully geometrically contained by that card.
 
 #### Step 1: Design the background shape first
 
@@ -1047,6 +1049,7 @@ Before outputting JSON, verify:
 - text is centered: `text.left = shape.left + (shape.width - text.width) / 2`
 - text is centered: `text.top = shape.top + (shape.height - text.height) / 2`
 - no visible text may extend beyond the shape bounds
+- prefer `shape.text` for card/callout/container copy; do not leave an empty card and place the real content below it
 
 14. ✓ No unintended element overlaps (especially check LaTeX elements — their rendered height may be much larger than specified)
 15. ✓ Image placed near related text (25-35px gap)

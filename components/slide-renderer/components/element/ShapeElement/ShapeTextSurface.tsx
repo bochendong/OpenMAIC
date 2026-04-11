@@ -2,7 +2,6 @@
 
 import type { CSSProperties, ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { useOverflowFit } from '../hooks/useOverflowFit';
 
 export type ShapeTextVerticalAlign = 'top' | 'middle' | 'bottom';
 
@@ -61,31 +60,13 @@ export interface ShapeTextSurfaceProps {
   readonly align: ShapeTextVerticalAlign;
   readonly style?: CSSProperties;
   readonly className?: string;
-  readonly fitOverflow?: boolean;
-  readonly fitDeps?: readonly unknown[];
   readonly children: ReactNode;
 }
 
 /**
  * Shared “glass / keynote” treatment for shape text (playback + editor).
  */
-export function ShapeTextSurface({
-  align,
-  style,
-  className,
-  fitOverflow = false,
-  fitDeps = [],
-  children,
-}: ShapeTextSurfaceProps) {
-  const { viewportRef, contentRef, metrics } = useOverflowFit(fitOverflow, fitDeps);
-  const scaledHeight = metrics.contentHeight * metrics.scale;
-  const offsetY =
-    align === 'middle'
-      ? Math.max(0, (metrics.viewportHeight - scaledHeight) / 2)
-      : align === 'bottom'
-        ? Math.max(0, metrics.viewportHeight - scaledHeight)
-        : 0;
-
+export function ShapeTextSurface({ align, style, className, children }: ShapeTextSurfaceProps) {
   return (
     <div
       className={cn(
@@ -105,7 +86,6 @@ export function ShapeTextSurface({
       <div
         className={cn(
           'relative z-[1] min-h-0 min-w-0 w-full max-w-full',
-          fitOverflow ? 'h-full' : '',
           'motion-safe:transition-[transform,filter] motion-safe:duration-300 motion-safe:ease-[cubic-bezier(0.22,1,0.36,1)]',
           'motion-reduce:transition-none',
           'group-hover/shape-text:-translate-y-px motion-reduce:group-hover/shape-text:translate-y-0',
@@ -121,24 +101,7 @@ export function ShapeTextSurface({
           'group-hover/shape-text:[&_code]:bg-black/[0.1] dark:group-hover/shape-text:[&_code]:bg-white/[0.14]',
         )}
       >
-        {fitOverflow ? (
-          <div ref={viewportRef} className="relative h-full w-full overflow-hidden">
-            <div
-              ref={contentRef}
-              style={{
-                transform:
-                  metrics.scale < 0.999
-                    ? `translateY(${offsetY}px) scale(${metrics.scale})`
-                    : undefined,
-                transformOrigin: 'top left',
-              }}
-            >
-              {children}
-            </div>
-          </div>
-        ) : (
-          children
-        )}
+        {children}
       </div>
     </div>
   );
