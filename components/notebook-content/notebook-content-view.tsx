@@ -9,6 +9,7 @@ import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-bl
 import type { NotebookContentDocument } from '@/lib/notebook-content';
 import { chemistryTextToHtml } from '@/lib/notebook-content';
 import { matrixBlockToLatex } from '@/lib/notebook-content/block-utils';
+import { PatternLayoutView } from './pattern-layout-view';
 
 interface NotebookContentViewProps {
   document: NotebookContentDocument;
@@ -65,12 +66,30 @@ function renderInlineMathHtml(text: string): string {
   return result;
 }
 
+function cardTitleToneClass(titleTone: NotebookContentDocument['blocks'][number]['titleTone']): string {
+  switch (titleTone) {
+    case 'neutral':
+      return 'text-foreground';
+    case 'inverse':
+      return 'text-white';
+    case 'accent':
+    default:
+      return 'text-primary';
+  }
+}
+
 export const NotebookContentView = memo(function NotebookContentView({
   document,
   className,
 }: NotebookContentViewProps) {
+  const patternPreview =
+    document.pattern && document.pattern !== 'auto' ? (
+      <PatternLayoutView document={document} renderInlineMathHtml={renderInlineMathHtml} />
+    ) : null;
+
   return (
     <div className={cn('space-y-3 text-sm text-foreground', className)}>
+      {patternPreview}
       {document.blocks.map((block, index) => {
         switch (block.type) {
           case 'heading':
@@ -87,23 +106,38 @@ export const NotebookContentView = memo(function NotebookContentView({
             );
           case 'paragraph':
             return (
-              <p
-                key={index}
-                className="whitespace-pre-wrap leading-7 text-foreground"
-                dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
-              />
+              <div key={index} className="space-y-1">
+                {block.cardTitle ? (
+                  <p
+                    className={cn('text-sm font-semibold', cardTitleToneClass(block.titleTone))}
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.cardTitle) }}
+                  />
+                ) : null}
+                <p
+                  className="whitespace-pre-wrap leading-7 text-foreground"
+                  dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.text) }}
+                />
+              </div>
             );
           case 'bullet_list':
             return (
-              <ul key={index} className="list-disc space-y-1 pl-5 text-foreground">
-                {block.items.map((item, itemIdx) => (
-                  <li
-                    key={itemIdx}
-                    className="whitespace-pre-wrap leading-7"
-                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item) }}
+              <div key={index} className="space-y-1">
+                {block.cardTitle ? (
+                  <p
+                    className={cn('text-sm font-semibold', cardTitleToneClass(block.titleTone))}
+                    dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(block.cardTitle) }}
                   />
-                ))}
-              </ul>
+                ) : null}
+                <ul className="list-disc space-y-1 pl-5 text-foreground">
+                  {block.items.map((item, itemIdx) => (
+                    <li
+                      key={itemIdx}
+                      className="whitespace-pre-wrap leading-7"
+                      dangerouslySetInnerHTML={{ __html: renderInlineMathHtml(item) }}
+                    />
+                  ))}
+                </ul>
+              </div>
             );
           case 'equation':
             return (

@@ -96,6 +96,7 @@ Return ONE JSON object in this exact top-level shape:
   "language": "{{language}}",
   "profile": "general",
   "layout": {"mode":"stack"},
+  "pattern": "auto",
   "archetype": "concept",
   "title": "string",
   "blocks": []
@@ -108,6 +109,13 @@ Supported layout shapes:
 {"mode":"stack"}
 {"mode":"grid","columns":2,"rows":2}
 ```
+
+Optional page patterns (layout examples):
+- `auto`: default adaptive layout
+- `multi_column_cards`: multi-column card layout (usually 2 columns)
+- `flow_horizontal`: horizontal flow-connected layout
+- `flow_vertical`: vertical flow-connected layout
+- `symmetric_split`: symmetric left-right split (first two blocks emphasized)
 
 Grid notes:
 - Use `layout.mode = "grid"` when the page is naturally a comparison / checklist / compact matrix of peer items.
@@ -125,13 +133,15 @@ Built-in text templates (`templateId`):
 Any block can optionally include presentation hints (without changing semantic meaning):
 
 ```json
-{"templateId":"infoCard","placement":{"order":0,"row":1,"col":2,"rowSpan":1,"colSpan":2}}
+{"templateId":"infoCard","cardTitle":"Key Takeaway","titleTone":"accent","placement":{"order":0,"row":1,"col":2,"rowSpan":1,"colSpan":2}}
 ```
 
 `placement` notes:
 - `order`: ordering hint for stack or grid (smaller comes earlier)
 - `row` / `col`: only for grid mode; preferred target row/column (1-based)
 - `rowSpan` / `colSpan`: only for grid mode; preferred row/column span (1-based, max 3)
+- `cardTitle`: optional block title; rendered with stronger size and accent color than body text
+- `titleTone`: title color tone, one of `accent | neutral | inverse` (default `accent`)
 
 Supported block shapes:
 

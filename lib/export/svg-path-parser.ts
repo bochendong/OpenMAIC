@@ -36,7 +36,29 @@ export type SvgPath = ReturnType<typeof parseSvgPath>;
 export const toPoints = (d: string) => {
   const pathData = new SVGPathData(d);
 
-  const points = [];
+  type SvgCurve =
+    | {
+        type: 'cubic';
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+      }
+    | {
+        type: 'quadratic';
+        x1: number;
+        y1: number;
+      };
+  type SvgPoint = {
+    x?: number;
+    y?: number;
+    relative?: boolean;
+    type: string;
+    curve?: SvgCurve;
+    close?: true;
+  };
+
+  const points: SvgPoint[] = [];
   for (const item of pathData.commands) {
     const type = typeMap[item.type];
 
@@ -76,11 +98,20 @@ export const toPoints = (d: string) => {
       });
     } else if (item.type === 512) {
       const lastPoint = points[points.length - 1];
+      if (!lastPoint || typeof lastPoint.x !== 'number' || typeof lastPoint.y !== 'number')
+        continue;
       if (!['M', 'L', 'Q', 'C'].includes(lastPoint.type)) continue;
 
-      const cubicBezierPoints = arcToBezier({
-        px: lastPoint.x as number,
-        py: lastPoint.y as number,
+      const cubicBezierPoints: Array<{
+        x: number;
+        y: number;
+        x1: number;
+        y1: number;
+        x2: number;
+        y2: number;
+      }> = arcToBezier({
+        px: lastPoint.x,
+        py: lastPoint.y,
         cx: item.x,
         cy: item.y,
         rx: item.rX,

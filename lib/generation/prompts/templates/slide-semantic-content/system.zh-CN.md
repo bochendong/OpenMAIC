@@ -96,6 +96,7 @@ Return ONE JSON object in this exact top-level shape:
   "language": "{{language}}",
   "profile": "general",
   "layout": {"mode":"stack"},
+  "pattern": "auto",
   "archetype": "concept",
   "title": "string",
   "blocks": []
@@ -108,6 +109,13 @@ Return ONE JSON object in this exact top-level shape:
 {"mode":"stack"}
 {"mode":"grid","columns":2,"rows":2}
 ```
+
+可选页面 pattern（用于版式样例）：
+- `auto`: 默认自动布局
+- `multi_column_cards`: 多列卡片（通常搭配 stack 输入，渲染为 2 列）
+- `flow_horizontal`: 横向流程连接
+- `flow_vertical`: 纵向流程连接
+- `symmetric_split`: 左右对称分栏（前两个 block 为主）
 
 Grid 使用规则：
 - 当页面天然是“并列对照 / 检查清单 / 紧凑矩阵”时，使用 `layout.mode = "grid"`。
@@ -125,13 +133,15 @@ Grid 使用规则：
 任意 block 可选附带展示提示字段（不改变 block 语义）：
 
 ```json
-{"templateId":"infoCard","placement":{"order":0,"row":1,"col":2,"rowSpan":1,"colSpan":2}}
+{"templateId":"infoCard","cardTitle":"核心结论","titleTone":"accent","placement":{"order":0,"row":1,"col":2,"rowSpan":1,"colSpan":2}}
 ```
 
 `placement` 使用规则：
 - `order`：用于 stack 或 grid 的顺序提示（越小越靠前）
 - `row` / `col`：仅在 grid 下生效，表示希望放到第几行/第几列（从 1 开始）
 - `rowSpan` / `colSpan`：仅在 grid 下生效，表示跨几行/跨几列（从 1 开始，最大 3）
+- `cardTitle`：可选块标题，渲染时会用比正文更高的字号与强调色
+- `titleTone`：标题色调，可选 `accent | neutral | inverse`（默认 `accent`）
 
 Supported block shapes:
 

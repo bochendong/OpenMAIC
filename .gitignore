@@ -73,6 +73,7 @@ next-env.d.ts
 # generated data
 /data
 /logs
+/OpenMAIC-org
 
 # docs
 /docs/*

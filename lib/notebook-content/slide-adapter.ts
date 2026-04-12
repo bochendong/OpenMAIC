@@ -19,9 +19,11 @@ import type {
   NotebookContentDocument,
   NotebookContentGridLayout,
   NotebookContentLayout,
+  NotebookContentPattern,
   NotebookContentProfile,
   NotebookSlideArchetype,
   NotebookContentTextTemplate,
+  NotebookContentTitleTone,
 } from './schema';
 import {
   estimateCodeBlockHeight,
@@ -156,6 +158,12 @@ function resolveDocumentLayout(
   return document.layout || { mode: 'stack' };
 }
 
+function resolveDocumentPattern(
+  document: Pick<NotebookContentDocument, 'pattern'>,
+): NotebookContentPattern {
+  return document.pattern || 'auto';
+}
+
 function resolveGridLayout(
   layout: NotebookContentGridLayout,
   args: { blockCount: number; bodyHeight: number },
@@ -172,6 +180,50 @@ function resolveGridLayout(
     columns,
     rows,
     capacity: columns * rows,
+  };
+}
+
+function toFlowStepLabel(
+  language: 'zh-CN' | 'en-US',
+  block: NotebookContentBlock,
+  index: number,
+): string {
+  const heading = blockToGridHeading(language, block).trim();
+  if (heading) return heading;
+  return language === 'en-US' ? `Step ${index + 1}` : `步骤 ${index + 1}`;
+}
+
+function toFlowStepDetail(language: 'zh-CN' | 'en-US', block: NotebookContentBlock): string {
+  const lines = blockToGridBody(language, block)
+    .map((line) => line.replace(/^•\s*/, '').trim())
+    .filter(Boolean);
+  if (lines.length > 0) return lines.slice(0, 3).join('；');
+  return language === 'en-US' ? 'Continue with this stage.' : '继续推进这一阶段。';
+}
+
+function buildFlowPatternBlock(args: {
+  language: 'zh-CN' | 'en-US';
+  orientation: 'horizontal' | 'vertical';
+  blocks: NotebookContentBlock[];
+}): ProcessFlowBlock {
+  const selected = args.blocks.filter((block) => block.type !== 'heading').slice(0, 6);
+  const steps = selected.map((block, index) => ({
+    title: toFlowStepLabel(args.language, block, index),
+    detail: toFlowStepDetail(args.language, block),
+  }));
+  if (steps.length < 2) {
+    steps.push({
+      title: args.language === 'en-US' ? 'Wrap up' : '收束',
+      detail: args.language === 'en-US' ? 'Summarize the key takeaway.' : '总结本页关键结论。',
+    });
+  }
+  return {
+    type: 'process_flow',
+    title: args.language === 'en-US' ? 'Learning Flow' : '学习流程',
+    orientation: args.orientation,
+    context: [],
+    steps,
+    summary: args.language === 'en-US' ? 'Follow this sequence in class.' : '授课时按这个顺序推进。',
   };
 }
 
@@ -193,6 +245,21 @@ function resolveBlockTemplateTone(
       return { fill: '#f5f3ff', border: '#c4b5fd', accent: '#6d28d9' };
     default:
       return fallbackTone;
+  }
+}
+
+function resolveCardTitleColor(
+  titleTone: NotebookContentTitleTone | undefined,
+  tone: ContentCardTone,
+): string {
+  switch (titleTone) {
+    case 'neutral':
+      return '#0f172a';
+    case 'inverse':
+      return '#ffffff';
+    case 'accent':
+    default:
+      return tone.accent;
   }
 }
 
@@ -1741,6 +1808,9 @@ function deriveGridHeadingFromText(text: string, language: 'zh-CN' | 'en-US'): s
 }
 
 function blockToGridHeading(language: 'zh-CN' | 'en-US', block: NotebookContentBlock): string {
+  if (block.cardTitle?.trim()) {
+    return block.cardTitle.trim();
+  }
   switch (block.type) {
     case 'heading':
       return block.text;
@@ -2109,11 +2179,44 @@ export function renderNotebookContentDocumentToSlide(args: {
   const archetype = resolveDocumentArchetype(args.document);
   const archetypeLayout = getArchetypeLayoutSettings(archetype);
   const documentLayout = resolveDocumentLayout(args.document);
+  const documentPattern = resolveDocumentPattern(args.document);
   const tokens = getProfileTokens(profile);
   const cardPalettes = tokens.cardPalettes;
   const orderedBlocks = sortBlocksByPlacementOrder(args.document.blocks);
+  let effectiveLayout: NotebookContentLayout = documentLayout;
+  let effectiveBlocks = orderedBlocks;
+  if (documentLayout.mode === 'stack' && documentPattern === 'multi_column_cards') {
+    effectiveLayout = { mode: 'grid', columns: 2 };
+  }
+  if (documentLayout.mode === 'stack' && documentPattern === 'symmetric_split') {
+    effectiveLayout = { mode: 'grid', columns: 2, rows: 1 };
+    effectiveBlocks = orderedBlocks.slice(0, 2);
+  }
+  if (
+    documentLayout.mode === 'stack' &&
+    (documentPattern === 'flow_horizontal' || documentPattern === 'flow_vertical')
+  ) {
+    const firstFlowIndex = orderedBlocks.findIndex((block) => block.type === 'process_flow');
+    if (firstFlowIndex >= 0) {
+      const existing = orderedBlocks[firstFlowIndex] as ProcessFlowBlock;
+      const next = [...orderedBlocks];
+      next[firstFlowIndex] = {
+        ...existing,
+        orientation: documentPattern === 'flow_horizontal' ? 'horizontal' : 'vertical',
+      };
+      effectiveBlocks = next;
+    } else {
+      effectiveBlocks = [
+        buildFlowPatternBlock({
+          language,
+          orientation: documentPattern === 'flow_horizontal' ? 'horizontal' : 'vertical',
+          blocks: orderedBlocks,
+        }),
+      ];
+    }
+  }
   const blocks =
-    documentLayout.mode === 'grid' ? orderedBlocks : expandBlocks(orderedBlocks, language);
+    effectiveLayout.mode === 'grid' ? effectiveBlocks : expandBlocks(effectiveBlocks, language);
   const elements: PPTElement[] = [];
 
   elements.push(
@@ -2161,10 +2264,10 @@ export function renderNotebookContentDocumentToSlide(args: {
     );
   }
 
-  if (documentLayout.mode === 'grid') {
+  if (effectiveLayout.mode === 'grid') {
     const bodyTop = archetypeLayout.bodyTop;
     const bodyHeight = CONTENT_BOTTOM - bodyTop;
-    const grid = resolveGridLayout(documentLayout, { blockCount: blocks.length, bodyHeight });
+    const grid = resolveGridLayout(effectiveLayout, { blockCount: blocks.length, bodyHeight });
     const placedBlocks = arrangeGridBlocksByPlacement(blocks, grid);
     const cellWidth =
       (CONTENT_WIDTH - Math.max(0, grid.columns - 1) * GRID_GAP_X) / Math.max(grid.columns, 1);
@@ -2225,13 +2328,14 @@ export function renderNotebookContentDocumentToSlide(args: {
         block.templateId,
         cardPalettes[index % cardPalettes.length],
       );
+      const titleColor = resolveCardTitleColor(block.titleTone, tone);
       const innerWidth = Math.max(120, cellWidthWithSpan - CARD_INSET_X * 2);
       const heading = blockToGridHeading(language, block);
       const headingFit = fitGridHeadingToHeight({
         text: heading,
         widthPx: innerWidth,
         maxHeightPx: 52,
-        color: tone.accent,
+        color: titleColor,
       });
       const bodyFit = fitGridBodyToHeight({
         language,
@@ -2313,8 +2417,20 @@ export function renderNotebookContentDocumentToSlide(args: {
         block.templateId,
         cardPalettes[visualBlockIndex % cardPalettes.length],
       );
+      const titleColor = resolveCardTitleColor(block.titleTone, tone);
+      const cardTitle = block.cardTitle?.trim() || '';
       const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
-      const maxContentHeight = Math.max(28, remainingHeight - CARD_INSET_Y * 2);
+      const maxCardInnerHeight = Math.max(28, remainingHeight - CARD_INSET_Y * 2);
+      const titleFit = cardTitle
+        ? fitGridHeadingToHeight({
+            text: cardTitle,
+            widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+            maxHeightPx: Math.min(56, maxCardInnerHeight),
+            color: titleColor,
+          })
+        : { html: '', height: 0 };
+      const titleGap = titleFit.height > 0 ? 6 : 0;
+      const maxContentHeight = Math.max(28, maxCardInnerHeight - titleFit.height - titleGap);
       const paragraph = fitParagraphBlockToHeight({
         text: block.text,
         widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
@@ -2323,14 +2439,14 @@ export function renderNotebookContentDocumentToSlide(args: {
         maxHeightPx: maxContentHeight,
         color: '#334155',
       });
-      const contentHeight = paragraph.height;
+      const contentHeight = titleFit.height + titleGap + paragraph.height;
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(
         createBoundContentCard({
           top: cursorTop,
           height: cardHeight,
           tone,
-          html: paragraph.html,
+          html: `${titleFit.html}${paragraph.html}`,
           color: '#334155',
           textType: 'content',
           lineHeight: 1.35,
@@ -2346,8 +2462,20 @@ export function renderNotebookContentDocumentToSlide(args: {
         block.templateId,
         cardPalettes[visualBlockIndex % cardPalettes.length],
       );
+      const titleColor = resolveCardTitleColor(block.titleTone, tone);
+      const cardTitle = block.cardTitle?.trim() || '';
       const remainingHeight = Math.max(72, CONTENT_BOTTOM - cursorTop);
-      const maxContentHeight = Math.max(40, remainingHeight - CARD_INSET_Y * 2);
+      const maxCardInnerHeight = Math.max(40, remainingHeight - CARD_INSET_Y * 2);
+      const titleFit = cardTitle
+        ? fitGridHeadingToHeight({
+            text: cardTitle,
+            widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
+            maxHeightPx: Math.min(56, maxCardInnerHeight),
+            color: titleColor,
+          })
+        : { html: '', height: 0 };
+      const titleGap = titleFit.height > 0 ? 6 : 0;
+      const maxContentHeight = Math.max(40, maxCardInnerHeight - titleFit.height - titleGap);
       const bulletList = fitBulletListBlockToHeight({
         items: block.items,
         widthPx: CONTENT_WIDTH - CARD_INSET_X * 2 - 8,
@@ -2357,14 +2485,14 @@ export function renderNotebookContentDocumentToSlide(args: {
         color: '#334155',
         bulletColor: tone.accent,
       });
-      const contentHeight = bulletList.height;
+      const contentHeight = titleFit.height + titleGap + bulletList.height;
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
       elements.push(
         createBoundContentCard({
           top: cursorTop,
           height: cardHeight,
           tone,
-          html: bulletList.html,
+          html: `${titleFit.html}${bulletList.html}`,
           color: '#334155',
           textType: 'content',
           lineHeight: 1.35,
