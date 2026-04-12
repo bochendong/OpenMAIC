@@ -10,7 +10,6 @@ import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
 import {
   applyOutlineFallbacks,
-  buildValidatedFallbackSlideContent,
   generateSceneContent,
   buildVisionUserContent,
 } from '@/lib/generation/generation-pipeline';
@@ -176,6 +175,13 @@ export async function POST(req: NextRequest) {
 
     let content = null;
     let generationError: unknown = null;
+    const generationDiagnostics = {
+      pipeline: 'unknown' as 'semantic' | 'legacy' | 'interactive' | 'quiz' | 'pbl' | 'unknown',
+      failureStage: undefined as string | undefined,
+      failureReasons: [] as string[],
+      semanticRetryCount: 0,
+      layoutRetryCount: 0,
+    };
     try {
       content = await generateSceneContent(
         effectiveOutline,
@@ -188,6 +194,7 @@ export async function POST(req: NextRequest) {
         agents,
         body.courseContext,
         body.rewriteReason,
+        generationDiagnostics,
       );
     } catch (error) {
       generationError = error;
@@ -195,46 +202,21 @@ export async function POST(req: NextRequest) {
     }
 
     if (!content) {
-      if (effectiveOutline.type === 'slide') {
-        log.warn(`Falling back to deterministic slide content for: "${effectiveOutline.title}"`, {
-          stageId,
-          outlineId: effectiveOutline.id,
-          error:
-            generationError instanceof Error
-              ? generationError.message
-              : generationError
-                ? String(generationError)
-                : 'parse-failed-or-empty',
-        });
-        const fallbackContent = buildValidatedFallbackSlideContent(effectiveOutline);
-        if (!fallbackContent) {
-          return apiError(
-            'GENERATION_FAILED',
-            500,
-            `Failed to generate content: ${effectiveOutline.title}`,
-            generationError instanceof Error ? generationError.message : undefined,
-          );
-        }
-        const flattenedFallback = flattenGeneratedSlideContentPages({
-          content: fallbackContent,
-          effectiveOutline,
-        });
-        return apiSuccess({
-          content: fallbackContent,
-          effectiveOutline,
-          contents: flattenedFallback.contents,
-          effectiveOutlines: flattenedFallback.effectiveOutlines,
-          fallbackUsed: true,
-        });
-      }
-
       log.error(`Failed to generate content for: "${effectiveOutline.title}"`);
 
       return apiError(
         'GENERATION_FAILED',
         500,
         `Failed to generate content: ${effectiveOutline.title}`,
-        generationError instanceof Error ? generationError.message : undefined,
+        JSON.stringify({
+          error:
+            generationError instanceof Error
+              ? generationError.message
+              : generationError
+                ? String(generationError)
+                : 'semantic-generation-returned-null',
+          diagnostics: generationDiagnostics,
+        }),
       );
     }
 
@@ -250,10 +232,11 @@ export async function POST(req: NextRequest) {
         effectiveOutline,
         contents: flattened.contents,
         effectiveOutlines: flattened.effectiveOutlines,
+        generationDiagnostics,
       });
     }
 
-    return apiSuccess({ content, effectiveOutline });
+    return apiSuccess({ content, effectiveOutline, generationDiagnostics });
   } catch (error) {
     log.error('Scene content generation error:', error);
     return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));

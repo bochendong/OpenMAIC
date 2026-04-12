@@ -87,6 +87,24 @@ const SLIDE_LAYOUT_VIEWPORT = { width: 1000, height: 562.5 } as const;
 const MAX_SLIDE_LAYOUT_RETRIES = 1;
 const MAX_SEMANTIC_SLIDE_RETRIES = 1;
 
+export interface SceneContentDiagnostics {
+  pipeline: 'semantic' | 'legacy' | 'interactive' | 'quiz' | 'pbl' | 'unknown';
+  failureStage?: string;
+  failureReasons: string[];
+  semanticRetryCount: number;
+  layoutRetryCount: number;
+}
+
+function recordFailure(
+  diagnostics: SceneContentDiagnostics | undefined,
+  stage: string,
+  reason: string,
+): void {
+  if (!diagnostics) return;
+  diagnostics.failureStage = stage;
+  diagnostics.failureReasons.push(reason);
+}
+
 function appendRewriteReason(base?: string, extra?: string): string | undefined {
   const trimmedExtra = extra?.trim();
   if (!trimmedExtra) return base;
@@ -490,6 +508,7 @@ export async function generateSceneContent(
   agents?: AgentInfo[],
   courseContext?: CoursePersonalizationContext,
   rewriteReason?: string,
+  diagnostics?: SceneContentDiagnostics,
 ): Promise<
   | GeneratedSlideContent
   | GeneratedQuizContent
@@ -503,6 +522,12 @@ export async function generateSceneContent(
       `Interactive outline "${outline.title}" missing interactiveConfig, falling back to slide`,
     );
     const fallbackOutline = { ...outline, type: 'slide' as const };
+    if (diagnostics) diagnostics.pipeline = 'semantic';
+    recordFailure(
+      diagnostics,
+      'interactive_outline_invalid',
+      'interactive config missing, downgraded to slide',
+    );
     return generateSlideContent(
       fallbackOutline,
       aiCall,
@@ -512,6 +537,10 @@ export async function generateSceneContent(
       generatedMediaMapping,
       agents,
       courseContext,
+      undefined,
+      0,
+      false,
+      diagnostics,
     );
   }
 
@@ -527,14 +556,21 @@ export async function generateSceneContent(
         agents,
         courseContext,
         rewriteReason,
+        0,
+        false,
+        diagnostics,
       );
     case 'quiz':
+      if (diagnostics) diagnostics.pipeline = 'quiz';
       return generateQuizContent(outline, aiCall, courseContext);
     case 'interactive':
+      if (diagnostics) diagnostics.pipeline = 'interactive';
       return generateInteractiveContent(outline, aiCall, outline.language, courseContext);
     case 'pbl':
+      if (diagnostics) diagnostics.pipeline = 'pbl';
       return generatePBLSceneContent(outline, languageModel);
     default:
+      recordFailure(diagnostics, 'unknown_scene_type', `unsupported scene type: ${outline.type}`);
       return null;
   }
 }
@@ -2455,6 +2491,7 @@ async function generateSemanticSlideContent(
   courseContext?: CoursePersonalizationContext,
   rewriteReason?: string,
   semanticRetryCount = 0,
+  diagnostics?: SceneContentDiagnostics,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
   const teacherContext = formatTeacherPersonaForPrompt(agents, lang);
@@ -2494,6 +2531,8 @@ async function generateSemanticSlideContent(
     : null;
   if (!contentDocument) {
     log.warn(`Semantic slide content parse failed for: ${outline.title}`);
+    diagnostics && (diagnostics.semanticRetryCount = Math.max(diagnostics.semanticRetryCount, semanticRetryCount + 1));
+    recordFailure(diagnostics, 'semantic_parse', 'semantic document parse failed');
     if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
       return generateSemanticSlideContent(
         outline,
@@ -2502,12 +2541,14 @@ async function generateSemanticSlideContent(
         courseContext,
         appendRewriteReason(rewriteReason, buildSemanticStructureRetryReason(lang)),
         semanticRetryCount + 1,
+        diagnostics,
       );
     }
     return null;
   }
   if (hasUnexpectedCjkForLanguage(contentDocument, lang)) {
     log.warn(`Semantic slide content language mismatch for: ${outline.title}`);
+    recordFailure(diagnostics, 'semantic_language', 'language mismatch in semantic document');
     return null;
   }
 
@@ -2517,6 +2558,12 @@ async function generateSemanticSlideContent(
       `Semantic slide content archetype mismatch for: ${outline.title}`,
       archetypeValidation.reasons,
     );
+    diagnostics && (diagnostics.semanticRetryCount = Math.max(diagnostics.semanticRetryCount, semanticRetryCount + 1));
+    recordFailure(
+      diagnostics,
+      'semantic_archetype',
+      `archetype mismatch: ${archetypeValidation.reasons.join(', ')}`,
+    );
     if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
       return generateSemanticSlideContent(
         outline,
@@ -2525,15 +2572,10 @@ async function generateSemanticSlideContent(
         courseContext,
         appendRewriteReason(rewriteReason, archetypeValidation.reasons.join('\n')),
         semanticRetryCount + 1,
+        diagnostics,
       );
     }
-    const fallbackContent = buildValidatedFallbackSlideContent(outline);
-    if (fallbackContent) {
-      log.warn(
-        `Using safe fallback slide layout after semantic archetype mismatch: ${outline.title}`,
-      );
-      return fallbackContent;
-    }
+    log.error(`Semantic slide content rejected after archetype retries: ${outline.title}`);
     return null;
   }
 
@@ -2550,6 +2592,12 @@ async function generateSemanticSlideContent(
 
   if (paginationResult.unpageableBlockTypes.length > 0 || paginationResult.pages.length === 0) {
     log.warn(`Semantic slide content pagination failed for: ${outline.title}`, paginationReasons);
+    diagnostics && (diagnostics.semanticRetryCount = Math.max(diagnostics.semanticRetryCount, semanticRetryCount + 1));
+    recordFailure(
+      diagnostics,
+      'semantic_pagination',
+      `pagination failed: ${paginationReasons.join(', ') || 'unknown'}`,
+    );
     if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
       return generateSemanticSlideContent(
         outline,
@@ -2558,16 +2606,10 @@ async function generateSemanticSlideContent(
         courseContext,
         appendRewriteReason(rewriteReason, buildSemanticBudgetRetryReason(lang, paginationReasons)),
         semanticRetryCount + 1,
+        diagnostics,
       );
     }
-
-    const fallbackContent = buildValidatedFallbackSlideContent(outline);
-    if (fallbackContent) {
-      log.warn(
-        `Using safe fallback slide layout after semantic pagination failure: ${outline.title}`,
-      );
-      return fallbackContent;
-    }
+    log.error(`Semantic slide content rejected after pagination retries: ${outline.title}`);
     return null;
   }
 
@@ -2596,6 +2638,12 @@ async function generateSemanticSlideContent(
       `Semantic slide content layout invalid for: ${outline.title}`,
       invalidPage.layoutValidation.issues.map((issue) => issue.message),
     );
+    diagnostics && (diagnostics.semanticRetryCount = Math.max(diagnostics.semanticRetryCount, semanticRetryCount + 1));
+    recordFailure(
+      diagnostics,
+      'semantic_layout',
+      invalidPage.layoutValidation.issues.map((issue) => issue.code).join(', '),
+    );
     if (semanticRetryCount < MAX_SEMANTIC_SLIDE_RETRIES) {
       return generateSemanticSlideContent(
         outline,
@@ -2607,13 +2655,10 @@ async function generateSemanticSlideContent(
           `${buildLayoutRetryReason(invalidPage.layoutValidation, lang)}\n${buildSemanticStructureRetryReason(lang)}`,
         ),
         semanticRetryCount + 1,
+        diagnostics,
       );
     }
-    const fallbackContent = buildValidatedFallbackSlideContent(outline);
-    if (fallbackContent) {
-      log.warn(`Using safe fallback slide layout after semantic layout failure: ${outline.title}`);
-      return fallbackContent;
-    }
+    log.error(`Semantic slide content rejected after layout retries: ${outline.title}`);
     return null;
   }
 
@@ -2652,28 +2697,28 @@ async function generateSlideContent(
   rewriteReason?: string,
   layoutRetryCount = 0,
   skipSemanticPipeline = false,
+  diagnostics?: SceneContentDiagnostics,
 ): Promise<GeneratedSlideContent | null> {
   const lang = outline.language || 'zh-CN';
   const useLegacyElementPipeline = false;
 
   if (!useLegacyElementPipeline) {
+    if (diagnostics) diagnostics.pipeline = 'semantic';
     const semanticContent = await generateSemanticSlideContent(
       outline,
       aiCall,
       agents,
       courseContext,
       rewriteReason,
+      0,
+      diagnostics,
     );
     if (semanticContent) {
       log.info(`Using semantic slide content pipeline for: ${outline.title}`);
       return semanticContent;
     }
-
-    const fallbackContent = buildValidatedFallbackSlideContent(outline);
-    if (fallbackContent) {
-      log.warn(`Using semantic fallback slide content for: ${outline.title}`);
-      return fallbackContent;
-    }
+    log.error(`Semantic slide content failed with fallback disabled: ${outline.title}`);
+    recordFailure(diagnostics, 'slide_semantic_failed', 'semantic pipeline returned null');
     return null;
   }
 
@@ -2706,12 +2751,15 @@ async function generateSlideContent(
   }
 
   if (!skipSemanticPipeline && shouldUseSemanticSlideGeneration(outline, assignedImages)) {
+    if (diagnostics) diagnostics.pipeline = 'semantic';
     const semanticContent = await generateSemanticSlideContent(
       outline,
       aiCall,
       agents,
       courseContext,
       rewriteReason,
+      0,
+      diagnostics,
     );
     if (semanticContent) {
       log.info(`Using semantic slide content pipeline for: ${outline.title}`);
@@ -2720,6 +2768,7 @@ async function generateSlideContent(
     log.warn(
       `Semantic slide content generation failed, falling back to legacy element prompt: ${outline.title}`,
     );
+    recordFailure(diagnostics, 'slide_semantic_failed', 'semantic pipeline returned null');
   }
 
   if (outline.workedExampleConfig) {
@@ -2835,10 +2884,14 @@ async function generateSlideContent(
 
   if (!generatedData || !generatedData.elements || !Array.isArray(generatedData.elements)) {
     log.error(`Failed to parse AI response for: ${outline.title}`);
+    if (diagnostics) diagnostics.pipeline = 'legacy';
+    recordFailure(diagnostics, 'legacy_parse', 'legacy element JSON parse failed');
     return null;
   }
   if (hasUnexpectedCjkForLanguage(generatedData, lang)) {
     log.warn(`Slide content language mismatch for: ${outline.title}`);
+    if (diagnostics) diagnostics.pipeline = 'legacy';
+    recordFailure(diagnostics, 'legacy_language', 'legacy generated language mismatch');
     return null;
   }
 
@@ -2889,6 +2942,13 @@ async function generateSlideContent(
       layoutValidation.issues.map((issue) => issue.message),
     );
 
+    diagnostics && (diagnostics.layoutRetryCount = Math.max(diagnostics.layoutRetryCount, layoutRetryCount + 1));
+    if (diagnostics) diagnostics.pipeline = 'legacy';
+    recordFailure(
+      diagnostics,
+      'legacy_layout',
+      layoutValidation.issues.map((issue) => issue.code).join(', '),
+    );
     if (layoutRetryCount < MAX_SLIDE_LAYOUT_RETRIES) {
       return generateSlideContent(
         outline,
@@ -2902,19 +2962,12 @@ async function generateSlideContent(
         appendRewriteReason(rewriteReason, buildLayoutRetryReason(layoutValidation, lang)),
         layoutRetryCount + 1,
         true,
+        diagnostics,
       );
     }
 
     log.error(`Slide layout validation failed after retry for: ${outline.title}`);
-    if (shouldUseSemanticSlideGeneration(outline, assignedImages)) {
-      const fallbackContent = buildValidatedFallbackSlideContent(outline);
-      if (fallbackContent) {
-        log.warn(
-          `Using safe fallback slide layout after repeated layout failure: ${outline.title}`,
-        );
-        return fallbackContent;
-      }
-    }
+    log.error(`Legacy slide content failed with fallback disabled: ${outline.title}`);
     return null;
   }
 
