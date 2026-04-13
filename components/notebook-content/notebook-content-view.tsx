@@ -591,7 +591,10 @@ export const NotebookContentView = memo(function NotebookContentView({
               success:
                 'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-100',
             } as const;
-            const visualColumns = block.columns === 4 ? 2 : block.columns;
+            const parsedColumns = Number(block.columns);
+            const normalizedColumns =
+              Number.isFinite(parsedColumns) && parsedColumns > 0 ? parsedColumns : 2;
+            const visualColumns = normalizedColumns === 4 ? 2 : normalizedColumns;
             return (
               <div
                 key={index}

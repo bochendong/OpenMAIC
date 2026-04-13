@@ -205,7 +205,7 @@ export const notebookContentLayoutCardsItemSchema = z.object({
 export const notebookContentLayoutCardsBlockSchema = z.object({
   type: z.literal('layout_cards'),
   title: z.string().trim().max(200).optional(),
-  columns: z.enum([z.literal(2), z.literal(3), z.literal(4)]).default(3),
+  columns: z.union([z.literal(2), z.literal(3), z.literal(4)]).default(3),
   items: z.array(notebookContentLayoutCardsItemSchema).min(1).max(4),
 });
 
