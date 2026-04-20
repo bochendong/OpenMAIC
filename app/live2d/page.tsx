@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
+import { Live2DCompanionHub } from '@/components/gamification/live2d-companion-hub';
 import { Live2dPresenterSettingsPanel } from '@/components/settings/live2d-presenter-settings-panel';
 import { Button } from '@/components/ui/button';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -16,7 +17,7 @@ export default function Live2dSettingsPage() {
         <div className="animate-orb-2 absolute -top-40 right-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(88,86,214,0.06)_0%,transparent_70%)]" />
         <div className="animate-orb-1 absolute bottom-0 left-1/4 h-[500px] w-[500px] rounded-full bg-[radial-gradient(circle,rgba(0,122,255,0.05)_0%,transparent_70%)]" />
       </div>
-      <main className="relative z-10 mx-auto w-full max-w-4xl px-4 pb-12 pt-8 md:px-8">
+      <main className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-12 pt-8 md:px-8">
         <Button variant="ghost" size="sm" className="-ml-2 mb-4 rounded-lg" asChild>
           <Link href="/my-courses">{isZh ? '← 课程主页' : '← My courses'}</Link>
         </Button>
@@ -34,9 +35,17 @@ export default function Live2dSettingsPage() {
                   ? '选择课堂左侧栏「虚拟讲师」标签中使用的讲师形象；与全站设置共用同一选项。'
                   : 'Choose the presenter look for the classroom sidebar; the same choice is stored in your app settings.'}
               </p>
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-300">
+                {isZh ? '收藏头像包已迁移至' : 'Avatar collections moved to'}{' '}
+                <Link href="/store/avatars" className="text-primary underline-offset-4 hover:underline">
+                  {isZh ? '头像商城' : 'Avatar store'}
+                </Link>
+                。
+              </p>
             </div>
           </div>
         </section>
+        <Live2DCompanionHub />
         <section className="rounded-xl border border-border/80 bg-card/50 p-5 shadow-sm backdrop-blur-sm dark:bg-card/40">
           <Live2dPresenterSettingsPanel />
         </section>

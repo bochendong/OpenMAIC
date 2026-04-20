@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { LIVE2D_PRESENTER_MODELS } from '@/lib/live2d/presenter-models';
+import type { Live2DPresenterModelId } from '@/lib/live2d/presenter-models';
 import type { MouthShape } from '@/lib/types/action';
 import { mapAzureVisemeToLegacyMouthShape } from '@/lib/audio/mouth-cues';
 
@@ -28,9 +29,12 @@ export interface TalkingAvatarPointerInteractionState {
 
 interface TalkingAvatarOverlayProps extends TalkingAvatarOverlayState {
   readonly className?: string;
-  /** `overlay` = 幻灯片角标；`sidebar` = 左侧栏全高面板 */
-  readonly layout?: 'overlay' | 'sidebar';
+  /** `overlay` = 幻灯片角标；`sidebar` = 左侧栏全高面板；`card` = 设置面板卡片预览 */
+  readonly layout?: 'overlay' | 'sidebar' | 'card';
   readonly pointerInteraction?: TalkingAvatarPointerInteractionState | null;
+  readonly modelIdOverride?: Live2DPresenterModelId;
+  readonly showBadge?: boolean;
+  readonly showStatusDot?: boolean;
 }
 
 const LIVE2D_CORE_SRC = '/live2d/live2dcubismcore.min.js';
@@ -73,10 +77,14 @@ export function TalkingAvatarOverlay({
   className,
   layout = 'overlay',
   pointerInteraction,
+  modelIdOverride,
+  showBadge = true,
+  showStatusDot = true,
 }: TalkingAvatarOverlayProps) {
   const { locale } = useI18n();
   const live2dPresenterModelId = useSettingsStore((state) => state.live2dPresenterModelId);
-  const modelConfig = LIVE2D_PRESENTER_MODELS[live2dPresenterModelId];
+  const resolvedModelId = modelIdOverride ?? live2dPresenterModelId;
+  const modelConfig = LIVE2D_PRESENTER_MODELS[resolvedModelId];
   const mountRef = useRef<HTMLDivElement | null>(null);
   const speechStateRef = useRef({
     speaking,
@@ -119,7 +127,7 @@ export function TalkingAvatarOverlay({
 
   useEffect(() => {
     wasSpeakingRef.current = false;
-  }, [live2dPresenterModelId]);
+  }, [resolvedModelId]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -318,9 +326,9 @@ export function TalkingAvatarOverlay({
       title={speechText || undefined}
       className={cn(
         'pointer-events-none bg-transparent',
-        layout === 'sidebar'
-          ? 'relative z-0 flex h-full min-h-0 w-full flex-1 flex-col'
-          : 'absolute right-3 top-3 z-[108] w-40 sm:w-48',
+        layout === 'overlay'
+          ? 'absolute right-3 top-3 z-[108] w-40 sm:w-48'
+          : 'relative z-0 flex h-full min-h-0 w-full flex-1 flex-col',
         className,
       )}
     >
@@ -328,29 +336,36 @@ export function TalkingAvatarOverlay({
         className={cn(
           'relative overflow-hidden rounded-[20px] bg-transparent shadow-none',
           layout === 'sidebar' && 'flex min-h-0 flex-1 flex-col',
+          layout === 'card' && 'h-full',
         )}
       >
-        <div className="absolute left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-black/35 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white shadow-[0_1px_6px_rgba(0,0,0,0.35)] backdrop-blur-[2px]">
-          <span
-            className={cn(
-              'size-1.5 rounded-full transition-colors',
-              speaking && status === 'ready'
-                ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.65)]'
-                : status === 'error'
-                  ? 'bg-rose-400'
-                  : 'bg-white/50',
+        {showBadge && (
+          <div className="absolute left-2 top-2 z-[1] inline-flex items-center gap-1 rounded-full bg-black/35 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-white shadow-[0_1px_6px_rgba(0,0,0,0.35)] backdrop-blur-[2px]">
+            {showStatusDot && (
+              <span
+                className={cn(
+                  'size-1.5 rounded-full transition-colors',
+                  speaking && status === 'ready'
+                    ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.65)]'
+                    : status === 'error'
+                      ? 'bg-rose-400'
+                      : 'bg-white/50',
+                )}
+              />
             )}
-          />
-          {modelConfig.badgeLabel}
-        </div>
+            {modelConfig.badgeLabel}
+          </div>
+        )}
 
         <div
           ref={mountRef}
           className={cn(
             'relative w-full overflow-hidden bg-transparent',
-            layout === 'sidebar'
-              ? 'min-h-[200px] flex-1 [mask-image:linear-gradient(180deg,black_85%,transparent_100%)]'
-              : 'h-52 [mask-image:linear-gradient(180deg,black_80%,transparent_100%)] sm:h-60',
+            layout === 'overlay'
+              ? 'h-52 [mask-image:linear-gradient(180deg,black_80%,transparent_100%)] sm:h-60'
+              : layout === 'sidebar'
+                ? 'min-h-[200px] flex-1 [mask-image:linear-gradient(180deg,black_85%,transparent_100%)]'
+                : 'h-full min-h-[180px] [mask-image:linear-gradient(180deg,black_90%,transparent_100%)]',
           )}
         />
 
@@ -368,11 +383,19 @@ function fitModelToFrame(
   model: Live2DModelInstance,
   mount: HTMLDivElement,
   baseSize: ModelBaseSize,
-  layout: 'overlay' | 'sidebar',
+  layout: 'overlay' | 'sidebar' | 'card',
 ) {
   const width = mount.clientWidth;
   const height = mount.clientHeight;
   if (!width || !height) return;
+
+  if (layout === 'card') {
+    model.anchor.set(0.5, 0.04);
+    const scale = Math.min((width * 0.96) / baseSize.width, (height * 1.18) / baseSize.height) * 1.04;
+    model.scale.set(scale);
+    model.position.set(width * 0.5, height * 0.04);
+    return;
+  }
 
   if (layout === 'sidebar') {
     model.anchor.set(0.5, 0.5);

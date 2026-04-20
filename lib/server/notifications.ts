@@ -3,7 +3,7 @@ import {
   type CreditAccountType,
   type PrismaClient,
   type Prisma,
-} from '@prisma/client';
+} from '@/lib/server/generated-prisma';
 import type { AppNotification, AppNotificationDetail } from '@/lib/notifications/types';
 import {
   formatComputeCreditsLabel,
@@ -14,6 +14,17 @@ import {
 
 type NotificationDbClient = PrismaClient | Prisma.TransactionClient;
 const TOKEN_USAGE_GROUP_WINDOW_MS = 3 * 60 * 1000;
+const NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS = 5 * 60 * 1000;
+
+const NOTEBOOK_GENERATION_OPERATION_CODES = new Set([
+  'notebook_metadata_generation',
+  'notebook_research',
+  'scene_outline_generation',
+  'scene_content_generation',
+  'scene_actions_generation',
+  'agent_profile_generation',
+  'media_image_generation',
+]);
 
 type CreditNotificationRow = {
   id: string;
@@ -37,6 +48,14 @@ type TokenUsageGroup = {
   context: UsageContext;
   rows: CreditNotificationRow[];
   newestCreatedAt: Date;
+};
+
+type NotebookGenerationGroup = {
+  notebookKey: string;
+  notebookLabel: string;
+  rows: CreditNotificationRow[];
+  newestCreatedAt: Date;
+  oldestCreatedAt: Date;
 };
 
 type NotificationMetadata = Record<string, Prisma.JsonValue>;
@@ -222,6 +241,22 @@ function buildSourceLabel(row: CreditNotificationRow): string {
       return '转入算力积分';
     case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
       return '转入购买积分';
+    case CreditTransactionKind.LESSON_REWARD:
+      return '看课奖励';
+    case CreditTransactionKind.QUIZ_COMPLETION_REWARD:
+      return '做题奖励';
+    case CreditTransactionKind.QUIZ_ACCURACY_BONUS:
+      return '高正确率奖励';
+    case CreditTransactionKind.REVIEW_REWARD:
+      return '错题回顾奖励';
+    case CreditTransactionKind.DAILY_TASK_REWARD:
+      return '日常任务奖励';
+    case CreditTransactionKind.STREAK_BONUS:
+      return '连续学习奖励';
+    case CreditTransactionKind.CHARACTER_UNLOCK_SPEND:
+      return '角色解锁';
+    case CreditTransactionKind.AVATAR_UNLOCK_SPEND:
+      return '头像收藏解锁';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return 'Stripe 充值';
       return '系统发放';
@@ -268,6 +303,22 @@ function buildNotificationTitle(row: CreditNotificationRow): string {
       return row.accountType === 'CASH' ? '现金积分已转出' : '算力积分已到账';
     case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
       return row.accountType === 'CASH' ? '现金积分已转出' : '购买积分已到账';
+    case CreditTransactionKind.LESSON_REWARD:
+      return '看课奖励已到账';
+    case CreditTransactionKind.QUIZ_COMPLETION_REWARD:
+      return '做题奖励已到账';
+    case CreditTransactionKind.QUIZ_ACCURACY_BONUS:
+      return '高正确率奖励已到账';
+    case CreditTransactionKind.REVIEW_REWARD:
+      return '错题回顾奖励已到账';
+    case CreditTransactionKind.DAILY_TASK_REWARD:
+      return '日常任务奖励已到账';
+    case CreditTransactionKind.STREAK_BONUS:
+      return '连续学习奖励已到账';
+    case CreditTransactionKind.CHARACTER_UNLOCK_SPEND:
+      return '陪伴角色已解锁';
+    case CreditTransactionKind.AVATAR_UNLOCK_SPEND:
+      return '头像收藏已解锁';
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') return '充值积分已到账';
       if (row.referenceType === 'admin_grant') return '积分已到账';
@@ -316,6 +367,22 @@ function buildNotificationBody(row: CreditNotificationRow): string {
       return row.accountType === 'CASH'
         ? `你已转出 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 到购买积分，${balanceText}。`
         : `你已收到 ${formatAccountValue(row.accountType, row.delta)}，来源为现金积分转换，${balanceText}。`;
+    case CreditTransactionKind.LESSON_REWARD:
+      return `你完成课程学习里程碑后获得了 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.QUIZ_COMPLETION_REWARD:
+      return `你完成一组题后获得了 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.QUIZ_ACCURACY_BONUS:
+      return `这次做题正确率达标，额外获得了 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.REVIEW_REWARD:
+      return `你回顾错题后获得了 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.DAILY_TASK_REWARD:
+      return `你完成了今日任务清单，获得 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.STREAK_BONUS:
+      return `连续学习奖励已到账 ${formatAccountValue(row.accountType, row.delta)}，${balanceText}。`;
+    case CreditTransactionKind.CHARACTER_UNLOCK_SPEND:
+      return `你花费 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 解锁了新的陪伴角色，${balanceText}。`;
+    case CreditTransactionKind.AVATAR_UNLOCK_SPEND:
+      return `你花费 ${formatAccountValue(row.accountType, Math.abs(row.delta))} 解锁了新的头像收藏，${balanceText}。`;
     case CreditTransactionKind.WELCOME_BONUS:
       if (row.referenceType === 'stripe_top_up') {
         const packTitle = getMetadataString(row.metadata, 'packTitle');
@@ -353,6 +420,78 @@ function inferUsageContext(row: CreditNotificationRow): UsageContext {
       .filter(Boolean)
       .join('|'),
     label: getReasonLabel(row) || '模型调用',
+  };
+}
+
+function getNotebookKey(row: CreditNotificationRow): string {
+  return getMetadataString(row.metadata, 'notebookId') || getMetadataString(row.metadata, 'notebookName');
+}
+
+function isNotebookGenerationGroupCandidate(row: CreditNotificationRow): boolean {
+  if (row.kind !== CreditTransactionKind.TOKEN_USAGE) return false;
+
+  const notebookKey = getNotebookKey(row);
+  if (!notebookKey) return false;
+
+  const operationCode = getOperationCode(row);
+  return NOTEBOOK_GENERATION_OPERATION_CODES.has(operationCode);
+}
+
+function summarizeOperationLabels(rows: CreditNotificationRow[]): string {
+  const labels = Array.from(
+    new Set(
+      rows
+        .map((row) => getReasonLabel(row))
+        .filter((label): label is string => Boolean(label)),
+    ),
+  );
+
+  if (labels.length <= 3) return labels.join('、');
+  return `${labels.slice(0, 3).join('、')} 等 ${labels.length} 项`;
+}
+
+function buildNotebookGenerationDetails(group: NotebookGenerationGroup): AppNotificationDetail[] {
+  const newestRow = group.rows[0];
+  const details: AppNotificationDetail[] = [];
+  const notebookLabel = getNotebookLabel(newestRow) || group.notebookLabel;
+  const courseLabel = getCourseLabel(newestRow);
+  const stageSummary = summarizeOperationLabels(group.rows);
+
+  if (notebookLabel) details.push({ key: 'notebook', label: '笔记本', value: notebookLabel });
+  if (courseLabel) details.push({ key: 'course', label: '课程', value: courseLabel });
+  if (stageSummary) details.push({ key: 'stages', label: '生成阶段', value: stageSummary });
+
+  return details;
+}
+
+function mapNotebookGenerationGroupToNotification(group: NotebookGenerationGroup): AppNotification {
+  if (group.rows.length === 1) {
+    return mapCreditTransactionToNotification(group.rows[0]);
+  }
+
+  const newestRow = group.rows[0];
+  const totalDelta = group.rows.reduce((sum, row) => sum + row.delta, 0);
+  const usageCount = group.rows.length;
+  const stageSummary = summarizeOperationLabels(group.rows);
+
+  return {
+    id: `notebook-generation-group:${newestRow.id}`,
+    kind: 'credit_spent',
+    title: '笔记本生成共扣费',
+    body: `笔记本《${group.notebookLabel}》这次生成我帮你合并记成一笔了。共触发 ${usageCount} 次生成调用${stageSummary ? `，涵盖 ${stageSummary}` : ''}，总计消耗 ${formatAccountValue(
+      newestRow.accountType,
+      Math.abs(totalDelta),
+    )}，当前余额 ${formatAccountValue(newestRow.accountType, newestRow.balanceAfter)}。`,
+    tone: 'negative',
+    presentation: 'banner',
+    amountLabel: `-${formatAccountCompactValue(newestRow.accountType, Math.abs(totalDelta))}`,
+    delta: totalDelta,
+    balanceAfter: newestRow.balanceAfter,
+    accountType: normalizeNotificationAccountType(newestRow.accountType),
+    sourceKind: 'NOTEBOOK_GENERATION_GROUP',
+    sourceLabel: '笔记本生成',
+    createdAt: newestRow.createdAt.toISOString(),
+    details: buildNotebookGenerationDetails(group),
   };
 }
 
@@ -404,6 +543,14 @@ function shouldAppendToTokenUsageGroup(
 ): boolean {
   if (group.context.key !== context.key) return false;
   return group.newestCreatedAt.getTime() - row.createdAt.getTime() <= TOKEN_USAGE_GROUP_WINDOW_MS;
+}
+
+function shouldAppendToNotebookGenerationGroup(
+  group: NotebookGenerationGroup,
+  row: CreditNotificationRow,
+): boolean {
+  if (group.notebookKey !== getNotebookKey(row)) return false;
+  return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS;
 }
 
 export function mapCreditTransactionToNotification(row: CreditNotificationRow): AppNotification {
@@ -465,6 +612,7 @@ export async function listUserNotifications(
 
   const notifications: AppNotification[] = [];
   let currentTokenUsageGroup: TokenUsageGroup | null = null;
+  let currentNotebookGenerationGroup: NotebookGenerationGroup | null = null;
 
   const flushTokenUsageGroup = () => {
     if (!currentTokenUsageGroup) return;
@@ -472,16 +620,47 @@ export async function listUserNotifications(
     currentTokenUsageGroup = null;
   };
 
+  const flushNotebookGenerationGroup = () => {
+    if (!currentNotebookGenerationGroup) return;
+    notifications.push(mapNotebookGenerationGroupToNotification(currentNotebookGenerationGroup));
+    currentNotebookGenerationGroup = null;
+  };
+
   for (const row of rows) {
+    if (isNotebookGenerationGroupCandidate(row)) {
+      flushTokenUsageGroup();
+
+      if (
+        currentNotebookGenerationGroup &&
+        shouldAppendToNotebookGenerationGroup(currentNotebookGenerationGroup, row)
+      ) {
+        currentNotebookGenerationGroup.rows.push(row);
+        currentNotebookGenerationGroup.oldestCreatedAt = row.createdAt;
+        continue;
+      }
+
+      flushNotebookGenerationGroup();
+      currentNotebookGenerationGroup = {
+        notebookKey: getNotebookKey(row),
+        notebookLabel: getNotebookLabel(row) || getNotebookKey(row),
+        rows: [row],
+        newestCreatedAt: row.createdAt,
+        oldestCreatedAt: row.createdAt,
+      };
+      continue;
+    }
+
     const isTokenUsageGroupCandidate =
       row.kind === CreditTransactionKind.TOKEN_USAGE && row.referenceType === 'llm_usage';
 
     if (!isTokenUsageGroupCandidate) {
       flushTokenUsageGroup();
+      flushNotebookGenerationGroup();
       notifications.push(mapCreditTransactionToNotification(row));
       continue;
     }
 
+    flushNotebookGenerationGroup();
     const context = inferUsageContext(row);
     if (
       currentTokenUsageGroup &&
@@ -500,5 +679,6 @@ export async function listUserNotifications(
   }
 
   flushTokenUsageGroup();
+  flushNotebookGenerationGroup();
   return notifications.slice(0, Math.max(1, Math.min(limit, 100)));
 }

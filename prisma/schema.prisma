@@ -51,6 +51,14 @@ enum CreditTransactionKind {
   TOKEN_USAGE
   CASH_TO_COMPUTE_TRANSFER
   CASH_TO_PURCHASE_TRANSFER
+  LESSON_REWARD
+  QUIZ_COMPLETION_REWARD
+  QUIZ_ACCURACY_BONUS
+  REVIEW_REWARD
+  DAILY_TASK_REWARD
+  STREAK_BONUS
+  CHARACTER_UNLOCK_SPEND
+  AVATAR_UNLOCK_SPEND
   /// @deprecated Kept for backward compatibility — existing rows in the database still reference this value
   NOTEBOOK_GENERATION_USAGE
 }
@@ -67,6 +75,34 @@ enum TopUpOrderStatus {
   pending
   fulfilled
   expired
+}
+
+enum CharacterAssetType {
+  LIVE2D
+  AVATAR
+}
+
+enum LearningActionType {
+  DAILY_SIGN_IN
+  LESSON_MILESTONE_COMPLETED
+  QUIZ_COMPLETED
+  QUIZ_ACCURACY_BONUS
+  REVIEW_COMPLETED
+  DAILY_TASK_REWARD
+  STREAK_BONUS
+  CHARACTER_UNLOCK
+  AVATAR_UNLOCK
+  CHARACTER_EQUIP
+}
+
+enum MissionType {
+  DAILY_SIGN_IN
+  DAILY_LESSON
+  DAILY_QUIZ
+  DAILY_REVIEW
+  DAILY_ALL_CLEAR
+  WEEKLY_STUDY_DAYS
+  WEEKLY_QUIZ_BATCHES
 }
 
 model User {
@@ -97,6 +133,10 @@ model User {
   courseReviews      CourseReview[]
   notebookReviews    NotebookReview[]
   topUpOrders        TopUpOrder[]
+  engagementProfile  UserEngagementProfile?
+  learningActionLogs LearningActionLog[]
+  characterProgress  UserCharacterProgress[]
+  missionProgress    UserMissionProgress[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -410,6 +450,92 @@ model CreditTransaction {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([kind, createdAt(sort: Desc)])
+}
+
+model UserEngagementProfile {
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  streakDays                Int      @default(0)
+  lastStudyAt               DateTime?
+  todayEarnedPurchaseCredits Int     @default(0)
+  preferredCharacterId      String?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([preferredCharacterId])
+}
+
+model LearningActionLog {
+  id                      String             @id @default(cuid())
+  userId                  String
+  actionType              LearningActionType
+  courseId                String?
+  sceneId                 String?
+  metadata                Json?
+  rewardedPurchaseCredits Int                @default(0)
+  rewardedAffinity        Int                @default(0)
+  createdAt               DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([actionType, createdAt(sort: Desc)])
+  @@index([courseId, createdAt(sort: Desc)])
+  @@index([sceneId, createdAt(sort: Desc)])
+}
+
+model CharacterCatalog {
+  id                        String             @id
+  name                      String
+  assetType                 CharacterAssetType
+  unlockCostPurchaseCredits Int                @default(0)
+  affinityLevelRequired     Int                @default(1)
+  sortOrder                 Int                @default(0)
+  isDefault                 Boolean            @default(false)
+  metadata                  Json?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+
+  userProgress UserCharacterProgress[]
+
+  @@index([assetType, sortOrder])
+}
+
+model UserCharacterProgress {
+  id            String   @id @default(cuid())
+  userId        String
+  characterId   String
+  isUnlocked    Boolean  @default(false)
+  affinityExp   Int      @default(0)
+  affinityLevel Int      @default(1)
+  equippedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character CharacterCatalog @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, characterId])
+  @@index([userId, equippedAt(sort: Desc)])
+}
+
+model UserMissionProgress {
+  id            String     @id @default(cuid())
+  userId        String
+  missionType   MissionType
+  periodKey     String
+  targetValue   Int
+  progressValue Int        @default(0)
+  claimedAt     DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, missionType, periodKey])
+  @@index([userId, periodKey])
 }
 
 model CreditTopUpPrice {

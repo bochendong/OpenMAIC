@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@/lib/server/generated-prisma';
 
 declare global {
-  // eslint-disable-next-line no-var -- reused across HMR in dev
   var __synatraPrisma__: PrismaClient | undefined;
-  // eslint-disable-next-line no-var
   var __synatraPrismaUrl__: string | undefined;
 }
 

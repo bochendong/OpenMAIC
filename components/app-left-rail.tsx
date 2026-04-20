@@ -54,6 +54,7 @@ const COURSE_CONTEXT_CLEAR_PREFIXES = [
   '/my-courses',
   '/credits-market',
   '/store/courses',
+  '/store/avatars',
   '/profile',
   '/settings',
   '/live2d',

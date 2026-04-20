@@ -1,5 +1,5 @@
-import type { Prisma, PrismaClient, CreditAccountType } from '@prisma/client';
-import { CreditTransactionKind } from '@prisma/client';
+import type { Prisma, PrismaClient, CreditAccountType } from '@/lib/server/generated-prisma';
+import { CreditTransactionKind } from '@/lib/server/generated-prisma';
 import { createLogger } from '@/lib/logger';
 import { getOptionalPrisma } from '@/lib/server/prisma-safe';
 import {

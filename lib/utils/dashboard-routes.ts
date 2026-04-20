@@ -1,6 +1,6 @@
 /**
  * 左侧栏「Dashboard」壳层：与课程/课堂内工作区分界，
- * 在此区域内固定展示 Dashboard / 充值 / 课程商城 / 虚拟讲师 / 个人中心 / 设置。
+ * 在此区域内固定展示 Dashboard / 充值 / 商城入口 / 个人中心 / 设置。
  */
 export function isDashboardRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
@@ -11,6 +11,7 @@ export function isDashboardRoute(pathname: string | null | undefined): boolean {
   if (p === '/profile' || p.startsWith('/profile/')) return true;
   if (p === '/settings' || p.startsWith('/settings/')) return true;
   if (p === '/live2d' || p.startsWith('/live2d/')) return true;
+  if (p === '/store/avatars' || p.startsWith('/store/avatars/')) return true;
   /** 课程商城（含详情）属于 Dashboard，不与笔记本商城 `/store` 混用 */
   if (p === '/store/courses' || p.startsWith('/store/courses/')) return true;
   if (p === '/notifications' || p.startsWith('/notifications/')) return true;

@@ -22,6 +22,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { backendJson } from '@/lib/utils/backend-api';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { createLogger } from '@/lib/logger';
@@ -41,9 +42,15 @@ import {
 } from '@/components/ui/dialog';
 import { useStageStore } from '@/lib/store';
 import { useAuthStore } from '@/lib/store/auth';
-import { clearQuestionProgress, setQuestionProgress } from '@/lib/utils/quiz-question-progress';
+import {
+  clearQuestionProgress,
+  getQuestionProgress,
+  setQuestionProgress,
+} from '@/lib/utils/quiz-question-progress';
 import { code } from '@streamdown/code';
 import { Streamdown } from 'streamdown';
+import type { GamificationEventResponse } from '@/lib/types/gamification';
+import { toast } from 'sonner';
 
 const log = createLogger('QuizView');
 
@@ -1300,6 +1307,38 @@ function ScoreBanner({
   );
 }
 
+function GamificationRewardBanner({
+  reward,
+}: {
+  reward: GamificationEventResponse | null;
+}) {
+  if (!reward || (!reward.rewardedPurchaseCredits && !reward.rewardedAffinity)) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-white to-rose-50 p-4 dark:border-amber-500/20 dark:from-amber-950/20 dark:via-slate-900 dark:to-rose-950/20"
+    >
+      <div className="flex items-start gap-3">
+        <Sparkles className="mt-0.5 size-4 text-amber-500" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+            {reward.characterName} 把这次进度帮你记下来了
+          </p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            {reward.rewardedPurchaseCredits > 0 ? `+${reward.rewardedPurchaseCredits} 购买积分` : '已记录'}
+            {reward.rewardedAffinity > 0 ? ` · +${reward.rewardedAffinity} 亲密度` : ''}
+          </p>
+        </div>
+        <div className="rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-amber-700 shadow-sm dark:bg-slate-900/80 dark:text-amber-200">
+          Lv{reward.affinityLevel}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function renderQuestion(
   question: QuizQuestion,
   index: number,
@@ -1384,6 +1423,7 @@ export function QuizView({
   const [results, setResults] = useState<QuestionResult[]>(() => initialSnapshot?.results ?? []);
   const [answeringQuestionIndex, setAnsweringQuestionIndex] = useState(0);
   const [questionEdits, setQuestionEdits] = useState<Record<string, Partial<QuizQuestion>>>({});
+  const [gamificationReward, setGamificationReward] = useState<GamificationEventResponse | null>(null);
 
   const effectiveQuestions = useMemo(
     () => questions.map((q) => ({ ...q, ...(questionEdits[q.id] ?? {}) })),
@@ -1511,8 +1551,19 @@ export function QuizView({
     }
   }, [singleQuestionMode, initialSnapshot]);
 
+  const rewardEventDoneRef = useRef(false);
+
   useEffect(() => {
-    if (phase !== 'reviewing') persistDoneRef.current = false;
+    if (initialSnapshot?.phase === 'reviewing') {
+      rewardEventDoneRef.current = true;
+    }
+  }, [initialSnapshot]);
+
+  useEffect(() => {
+    if (phase !== 'reviewing') {
+      persistDoneRef.current = false;
+      rewardEventDoneRef.current = false;
+    }
   }, [phase]);
 
   useEffect(() => {
@@ -1564,6 +1615,7 @@ export function QuizView({
     setPhase(singleQuestionMode ? 'answering' : 'not_started');
     setAnswers({});
     setResults([]);
+    setGamificationReward(null);
     clearAnswersCache();
     onAttemptFinished?.();
   }, [
@@ -1575,6 +1627,105 @@ export function QuizView({
     sceneId,
     onAttemptFinished,
   ]);
+
+  useEffect(() => {
+    if (phase !== 'reviewing' || rewardEventDoneRef.current || results.length === 0) {
+      return;
+    }
+    rewardEventDoneRef.current = true;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const correctCount = results.filter((result) => result.status === 'correct').length;
+        const accuracyPercent =
+          effectiveQuestions.length > 0
+            ? Math.round((correctCount / effectiveQuestions.length) * 100)
+            : 0;
+
+        let payload:
+          | {
+              type: 'quiz_completed';
+              sceneId: string;
+              sceneTitle?: string;
+              referenceKey: string;
+              questionCount: number;
+              correctCount: number;
+              accuracyPercent: number;
+            }
+          | {
+              type: 'review_completed';
+              sceneId: string;
+              sceneTitle?: string;
+              referenceKey: string;
+              hadPreviousIncorrect: boolean;
+            };
+
+        if (singleQuestionMode && effectiveQuestions.length === 1) {
+          const question = effectiveQuestions[0];
+          const previous = getQuestionProgress(stageId, userId, sceneId, question.id);
+          const current = results.find((item) => item.questionId === question.id);
+          const referenceKey = `${sceneId}:${question.id}`;
+
+          if (previous?.status === 'incorrect' && current?.status === 'correct') {
+            payload = {
+              type: 'review_completed',
+              sceneId,
+              sceneTitle: question.question,
+              referenceKey,
+              hadPreviousIncorrect: true,
+            };
+          } else {
+            payload = {
+              type: 'quiz_completed',
+              sceneId,
+              sceneTitle: question.question,
+              referenceKey,
+              questionCount: 1,
+              correctCount,
+              accuracyPercent,
+            };
+          }
+        } else {
+          payload = {
+            type: 'quiz_completed',
+            sceneId,
+            referenceKey: sceneId,
+            questionCount: effectiveQuestions.length,
+            correctCount,
+            accuracyPercent,
+          };
+        }
+
+        const reward = await backendJson<GamificationEventResponse>('/api/gamification/events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (cancelled) return;
+        setGamificationReward(reward);
+        if (reward.rewardedPurchaseCredits > 0 || reward.rewardedAffinity > 0) {
+          toast.success(
+            [
+              reward.rewardedPurchaseCredits > 0
+                ? `+${reward.rewardedPurchaseCredits} 购买积分`
+                : '',
+              reward.rewardedAffinity > 0 ? `+${reward.rewardedAffinity} 亲密度` : '',
+            ]
+              .filter(Boolean)
+              .join(' · '),
+          );
+        }
+      } catch {
+        // Reward settlement should never block quiz review.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, results, effectiveQuestions, sceneId, singleQuestionMode, stageId, userId]);
 
   const earnedScore = useMemo(
     () => results.reduce((sum, result) => sum + result.earned, 0),
@@ -1834,6 +1985,7 @@ export function QuizView({
               {!(singleQuestionMode && effectiveQuestions.length === 1) && (
                 <ScoreBanner score={earnedScore} total={totalPoints} results={results} />
               )}
+              <GamificationRewardBanner reward={gamificationReward} />
               {effectiveQuestions.map((question, index) =>
                 renderQuestion(
                   question,

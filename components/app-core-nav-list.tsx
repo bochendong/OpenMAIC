@@ -64,13 +64,14 @@ const CHAT_RIGHT_RAIL_KEY_ORDER: Record<string, number> = {
   'top-up': 2,
   'credits-market': 3,
   store: 4,
-  chat: 5,
-  notifications: 6,
-  live2d: 7,
-  profile: 8,
-  settings: 9,
-  'contact-support': 10,
-  'report-issue': 11,
+  'avatar-store': 5,
+  chat: 6,
+  notifications: 7,
+  live2d: 8,
+  profile: 9,
+  settings: 10,
+  'contact-support': 11,
+  'report-issue': 12,
 };
 
 function sortChatRightRailItems(items: CoreNavItem[]): CoreNavItem[] {
@@ -132,6 +133,7 @@ export function AppCoreNavList({
   const storeLabel = inCourseContext ? '笔记本商城' : '课程商城';
 
   const live2dActive = pathname === '/live2d' || pathname?.startsWith('/live2d/');
+  const avatarStoreActive = pathname === '/store/avatars' || pathname?.startsWith('/store/avatars/');
   const topUpActive = pathname === '/top-up' || pathname?.startsWith('/top-up/');
   const creditsMarketActive =
     pathname === '/credits-market' || pathname?.startsWith('/credits-market/');
@@ -158,6 +160,20 @@ export function AppCoreNavList({
           active: pathname === '/my-courses',
         },
         {
+          key: 'notifications',
+          href: '/notifications',
+          label: '通知',
+          tooltip: '通知',
+          icon: Bell,
+          active: notificationsActive,
+        },
+      ],
+    },
+    {
+      key: 'marketplace',
+      label: '商城',
+      items: [
+        {
           key: 'store',
           href: '/store/courses',
           label: '课程商城',
@@ -166,20 +182,20 @@ export function AppCoreNavList({
           active: courseStoreActive,
         },
         {
-          key: 'notifications',
-          href: '/notifications',
-          label: '通知',
-          tooltip: '通知',
-          icon: Bell,
-          active: notificationsActive,
-        },
-        {
           key: 'live2d',
           href: '/live2d',
           label: '虚拟讲师',
           tooltip: '选择虚拟讲师形象',
           icon: Sparkles,
           active: live2dActive,
+        },
+        {
+          key: 'avatar-store',
+          href: '/store/avatars',
+          label: '头像商城',
+          tooltip: '头像商城',
+          icon: UserRound,
+          active: avatarStoreActive,
         },
       ],
     },
@@ -302,6 +318,14 @@ export function AppCoreNavList({
                     tooltip: '选择虚拟讲师形象',
                     icon: Sparkles,
                     active: live2dActive,
+                  },
+                  {
+                    key: 'avatar-store',
+                    href: '/store/avatars',
+                    label: '头像商城',
+                    tooltip: '头像商城',
+                    icon: UserRound,
+                    active: avatarStoreActive,
                   },
                 ] satisfies CoreNavItem[])
               : []),

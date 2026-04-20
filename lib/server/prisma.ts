@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@/lib/server/generated-prisma';
 import { getOrCreatePrisma } from '@/lib/server/prisma-singleton';
 
 export { getOrCreatePrisma } from '@/lib/server/prisma-singleton';
