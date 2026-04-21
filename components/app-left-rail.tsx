@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import {
   ArrowRightLeft,
+  Bell,
   ChevronLeft,
   ChevronRight,
   Cpu,
@@ -20,6 +21,7 @@ import { useUserProfileStore } from '@/lib/store/user-profile';
 import { useAuthStore } from '@/lib/store/auth';
 import { useAuthSignOut } from '@/lib/hooks/use-auth-sign-out';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
+import { useNotificationStore } from '@/lib/store/notifications';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { cn } from '@/lib/utils';
@@ -53,6 +55,7 @@ export interface AppLeftRailProps {
 const COURSE_CONTEXT_CLEAR_PREFIXES = [
   '/my-courses',
   '/credits-market',
+  '/gamification',
   '/store/courses',
   '/store/avatars',
   '/profile',
@@ -83,6 +86,11 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const displayName = nickname.trim() || authName.trim() || t('profile.defaultNickname');
 
   const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
+  const notificationsActive =
+    pathname === '/notifications' || pathname?.startsWith('/notifications/');
+  const unreadNotificationCount = useNotificationStore((s) => s.unreadCount);
+  const unreadNotificationLabel =
+    unreadNotificationCount > 99 ? '99+' : String(unreadNotificationCount);
 
   const inCourseContext = Boolean(courseId);
   /** 与 `isDashboardRoute` 对齐：Dashboard 壳层用浅色玻璃与固定五项导航；课程/课堂/笔记本商城等为 Notebook 工作区 */
@@ -110,6 +118,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
     compute: number;
     purchase: number;
   } | null>(null);
+  const [userAffinityLevel, setUserAffinityLevel] = useState<number | null>(null);
 
   useEffect(() => {
     if (!pathname) return;
@@ -121,24 +130,44 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
 
   useEffect(() => {
     let cancelled = false;
-    if (!isLoggedIn) return () => {
-      cancelled = true;
-    };
-
-    void backendJson<{
-      success: true;
-      balances: {
-        cash: number;
-        compute: number;
-        purchase: number;
+    if (!isLoggedIn) {
+      setBalances(null);
+      setUserAffinityLevel(null);
+      return () => {
+        cancelled = true;
       };
-    }>('/api/profile/credits')
-      .then((response) => {
-        if (!cancelled) setBalances(response.balances);
-      })
-      .catch(() => {
-        if (!cancelled) setBalances(null);
-      });
+    }
+
+    void Promise.allSettled([
+      backendJson<{
+        success: true;
+        balances: {
+          cash: number;
+          compute: number;
+          purchase: number;
+        };
+      }>('/api/profile/credits'),
+      backendJson<{
+        success: true;
+        profile: {
+          affinityLevel: number;
+        };
+      }>('/api/gamification/summary'),
+    ]).then(([creditsResult, gamificationResult]) => {
+      if (cancelled) return;
+
+      if (creditsResult.status === 'fulfilled') {
+        setBalances(creditsResult.value.balances);
+      } else {
+        setBalances(null);
+      }
+
+      if (gamificationResult.status === 'fulfilled') {
+        setUserAffinityLevel(gamificationResult.value.profile.affinityLevel);
+      } else {
+        setUserAffinityLevel(null);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -223,6 +252,39 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   <ChevronLeft className="size-4" strokeWidth={1.75} />
                 )}
               </button>
+              {!collapsed ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      href="/notifications"
+                      className={cn(
+                        'absolute right-2 top-2 inline-flex size-8 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-black/[0.04] hover:text-foreground dark:hover:bg-white/[0.06]',
+                        notificationsActive &&
+                          'bg-violet-600/14 text-foreground dark:bg-violet-400/[0.18]',
+                      )}
+                      aria-label={
+                        unreadNotificationCount > 0
+                          ? `通知，${unreadNotificationCount} 条未读`
+                          : '通知'
+                      }
+                    >
+                      <span className="relative inline-flex">
+                        <Bell className="size-[17px]" strokeWidth={1.75} />
+                        {unreadNotificationCount > 0 ? (
+                          <span className="absolute -right-2 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-4 text-white shadow-[0_6px_16px_rgba(244,63,94,0.38)]">
+                            {unreadNotificationLabel}
+                          </span>
+                        ) : null}
+                      </span>
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {unreadNotificationCount > 0
+                      ? `通知 · ${unreadNotificationCount} 条未读`
+                      : '通知'}
+                  </TooltipContent>
+                </Tooltip>
+              ) : null}
 
               {!collapsed && (
                 <>
@@ -250,6 +312,11 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   <p className="mt-2 w-full truncate text-center text-sm font-medium text-foreground">
                     {railTitle}
                   </p>
+                  {!inCourseContext && userAffinityLevel != null ? (
+                    <p className="mt-1 text-center text-xs text-muted-foreground">
+                      {`Lv.${userAffinityLevel}`}
+                    </p>
+                  ) : null}
                   <div className="mt-2 grid w-full gap-2">
                     {balances != null ? (
                       <div className="grid grid-cols-3 gap-1.5 text-[10px]">
@@ -299,6 +366,37 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                       </Link>
                     </TooltipTrigger>
                     <TooltipContent side="right">{railTooltip}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Link
+                        href="/notifications"
+                        className={cn(
+                          'inline-flex size-8 items-center justify-center rounded-full border border-slate-200/80 bg-white/80 text-slate-700 transition-colors hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10',
+                          notificationsActive &&
+                            'border-violet-300/80 bg-violet-500/15 text-violet-700 dark:border-violet-300/30 dark:bg-violet-500/20 dark:text-violet-100',
+                        )}
+                        aria-label={
+                          unreadNotificationCount > 0
+                            ? `通知，${unreadNotificationCount} 条未读`
+                            : '通知'
+                        }
+                      >
+                        <span className="relative inline-flex">
+                          <Bell className="size-3.5" />
+                          {unreadNotificationCount > 0 ? (
+                            <span className="absolute -right-2 -top-2 inline-flex min-w-[16px] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold leading-4 text-white">
+                              {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
+                            </span>
+                          ) : null}
+                        </span>
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {unreadNotificationCount > 0
+                        ? `通知 · ${unreadNotificationCount} 条未读`
+                        : '通知'}
+                    </TooltipContent>
                   </Tooltip>
                   {balances != null ? (
                     <Tooltip>

@@ -143,6 +143,8 @@ export interface SettingsState {
   autoPlayLecture: boolean;
   playbackSpeed: PlaybackSpeed;
   live2dPresenterModelId: Live2DPresenterModelId;
+  notificationCompanionId: Live2DPresenterModelId;
+  checkInCompanionId: Live2DPresenterModelId;
   /** 课堂幻灯片上是否显示 Live2D 虚拟讲师 */
   live2dPresenterVisible: boolean;
 
@@ -167,6 +169,8 @@ export interface SettingsState {
   setAutoPlayLecture: (autoPlay: boolean) => void;
   setPlaybackSpeed: (speed: PlaybackSpeed) => void;
   setLive2DPresenterModelId: (modelId: Live2DPresenterModelId) => void;
+  setNotificationCompanionId: (modelId: Live2DPresenterModelId) => void;
+  setCheckInCompanionId: (modelId: Live2DPresenterModelId) => void;
   setLive2DPresenterVisible: (visible: boolean) => void;
   setSelectedAgentIds: (ids: string[]) => void;
   setMaxTurns: (turns: string) => void;
@@ -535,6 +539,8 @@ export const useSettingsStore = create<SettingsState>()(
         autoPlayLecture: false,
         playbackSpeed: 1,
         live2dPresenterModelId: DEFAULT_LIVE2D_PRESENTER_MODEL_ID,
+        notificationCompanionId: DEFAULT_LIVE2D_PRESENTER_MODEL_ID,
+        checkInCompanionId: DEFAULT_LIVE2D_PRESENTER_MODEL_ID,
         live2dPresenterVisible: true,
 
         // Layout preferences（false = 侧栏展开）
@@ -593,6 +599,8 @@ export const useSettingsStore = create<SettingsState>()(
 
         setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
         setLive2DPresenterModelId: (modelId) => set({ live2dPresenterModelId: modelId }),
+        setNotificationCompanionId: (modelId) => set({ notificationCompanionId: modelId }),
+        setCheckInCompanionId: (modelId) => set({ checkInCompanionId: modelId }),
         setLive2DPresenterVisible: (visible) => set({ live2dPresenterVisible: visible }),
 
         setSelectedAgentIds: (ids) => set({ selectedAgentIds: ids }),
@@ -1046,10 +1054,18 @@ export const useSettingsStore = create<SettingsState>()(
     },
     {
       name: 'settings-storage',
-      version: 5,
+      version: 6,
       // Migrate persisted state
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<SettingsState>;
+
+        if (version < 6 || state.notificationCompanionId === undefined) {
+          state.notificationCompanionId =
+            state.live2dPresenterModelId || DEFAULT_LIVE2D_PRESENTER_MODEL_ID;
+        }
+        if (version < 6 || state.checkInCompanionId === undefined) {
+          state.checkInCompanionId = state.live2dPresenterModelId || DEFAULT_LIVE2D_PRESENTER_MODEL_ID;
+        }
 
         if (version < 5 || state.live2dPresenterVisible === undefined) {
           state.live2dPresenterVisible = true;

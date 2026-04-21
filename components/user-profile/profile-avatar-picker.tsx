@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useId } from 'react';
+import { useId, useState } from 'react';
 import { ImagePlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { toast } from 'sonner';
 import { useUserProfileStore, AVATAR_OPTIONS } from '@/lib/store/user-profile';
+import { useGamificationSummary } from '@/lib/hooks/use-gamification-summary';
 
 function isCustomAvatar(avatar: string) {
   return avatar.startsWith('data:');
@@ -25,12 +26,8 @@ export function ProfileAvatarPicker({ size = 'md', className }: ProfileAvatarPic
   const fileInputId = `${inputId}-avatar-file`;
   const avatar = useUserProfileStore((s) => s.avatar);
   const setAvatar = useUserProfileStore((s) => s.setAvatar);
-  const [hydrated, setHydrated] = useState(false);
+  const { summary } = useGamificationSummary(true);
   const [page, setPage] = useState(0);
-
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -66,28 +63,19 @@ export function ProfileAvatarPicker({ size = 'md', className }: ProfileAvatarPic
 
   const ring = size === 'lg' ? 'size-16' : 'size-11';
   const chip = size === 'lg' ? 'size-10' : 'size-8';
+  const unlockedAvatarOptions =
+    summary?.databaseEnabled && summary.avatarInventory.items.length > 0
+      ? summary.avatarInventory.items.filter((item) => item.owned).map((item) => item.url)
+      : AVATAR_OPTIONS;
+  const availableAvatarOptions =
+    !isCustomAvatar(avatar) && avatar && !unlockedAvatarOptions.includes(avatar)
+      ? [avatar, ...unlockedAvatarOptions]
+      : unlockedAvatarOptions;
   const avatarsPerPage = size === 'lg' ? 11 : 9;
-  const totalPages = Math.max(1, Math.ceil(AVATAR_OPTIONS.length / avatarsPerPage));
+  const totalPages = Math.max(1, Math.ceil(availableAvatarOptions.length / avatarsPerPage));
   const safePage = Math.min(page, totalPages - 1);
   const pageStart = safePage * avatarsPerPage;
-  const visibleAvatars = AVATAR_OPTIONS.slice(pageStart, pageStart + avatarsPerPage);
-
-  useEffect(() => {
-    if (page !== safePage) setPage(safePage);
-  }, [page, safePage]);
-
-  if (!hydrated) {
-    return (
-      <div className={cn('flex min-w-0 flex-col gap-3', className)}>
-        <div className={cn('shrink-0 rounded-full bg-muted animate-pulse', ring)} />
-        <div className="flex flex-wrap gap-1.5">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className={cn('rounded-full bg-muted animate-pulse', chip)} />
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const visibleAvatars = availableAvatarOptions.slice(pageStart, pageStart + avatarsPerPage);
 
   return (
     <div className={cn('flex min-w-0 flex-col gap-3', className)}>

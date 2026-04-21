@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { backendJson } from '@/lib/utils/backend-api';
 import type {
   GamificationClaimKind,
+  GamificationGachaBannerId,
+  GamificationGachaDrawResponse,
   GamificationEventResponse,
   GamificationSummaryResponse,
 } from '@/lib/types/gamification';
@@ -72,31 +74,54 @@ export function useGamificationSummary(autoLoad = true) {
     [refresh],
   );
 
-  const unlockCharacter = useCallback(
-    async (characterId: string) => {
-      const data = await backendJson<GamificationSummaryResponse>('/api/gamification/unlock-character', {
+  const unlockCharacter = useCallback(async (characterId: string) => {
+    const data = await backendJson<GamificationSummaryResponse>(
+      '/api/gamification/unlock-character',
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ characterId }),
-      });
-      setSummary(data);
-      return data;
-    },
-    [],
-  );
+      },
+    );
+    setSummary(data);
+    return data;
+  }, []);
 
-  const equipCharacter = useCallback(
-    async (characterId: string) => {
-      const data = await backendJson<GamificationSummaryResponse>('/api/gamification/equip-character', {
+  const equipCharacter = useCallback(async (characterId: string) => {
+    const data = await backendJson<GamificationSummaryResponse>(
+      '/api/gamification/equip-character',
+      {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ characterId }),
-      });
-      setSummary(data);
-      return data;
-    },
-    [],
-  );
+      },
+    );
+    setSummary(data);
+    return data;
+  }, []);
+
+  const selectPreferredCharacter = useCallback(async (characterId: string) => {
+    const data = await backendJson<GamificationSummaryResponse>(
+      '/api/gamification/select-preferred-character',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characterId }),
+      },
+    );
+    setSummary(data);
+    return data;
+  }, []);
+
+  const drawGacha = useCallback(async (bannerId: GamificationGachaBannerId, drawCount: 1 | 10) => {
+    const data = await backendJson<GamificationGachaDrawResponse>('/api/gamification/gacha/draw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bannerId, drawCount }),
+    });
+    setSummary(data.summary);
+    return data;
+  }, []);
 
   const sendEvent = useCallback(
     async (payload: EventPayload) => {
@@ -119,6 +144,8 @@ export function useGamificationSummary(autoLoad = true) {
     claim,
     unlockCharacter,
     equipCharacter,
+    selectPreferredCharacter,
+    drawGacha,
     sendEvent,
   };
 }

@@ -1,75 +1,756 @@
 'use client';
 
-import { Loader2, Sparkles } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { Gem, Loader2, Shield, Sparkles, Star, Ticket, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { useGamificationSummary } from '@/lib/hooks/use-gamification-summary';
+import type {
+  GamificationAvatarRarity,
+  GamificationGachaBannerId,
+  GamificationGachaDrawResponse,
+  GamificationGachaDrawReward,
+} from '@/lib/types/gamification';
+import { cn } from '@/lib/utils';
+
+type BannerTone = {
+  shellClassName: string;
+  badgeClassName: string;
+  accentClassName: string;
+  burstClassName: string;
+};
+
+const BANNER_META: Record<
+  GamificationGachaBannerId,
+  {
+    title: string;
+    subtitle: string;
+    singleCost: number;
+    tenCost: number;
+    chip: string;
+    icon: typeof Sparkles;
+    tone: BannerTone;
+  }
+> = {
+  avatar: {
+    title: '星辉头像补给',
+    subtitle: 'R 头像直接入库，SR / SSR 以碎片累积合成，不会抽到已经拥有的头像。',
+    singleCost: 30,
+    tenCost: 270,
+    chip: '头像卡池',
+    icon: Sparkles,
+    tone: {
+      shellClassName:
+        'border-fuchsia-200/80 bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.28),transparent_42%),linear-gradient(145deg,rgba(255,255,255,0.92),rgba(252,231,243,0.82),rgba(244,114,182,0.18))] dark:border-fuchsia-400/20 dark:bg-[radial-gradient(circle_at_top,rgba(244,114,182,0.35),transparent_45%),linear-gradient(145deg,rgba(72,18,52,0.88),rgba(32,14,28,0.92))]',
+      badgeClassName:
+        'bg-fuchsia-500/12 text-fuchsia-700 dark:bg-fuchsia-400/15 dark:text-fuchsia-200',
+      accentClassName: 'from-fuchsia-500 via-rose-400 to-amber-300',
+      burstClassName: 'from-fuchsia-500/30 via-rose-400/20 to-transparent',
+    },
+  },
+  live2d: {
+    title: '讲师星愿补给',
+    subtitle: '讲师角色通过碎片解锁，集齐 10 片即可入驻课堂；重复则转化为亲密度加成。',
+    singleCost: 45,
+    tenCost: 405,
+    chip: '讲师卡池',
+    icon: Shield,
+    tone: {
+      shellClassName:
+        'border-sky-200/80 bg-[radial-gradient(circle_at_top,rgba(96,165,250,0.26),transparent_42%),linear-gradient(145deg,rgba(255,255,255,0.92),rgba(239,246,255,0.84),rgba(59,130,246,0.16))] dark:border-sky-400/20 dark:bg-[radial-gradient(circle_at_top,rgba(96,165,250,0.35),transparent_45%),linear-gradient(145deg,rgba(15,33,61,0.9),rgba(8,19,37,0.94))]',
+      badgeClassName: 'bg-sky-500/12 text-sky-700 dark:bg-sky-400/15 dark:text-sky-200',
+      accentClassName: 'from-sky-400 via-cyan-300 to-indigo-300',
+      burstClassName: 'from-sky-500/30 via-cyan-400/20 to-transparent',
+    },
+  },
+};
+
+const REVEAL_PARTICLES = Array.from({ length: 28 }, (_, index) => ({
+  id: `particle-${index}`,
+  left: 8 + ((index * 29) % 84),
+  top: 6 + ((index * 17) % 86),
+  size: 4 + (index % 5) * 2,
+  delay: (index % 6) * 0.07,
+  duration: 1.4 + (index % 5) * 0.18,
+  dx: (index % 2 === 0 ? 1 : -1) * (18 + (index % 4) * 9),
+  dy: -28 - (index % 6) * 14,
+}));
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function rarityAccent(rarity?: GamificationAvatarRarity) {
+  if (rarity === 'SSR') return 'from-amber-300 via-fuchsia-400 to-rose-500';
+  if (rarity === 'SR') return 'from-violet-300 via-fuchsia-400 to-sky-400';
+  return 'from-sky-300 via-emerald-300 to-lime-300';
+}
+
+function rewardSortValue(reward: GamificationGachaDrawReward) {
+  if (reward.kind === 'character') return reward.unlockedNow ? 100 : reward.duplicate ? 70 : 80;
+  if (reward.rarity === 'SSR') return reward.unlockedNow ? 98 : 88;
+  if (reward.rarity === 'SR') return reward.unlockedNow ? 90 : 78;
+  return reward.unlockedNow ? 72 : 60;
+}
+
+function rewardCaption(reward: GamificationGachaDrawReward) {
+  if (reward.kind === 'character') {
+    return reward.duplicate
+      ? `已拥有，转化为 +${reward.affinityGain} 亲密度`
+      : reward.unlockedNow
+        ? '碎片集满，角色已正式入驻'
+        : `讲师碎片 +${reward.fragmentGain} · ${reward.fragmentTotal}/${reward.fragmentTarget}`;
+  }
+
+  if (reward.rarity === 'R') return 'R 头像直出，已加入你的头像库存';
+  if (reward.unlockedNow) return `${reward.rarity} 碎片集满，头像已合成`;
+  return `${reward.rarity} 碎片 +${reward.fragmentGain} · ${reward.fragmentTotal}/${reward.fragmentTarget}`;
+}
+
+function rewardBadgeLabel(reward: GamificationGachaDrawReward) {
+  if (reward.kind === 'character') return reward.duplicate ? '重复奖励' : '讲师碎片';
+  return reward.rarity ?? '头像';
+}
+
+function GachaRevealDialog({
+  open,
+  phase,
+  result,
+  onClose,
+}: {
+  open: boolean;
+  phase: 'charging' | 'impact' | 'reveal';
+  result: GamificationGachaDrawResponse | null;
+  onClose: () => void;
+}) {
+  const bannerId = result?.bannerId ?? 'avatar';
+  const bannerMeta = BANNER_META[bannerId];
+  const featuredReward = useMemo(() => {
+    if (!result) return null;
+    return [...result.rewards].sort((a, b) => rewardSortValue(b) - rewardSortValue(a))[0] ?? null;
+  }, [result]);
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => (!nextOpen ? onClose() : undefined)}>
+      <DialogContent
+        className="w-[min(100vw-1.5rem,72rem)] overflow-hidden border-white/45 bg-[rgba(8,12,24,0.82)] p-0 text-white shadow-[0_40px_160px_rgba(15,23,42,0.45)] backdrop-blur-2xl dark:border-white/10"
+        showOverlay
+        showCloseButton={phase === 'reveal'}
+      >
+        <div className="relative min-h-[42rem] overflow-hidden">
+          <div
+            className={cn(
+              'absolute inset-0 bg-gradient-to-br opacity-90',
+              bannerMeta.tone.burstClassName,
+            )}
+          />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.14),transparent_38%),radial-gradient(circle_at_top,rgba(255,255,255,0.12),transparent_26%)]" />
+
+          <AnimatePresence>
+            {phase !== 'reveal' ? (
+              <motion.div
+                key={phase}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0"
+              >
+                {REVEAL_PARTICLES.map((particle) => (
+                  <motion.div
+                    key={particle.id}
+                    className="absolute rounded-full bg-white/85 shadow-[0_0_16px_rgba(255,255,255,0.75)]"
+                    style={{
+                      width: particle.size,
+                      height: particle.size,
+                      left: `${particle.left}%`,
+                      top: `${particle.top}%`,
+                    }}
+                    initial={{ opacity: 0, scale: 0.25, x: 0, y: 0 }}
+                    animate={{
+                      opacity: phase === 'impact' ? [0, 1, 0] : [0.1, 0.7, 0.1],
+                      scale: phase === 'impact' ? [0.4, 1.35, 0.2] : [0.35, 1, 0.45],
+                      x: phase === 'impact' ? [0, particle.dx] : [0, particle.dx * 0.35, 0],
+                      y: phase === 'impact' ? [0, particle.dy] : [0, particle.dy * 0.4, 0],
+                    }}
+                    transition={{
+                      duration: particle.duration,
+                      delay: particle.delay,
+                      repeat: phase === 'impact' ? 0 : Number.POSITIVE_INFINITY,
+                      ease: 'easeOut',
+                    }}
+                  />
+                ))}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          <div className="relative z-10 flex min-h-[42rem] flex-col items-center justify-center px-6 py-8">
+            <DialogHeader className="items-center text-center">
+              <span
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium',
+                  bannerMeta.tone.badgeClassName,
+                )}
+              >
+                <WandSparkles className="size-3.5" />
+                {bannerMeta.title}
+              </span>
+              <DialogTitle className="text-[2rem] font-semibold tracking-[-0.04em] text-white">
+                {phase === 'charging'
+                  ? '正在连接星轨补给站'
+                  : phase === 'impact'
+                    ? '流光命中，正在拆封奖励'
+                    : '补给结果已确认'}
+              </DialogTitle>
+              <DialogDescription className="max-w-2xl text-sm text-white/70">
+                {phase === 'reveal'
+                  ? '新的奖励已经写入库存与角色进度。'
+                  : '粒子风暴正在重组本次补给结果，请稍等片刻。'}
+              </DialogDescription>
+            </DialogHeader>
+
+            {phase !== 'reveal' ? (
+              <div className="relative mt-10 flex flex-1 items-center justify-center">
+                <motion.div
+                  className={cn(
+                    'absolute size-[20rem] rounded-full bg-gradient-to-r blur-3xl',
+                    bannerMeta.tone.accentClassName,
+                  )}
+                  animate={{
+                    scale: phase === 'impact' ? [0.85, 1.25, 1.05] : [0.85, 1.05, 0.9],
+                    opacity: phase === 'impact' ? [0.4, 0.92, 0.5] : [0.28, 0.58, 0.32],
+                    rotate: [0, 180, 360],
+                  }}
+                  transition={{
+                    duration: phase === 'impact' ? 1.4 : 3.4,
+                    repeat: Number.POSITIVE_INFINITY,
+                    ease: 'linear',
+                  }}
+                />
+                <motion.div
+                  className="relative flex aspect-square w-[18rem] items-center justify-center rounded-[3rem] border border-white/25 bg-white/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]"
+                  animate={{
+                    rotate: phase === 'impact' ? [0, -8, 10, 0] : [0, 5, -5, 0],
+                    scale: phase === 'impact' ? [1, 1.06, 0.96, 1] : [0.96, 1.04, 0.98],
+                  }}
+                  transition={{
+                    duration: phase === 'impact' ? 0.85 : 2.2,
+                    repeat: Number.POSITIVE_INFINITY,
+                    ease: 'easeInOut',
+                  }}
+                >
+                  <motion.div
+                    className={cn(
+                      'absolute inset-4 rounded-[2.4rem] bg-gradient-to-br opacity-95',
+                      bannerMeta.tone.accentClassName,
+                    )}
+                    animate={{
+                      filter:
+                        phase === 'impact'
+                          ? ['brightness(1)', 'brightness(1.4)', 'brightness(1.05)']
+                          : ['brightness(0.92)', 'brightness(1.14)', 'brightness(0.95)'],
+                    }}
+                    transition={{ duration: 1.25, repeat: Number.POSITIVE_INFINITY }}
+                  />
+                  <motion.div
+                    className="absolute inset-0 rounded-[3rem] border border-white/25"
+                    animate={{ rotate: [0, 360] }}
+                    transition={{ duration: 5.4, repeat: Number.POSITIVE_INFINITY, ease: 'linear' }}
+                  />
+                  <bannerMeta.icon className="relative z-10 size-14 text-white drop-shadow-[0_0_20px_rgba(255,255,255,0.65)]" />
+                </motion.div>
+              </div>
+            ) : (
+              <div className="mt-10 flex w-full flex-1 flex-col gap-6">
+                {featuredReward ? (
+                  <motion.div
+                    initial={{ opacity: 0, y: 36, scale: 0.94 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ duration: 0.55, ease: 'easeOut' }}
+                    className="mx-auto w-full max-w-xl"
+                  >
+                    <div className="relative overflow-hidden rounded-[2rem] border border-white/20 bg-white/8 p-5 shadow-[0_24px_80px_rgba(8,15,40,0.35)]">
+                      <div
+                        className={cn(
+                          'absolute inset-0 bg-gradient-to-br opacity-70',
+                          rarityAccent(featuredReward.rarity),
+                        )}
+                      />
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.4),transparent_35%)]" />
+                      <div className="relative flex items-center gap-5">
+                        <div className="relative size-28 shrink-0 overflow-hidden rounded-[1.6rem] border border-white/30 bg-black/20">
+                          <img
+                            src={featuredReward.previewSrc}
+                            alt={featuredReward.name}
+                            className="size-full object-cover"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/65 to-transparent px-3 pb-2 pt-6 text-[11px] font-medium text-white/90">
+                            {rewardBadgeLabel(featuredReward)}
+                          </div>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium uppercase tracking-[0.24em] text-white/70">
+                            Featured Reward
+                          </p>
+                          <h3 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-white">
+                            {featuredReward.name}
+                          </h3>
+                          <p className="mt-2 text-sm leading-6 text-white/80">
+                            {rewardCaption(featuredReward)}
+                          </p>
+                          {featuredReward.fragmentTarget > 1 ? (
+                            <div className="mt-3">
+                              <Progress
+                                value={Math.round(
+                                  (featuredReward.fragmentTotal / featuredReward.fragmentTarget) *
+                                    100,
+                                )}
+                                className="bg-white/15"
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                ) : null}
+
+                <div
+                  className={cn(
+                    'grid gap-3',
+                    result?.drawCount === 10 ? 'md:grid-cols-5' : 'mx-auto max-w-sm',
+                  )}
+                >
+                  {(result?.rewards ?? []).map((reward, index) => (
+                    <motion.div
+                      key={`${reward.kind}-${reward.itemId}-${index}`}
+                      initial={{ opacity: 0, y: 28, scale: 0.9 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ delay: 0.1 + index * 0.05, duration: 0.35 }}
+                      className="overflow-hidden rounded-[1.5rem] border border-white/16 bg-white/8 p-3 shadow-[0_18px_50px_rgba(8,15,40,0.25)]"
+                    >
+                      <div className="relative overflow-hidden rounded-[1.2rem] bg-black/20">
+                        <div
+                          className={cn(
+                            'absolute inset-0 bg-gradient-to-br opacity-75',
+                            rarityAccent(reward.rarity),
+                          )}
+                        />
+                        <img
+                          src={reward.previewSrc}
+                          alt={reward.name}
+                          className="relative aspect-square w-full object-cover"
+                        />
+                      </div>
+                      <p className="mt-3 text-sm font-semibold text-white">{reward.name}</p>
+                      <p className="mt-1 text-xs leading-5 text-white/70">
+                        {rewardCaption(reward)}
+                      </p>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BannerCard({
+  bannerId,
+  title,
+  subtitle,
+  singleCost,
+  tenCost,
+  chip,
+  tone,
+  icon: Icon,
+  children,
+  disabled,
+  onDraw,
+}: {
+  bannerId: GamificationGachaBannerId;
+  title: string;
+  subtitle: string;
+  singleCost: number;
+  tenCost: number;
+  chip: string;
+  tone: BannerTone;
+  icon: typeof Sparkles;
+  children: React.ReactNode;
+  disabled: boolean;
+  onDraw: (bannerId: GamificationGachaBannerId, drawCount: 1 | 10) => void;
+}) {
+  return (
+    <div
+      className={cn(
+        'overflow-hidden rounded-[2rem] border p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)]',
+        tone.shellClassName,
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-3 py-1 text-xs font-medium',
+              tone.badgeClassName,
+            )}
+          >
+            {chip}
+          </span>
+          <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+            {title}
+          </h3>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {subtitle}
+          </p>
+        </div>
+        <div className="relative hidden shrink-0 md:block">
+          <div
+            className={cn(
+              'absolute inset-0 rounded-full bg-gradient-to-br blur-2xl',
+              tone.accentClassName,
+            )}
+          />
+          <div className="relative flex size-16 items-center justify-center rounded-[1.5rem] border border-white/40 bg-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-white/10 dark:bg-white/8">
+            <Icon className="size-7 text-slate-900 dark:text-white" />
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">{children}</div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+        <Button
+          type="button"
+          size="lg"
+          className="h-12 justify-between rounded-2xl bg-slate-950/90 px-5 text-white hover:bg-slate-950 dark:bg-white/95 dark:text-slate-950 dark:hover:bg-white"
+          disabled={disabled}
+          onClick={() => onDraw(bannerId, 1)}
+        >
+          <span>单抽</span>
+          <span className="inline-flex items-center gap-1.5">
+            <Ticket className="size-4" />
+            {singleCost}
+          </span>
+        </Button>
+        <Button
+          type="button"
+          size="lg"
+          variant="outline"
+          className="h-12 justify-between rounded-2xl border-white/40 bg-white/60 px-5 backdrop-blur-sm dark:border-white/10 dark:bg-white/8"
+          disabled={disabled}
+          onClick={() => onDraw(bannerId, 10)}
+        >
+          <span>十连</span>
+          <span className="inline-flex items-center gap-1.5">
+            <Gem className="size-4" />
+            {tenCost}
+          </span>
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export function AvatarCollectionStoreCard() {
-  const { summary, loading, unlockCharacter } = useGamificationSummary(true);
+  const { summary, loading, drawGacha } = useGamificationSummary(true);
+  const [drawOpen, setDrawOpen] = useState(false);
+  const [drawPhase, setDrawPhase] = useState<'charging' | 'impact' | 'reveal'>('charging');
+  const [drawResult, setDrawResult] = useState<GamificationGachaDrawResponse | null>(null);
+  const [drawing, setDrawing] = useState(false);
 
-  const avatarCollections =
-    summary?.characters.filter((character) => character.assetType === 'AVATAR') ?? [];
+  const ownedAvatarCount = summary?.avatarInventory.items.filter((item) => item.owned).length ?? 0;
+  const totalAvatarCount = summary?.avatarInventory.items.length ?? 0;
+  const live2dCharacters =
+    summary?.characters.filter((character) => character.assetType === 'LIVE2D') ?? [];
+  const unlockedLive2dCount = live2dCharacters.filter((character) => character.isUnlocked).length;
 
-  const handleUnlock = async (characterId: string) => {
+  const handleDraw = async (bannerId: GamificationGachaBannerId, drawCount: 1 | 10) => {
+    if (drawing) return;
+    setDrawing(true);
+    setDrawOpen(true);
+    setDrawResult(null);
+    setDrawPhase('charging');
+
     try {
-      await unlockCharacter(characterId);
-      toast.success('已解锁收藏头像包');
+      const request = drawGacha(bannerId, drawCount);
+      await sleep(650);
+      setDrawPhase('impact');
+      const result = await request;
+      await sleep(550);
+      setDrawResult(result);
+      setDrawPhase('reveal');
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '解锁收藏包失败');
+      setDrawOpen(false);
+      toast.error(err instanceof Error ? err.message : '抽卡失败');
+    } finally {
+      setDrawing(false);
     }
   };
 
-  return (
-    <Card className="p-5 !gap-0 border-muted/40 bg-white/85 backdrop-blur-xl dark:bg-slate-900/80">
-      <div className="flex items-start justify-between gap-3 border-b border-border/60 pb-4">
-        <div className="flex items-start gap-3">
-          <Sparkles className="mt-0.5 size-4 text-fuchsia-500" />
-          <div>
-            <h2 className="text-base font-semibold text-foreground">收藏头像包</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              现有 R / SR / SSR 头像资源会作为次级收藏奖励，先做成直购解锁。
-            </p>
-          </div>
-        </div>
-        {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
-      </div>
+  const avatarHighlights = useMemo(
+    () =>
+      (summary?.avatarInventory.items ?? [])
+        .filter((item) => !item.owned)
+        .sort((a, b) => {
+          const order = { SSR: 3, SR: 2, R: 1 } as const;
+          return order[b.rarity] - order[a.rarity];
+        })
+        .slice(0, 6),
+    [summary?.avatarInventory.items],
+  );
 
-      {!summary ? null : !summary.databaseEnabled ? (
-        <div className="mt-4 rounded-xl border border-dashed border-muted-foreground/25 bg-background/50 px-4 py-4 text-sm text-muted-foreground">
-          当前环境还没有数据库同步，收藏头像解锁暂时不可用。
-        </div>
-      ) : (
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {avatarCollections.map((collection) => (
-            <div key={collection.id} className="rounded-2xl border bg-background/60 p-4">
-              <img
-                src={collection.previewSrc || ''}
-                alt={collection.name}
-                className="aspect-square w-full rounded-2xl object-cover"
-              />
-              <p className="mt-3 text-sm font-semibold">{collection.collectionLabel || collection.name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{collection.description}</p>
-              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                <span>需求 Lv{collection.affinityLevelRequired}</span>
-                <span>{collection.unlockCostPurchaseCredits} 购买积分</span>
+  return (
+    <>
+      <Card className="overflow-hidden border-muted/40 bg-white/85 p-0 backdrop-blur-xl dark:bg-slate-900/80">
+        <div className="border-b border-border/60 px-5 py-5 md:px-6">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 flex size-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,rgba(244,114,182,0.18),rgba(96,165,250,0.18))] text-fuchsia-600 dark:text-fuchsia-200">
+                <Sparkles className="size-5" />
               </div>
-              <div className="mt-3">
-                <Button
-                  type="button"
-                  className="w-full"
-                  variant={collection.isUnlocked ? 'secondary' : 'default'}
-                  disabled={collection.isUnlocked}
-                  onClick={() => void handleUnlock(collection.id)}
-                >
-                  {collection.isUnlocked ? '已解锁' : '解锁收藏包'}
-                </Button>
+              <div>
+                <h2 className="text-xl font-semibold tracking-[-0.03em] text-foreground">补给站</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  头像与课堂讲师均改为通过抽卡获取。这里会实时写回碎片、库存和亲密度。
+                </p>
               </div>
             </div>
-          ))}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/70 bg-white/80 px-3 py-1.5 text-sm text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/5 dark:text-slate-200">
+                <Gem className="size-4 text-amber-500" />
+                <span>购买积分</span>
+                <strong className="font-semibold text-slate-900 dark:text-white">
+                  {summary?.balances.purchase ?? 0}
+                </strong>
+              </div>
+              {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+            </div>
+          </div>
         </div>
-      )}
-    </Card>
+
+        {!summary ? null : !summary.databaseEnabled ? (
+          <div className="px-5 py-6 text-sm text-muted-foreground md:px-6">
+            当前环境还没有数据库同步，补给站暂时不可用。
+          </div>
+        ) : (
+          <div className="space-y-6 px-5 py-6 md:px-6">
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="grid gap-4">
+                <BannerCard
+                  {...BANNER_META.avatar}
+                  bannerId="avatar"
+                  disabled={drawing}
+                  onDraw={handleDraw}
+                >
+                  <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
+                    <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
+                      <p className="text-xs font-medium uppercase tracking-[0.22em] text-fuchsia-600 dark:text-fuchsia-200">
+                        收藏进度
+                      </p>
+                      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                        {ownedAvatarCount}
+                        <span className="ml-1 text-base font-medium text-slate-400">
+                          / {totalAvatarCount}
+                        </span>
+                      </p>
+                      <div className="mt-3">
+                        <Progress
+                          value={
+                            totalAvatarCount > 0
+                              ? Math.round((ownedAvatarCount / totalAvatarCount) * 100)
+                              : 0
+                          }
+                        />
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
+                        R 头像会直接进入库存，SR / SSR 需要通过碎片合成。
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {avatarHighlights.map((item) => (
+                        <div
+                          key={item.id}
+                          className="overflow-hidden rounded-[1.25rem] border border-white/45 bg-white/70 p-2 shadow-sm dark:border-white/10 dark:bg-white/6"
+                        >
+                          <div className="relative overflow-hidden rounded-[1rem]">
+                            <img
+                              src={item.url}
+                              alt={item.name}
+                              className="aspect-square w-full object-cover"
+                            />
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-2 pb-1.5 pt-5 text-[10px] font-medium text-white">
+                              {item.rarity}
+                            </div>
+                          </div>
+                          <p className="mt-2 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                            {item.id}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </BannerCard>
+
+                <BannerCard
+                  {...BANNER_META.live2d}
+                  bannerId="live2d"
+                  disabled={drawing}
+                  onDraw={handleDraw}
+                >
+                  <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
+                    <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
+                      <p className="text-xs font-medium uppercase tracking-[0.22em] text-sky-600 dark:text-sky-200">
+                        讲师进度
+                      </p>
+                      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                        {unlockedLive2dCount}
+                        <span className="ml-1 text-base font-medium text-slate-400">
+                          / {live2dCharacters.length}
+                        </span>
+                      </p>
+                      <div className="mt-3">
+                        <Progress
+                          value={
+                            live2dCharacters.length > 0
+                              ? Math.round((unlockedLive2dCount / live2dCharacters.length) * 100)
+                              : 0
+                          }
+                        />
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
+                        每次抽到未拥有讲师时会获得 1 碎片；集齐 10 碎片自动解锁。
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                      {live2dCharacters.map((character) => (
+                        <div
+                          key={character.id}
+                          className={cn(
+                            'overflow-hidden rounded-[1.25rem] border p-2 shadow-sm',
+                            character.isUnlocked
+                              ? 'border-white/45 bg-white/75 dark:border-white/10 dark:bg-white/6'
+                              : 'border-sky-200/70 bg-sky-50/60 dark:border-sky-400/20 dark:bg-sky-950/15',
+                          )}
+                        >
+                          <div className="relative overflow-hidden rounded-[1rem] bg-black/5 dark:bg-white/5">
+                            <img
+                              src={character.previewSrc || ''}
+                              alt={character.name}
+                              className="aspect-square w-full object-cover"
+                            />
+                          </div>
+                          <div className="mt-2">
+                            <p className="text-xs font-semibold text-slate-800 dark:text-white">
+                              {character.name}
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-300">
+                              {character.isUnlocked
+                                ? `已拥有 · Lv${character.affinityLevel}`
+                                : `碎片 ${character.fragmentCount ?? 0}/${character.fragmentTarget ?? 10}`}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </BannerCard>
+              </div>
+
+              <div className="space-y-4">
+                <div className="overflow-hidden rounded-[2rem] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.86))] p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))]">
+                  <p className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white dark:bg-white dark:text-slate-950">
+                    <Star className="size-3.5" />
+                    掉落规则
+                  </p>
+                  <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                    <p>头像补给：R 卡直接获得；SR / SSR 通过碎片合成，已拥有头像不会再次掉落。</p>
+                    <p>讲师补给：未拥有讲师掉落碎片，满 10 片自动解锁；重复讲师会转化为亲密度。</p>
+                    <p>十连享受 9 抽价格，结果会直接写回头像库存、讲师碎片和余额。</p>
+                  </div>
+                </div>
+
+                <div className="overflow-hidden rounded-[2rem] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.86))] p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))]">
+                  <p className="text-xs font-medium uppercase tracking-[0.22em] text-slate-500 dark:text-slate-300">
+                    库存速览
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {summary.avatarInventory.items
+                      .filter((item) => !item.owned && item.fragmentCount > 0)
+                      .slice(0, 6)
+                      .map((item) => (
+                        <div
+                          key={item.id}
+                          className="rounded-[1.25rem] border border-slate-200/70 bg-white/75 p-3 dark:border-white/10 dark:bg-white/6"
+                        >
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={item.url}
+                              alt={item.name}
+                              className="size-12 rounded-xl object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="truncate text-sm font-semibold text-slate-900 dark:text-white">
+                                  {item.name}
+                                </p>
+                                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-300">
+                                  {item.rarity}
+                                </span>
+                              </div>
+                              <div className="mt-2">
+                                <Progress
+                                  value={Math.round(
+                                    (item.fragmentCount / item.fragmentTarget) * 100,
+                                  )}
+                                />
+                              </div>
+                              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-300">
+                                碎片 {item.fragmentCount}/{item.fragmentTarget}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {summary.avatarInventory.items.every(
+                      (item) => item.owned || item.fragmentCount === 0,
+                    ) ? (
+                      <p className="rounded-[1.25rem] border border-dashed border-slate-200/70 bg-white/75 px-4 py-5 text-sm text-slate-500 dark:border-white/10 dark:bg-white/6 dark:text-slate-300">
+                        当前没有进行中的头像碎片合成，抽到 SR / SSR 后会显示在这里。
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <GachaRevealDialog
+        open={drawOpen}
+        phase={drawPhase}
+        result={drawResult}
+        onClose={() => {
+          if (drawing) return;
+          setDrawOpen(false);
+          setDrawResult(null);
+          setDrawPhase('charging');
+        }}
+      />
+    </>
   );
 }

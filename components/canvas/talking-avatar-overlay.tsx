@@ -31,8 +31,15 @@ interface TalkingAvatarOverlayProps extends TalkingAvatarOverlayState {
   readonly className?: string;
   /** `overlay` = 幻灯片角标；`sidebar` = 左侧栏全高面板；`card` = 设置面板卡片预览 */
   readonly layout?: 'overlay' | 'sidebar' | 'card';
+  /** 仅在 `layout=card` 下生效，用于卡片预览取景（默认全身，half=半身） */
+  readonly cardFraming?: 'default' | 'half';
   readonly pointerInteraction?: TalkingAvatarPointerInteractionState | null;
   readonly modelIdOverride?: Live2DPresenterModelId;
+  readonly manualMotionTrigger?: {
+    token: number;
+    motionGroup: string;
+    motionIndex?: number;
+  } | null;
   readonly showBadge?: boolean;
   readonly showStatusDot?: boolean;
 }
@@ -76,8 +83,10 @@ export function TalkingAvatarOverlay({
   cadence = speaking ? 'fallback' : 'idle',
   className,
   layout = 'overlay',
+  cardFraming = 'default',
   pointerInteraction,
   modelIdOverride,
+  manualMotionTrigger,
   showBadge = true,
   showStatusDot = true,
 }: TalkingAvatarOverlayProps) {
@@ -140,6 +149,16 @@ export function TalkingAvatarOverlay({
 
     wasSpeakingRef.current = speaking;
   }, [modelConfig.speakMotionGroup, speaking, status]);
+
+  useEffect(() => {
+    if (status !== 'ready' || !manualMotionTrigger) return;
+    const model = instanceRef.current?.model;
+    if (!model) return;
+    void playPresenterMotion(model, manualMotionTrigger.motionGroup, {
+      index: manualMotionTrigger.motionIndex,
+      priority: 3,
+    });
+  }, [manualMotionTrigger, status]);
 
   useEffect(() => {
     if (
@@ -263,7 +282,7 @@ export function TalkingAvatarOverlay({
         const h = mount.clientHeight;
         if (w > 0 && h > 0) {
           app.renderer.resize(w, h);
-          fitModelToFrame(model, mount, baseSize, layout);
+          fitModelToFrame(model, mount, baseSize, layout, cardFraming);
         }
       };
 
@@ -318,7 +337,7 @@ export function TalkingAvatarOverlay({
         mountElement.replaceChildren();
       }
     };
-  }, [layout, modelConfig.idleMotionGroup, modelConfig.modelSrc]);
+  }, [cardFraming, layout, modelConfig.idleMotionGroup, modelConfig.modelSrc]);
 
   return (
     <div
@@ -384,16 +403,22 @@ function fitModelToFrame(
   mount: HTMLDivElement,
   baseSize: ModelBaseSize,
   layout: 'overlay' | 'sidebar' | 'card',
+  cardFraming: 'default' | 'half' = 'default',
 ) {
   const width = mount.clientWidth;
   const height = mount.clientHeight;
   if (!width || !height) return;
 
   if (layout === 'card') {
-    model.anchor.set(0.5, 0.04);
-    const scale = Math.min((width * 0.96) / baseSize.width, (height * 1.18) / baseSize.height) * 1.04;
+    const isHalf = cardFraming === 'half';
+    model.anchor.set(0.5, isHalf ? 0.08 : 0.04);
+    const scale =
+      Math.min(
+        (width * (isHalf ? 1.2 : 0.96)) / baseSize.width,
+        (height * (isHalf ? 1.48 : 1.18)) / baseSize.height,
+      ) * (isHalf ? 1.26 : 1.04);
     model.scale.set(scale);
-    model.position.set(width * 0.5, height * 0.04);
+    model.position.set(width * 0.5, height * (isHalf ? 0.15 : 0.04));
     return;
   }
 

@@ -5,12 +5,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   ArrowRightLeft,
-  Bell,
   BookOpen,
   Bug,
   ChevronDown,
   ChevronRight,
   Coins,
+  Flame,
   LifeBuoy,
   MessageCircle,
   Settings,
@@ -20,7 +20,6 @@ import {
   UsersRound,
 } from 'lucide-react';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
-import { useNotificationStore } from '@/lib/store/notifications';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { isDashboardRoute } from '@/lib/utils/dashboard-routes';
@@ -63,10 +62,10 @@ const CHAT_RIGHT_RAIL_KEY_ORDER: Record<string, number> = {
   courses: 1,
   'top-up': 2,
   'credits-market': 3,
-  store: 4,
-  'avatar-store': 5,
-  chat: 6,
-  notifications: 7,
+  gamification: 4,
+  store: 5,
+  'avatar-store': 6,
+  chat: 7,
   live2d: 8,
   profile: 9,
   settings: 10,
@@ -102,7 +101,7 @@ export interface AppCoreNavListProps {
 }
 
 /**
- * Dashboard（/my-courses）/ 商城 / 课程主页（课程内）/ 聊天 / 通知 等核心入口，与左侧栏逻辑一致。
+ * Dashboard（/my-courses）/ 商城 / 课程主页（课程内）/ 聊天 等核心入口，与左侧栏逻辑一致。
  */
 export function AppCoreNavList({
   collapsed,
@@ -115,7 +114,6 @@ export function AppCoreNavList({
 }: AppCoreNavListProps) {
   const pathname = usePathname();
   const courseId = useCurrentCourseStore((s) => s.id);
-  const unreadNotificationCount = useNotificationStore((s) => s.unreadCount);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
   const inCourseContext = Boolean(courseId);
@@ -139,8 +137,7 @@ export function AppCoreNavList({
     pathname === '/credits-market' || pathname?.startsWith('/credits-market/');
   const profileActive = pathname === '/profile' || pathname?.startsWith('/profile/');
   const settingsActive = pathname === '/settings' || pathname?.startsWith('/settings/');
-  const notificationsActive =
-    pathname === '/notifications' || pathname?.startsWith('/notifications/');
+  const gamificationActive = pathname === '/gamification' || pathname?.startsWith('/gamification/');
 
   const courseStoreActive =
     pathname === '/store/courses' || pathname?.startsWith('/store/courses/');
@@ -160,12 +157,20 @@ export function AppCoreNavList({
           active: pathname === '/my-courses',
         },
         {
-          key: 'notifications',
-          href: '/notifications',
-          label: '通知',
-          tooltip: '通知',
-          icon: Bell,
-          active: notificationsActive,
+          key: 'gamification',
+          href: '/gamification',
+          label: '学习成长',
+          tooltip: '学习成长',
+          icon: Flame,
+          active: gamificationActive,
+        },
+        {
+          key: 'live2d',
+          href: '/live2d',
+          label: '讲师中心',
+          tooltip: '管理课堂/通知/签到讲师',
+          icon: Sparkles,
+          active: live2dActive,
         },
       ],
     },
@@ -182,18 +187,10 @@ export function AppCoreNavList({
           active: courseStoreActive,
         },
         {
-          key: 'live2d',
-          href: '/live2d',
-          label: '虚拟讲师',
-          tooltip: '选择虚拟讲师形象',
-          icon: Sparkles,
-          active: live2dActive,
-        },
-        {
           key: 'avatar-store',
           href: '/store/avatars',
-          label: '头像商城',
-          tooltip: '头像商城',
+          label: '抽卡补给站',
+          tooltip: '抽卡补给站',
           icon: UserRound,
           active: avatarStoreActive,
         },
@@ -285,6 +282,14 @@ export function AppCoreNavList({
               active: pathname === '/my-courses',
             },
             {
+              key: 'gamification',
+              href: '/gamification',
+              label: '学习成长',
+              tooltip: '学习成长',
+              icon: Flame,
+              active: gamificationActive,
+            },
+            {
               key: 'top-up',
               href: '/top-up',
               label: '充值/转换',
@@ -314,16 +319,16 @@ export function AppCoreNavList({
                   {
                     key: 'live2d',
                     href: '/live2d',
-                    label: '虚拟讲师',
-                    tooltip: '选择虚拟讲师形象',
+                    label: '讲师中心',
+                    tooltip: '管理课堂/通知/签到讲师',
                     icon: Sparkles,
                     active: live2dActive,
                   },
                   {
                     key: 'avatar-store',
                     href: '/store/avatars',
-                    label: '头像商城',
-                    tooltip: '头像商城',
+                    label: '抽卡补给站',
+                    tooltip: '抽卡补给站',
                     icon: UserRound,
                     active: avatarStoreActive,
                   },
@@ -358,14 +363,6 @@ export function AppCoreNavList({
                       ] satisfies CoreNavItem[])),
                 ]
               : []),
-            {
-              key: 'notifications',
-              href: '/notifications',
-              label: '通知',
-              tooltip: '通知',
-              icon: Bell,
-              active: notificationsActive,
-            },
           ],
         },
         {
@@ -405,6 +402,9 @@ export function AppCoreNavList({
     : coreNavSections;
   const enableCollapsibleSections = grouped && !collapsed && isDashboardRoute(pathname);
 
+  const isDashboardSectionExpandedByDefault = (sectionKey: string) =>
+    sectionKey === 'workspace' || sectionKey === 'marketplace' || sectionKey === 'credits';
+
   useEffect(() => {
     if (!enableCollapsibleSections) return;
     setCollapsedSections((current) => {
@@ -413,7 +413,7 @@ export function AppCoreNavList({
 
       for (const section of visibleSections) {
         if (next[section.key] !== undefined) continue;
-        next[section.key] = section.key !== 'workspace';
+        next[section.key] = !isDashboardSectionExpandedByDefault(section.key);
         changed = true;
       }
 
@@ -429,9 +429,6 @@ export function AppCoreNavList({
 
   const renderItem = (item: CoreNavItem) => {
     const Icon = item.icon;
-    const isNotificationsItem = item.key === 'notifications';
-    const showUnreadBadge = isNotificationsItem && unreadNotificationCount > 0;
-    const unreadLabel = unreadNotificationCount > 99 ? '99+' : String(unreadNotificationCount);
 
     return (
       <li key={item.key}>
@@ -448,30 +445,12 @@ export function AppCoreNavList({
             >
               <span className="relative shrink-0">
                 <Icon className="size-[18px] shrink-0 opacity-80" strokeWidth={1.75} />
-                {showUnreadBadge ? (
-                  <span className="absolute -right-2 -top-2 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold leading-4 text-white shadow-[0_6px_16px_rgba(244,63,94,0.38)]">
-                    {collapsed
-                      ? unreadNotificationCount > 9
-                        ? '9+'
-                        : unreadNotificationCount
-                      : unreadLabel}
-                  </span>
-                ) : null}
               </span>
               {!collapsed && <span className="truncate">{item.label}</span>}
-              {!collapsed && showUnreadBadge ? (
-                <span className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white">
-                  {unreadLabel}
-                </span>
-              ) : null}
             </Link>
           </TooltipTrigger>
           {collapsed && (
-            <TooltipContent side={tooltipSide}>
-              {showUnreadBadge
-                ? `${item.tooltip ?? item.label} · ${unreadNotificationCount} 条未读`
-                : (item.tooltip ?? item.label)}
-            </TooltipContent>
+            <TooltipContent side={tooltipSide}>{item.tooltip ?? item.label}</TooltipContent>
           )}
         </Tooltip>
       </li>

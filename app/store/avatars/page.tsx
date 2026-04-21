@@ -23,10 +23,10 @@ export default function AvatarStorePage() {
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
-                头像商城
+                抽卡补给站
               </h1>
               <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
-                收藏头像包独立为商城入口，支持按等级与购买积分直接解锁。
+                这里不再直接购买资源，而是通过补给站抽取头像与课堂讲师。
               </p>
             </div>
           </div>

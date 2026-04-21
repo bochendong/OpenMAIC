@@ -299,6 +299,7 @@ export default function MyCoursesPage() {
                         creatorName={creatorDisplay}
                         courseMetaChips={{
                           school: course.university?.trim() || undefined,
+                          purposeType: purposeLabel(course.purpose),
                           courseCode: course.courseCode?.trim() || undefined,
                         }}
                         countUnit="个笔记本"

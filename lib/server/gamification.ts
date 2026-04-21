@@ -7,19 +7,26 @@ import {
   type PrismaClient,
 } from '@/lib/server/generated-prisma';
 import { createLogger } from '@/lib/logger';
-import {
-  applyCreditDelta,
-  getUserCreditBalances,
-} from '@/lib/server/credits';
+import { applyCreditDelta, getUserCreditBalances } from '@/lib/server/credits';
 import type {
+  GamificationAvatarInventorySummary,
+  GamificationAvatarRarity,
   GamificationCharacterSummary,
   GamificationClaimKind,
+  GamificationGachaBannerId,
+  GamificationGachaDrawResponse,
+  GamificationGachaDrawReward,
   GamificationEventResponse,
   GamificationEventType,
   GamificationMissionSummary,
   GamificationSummaryResponse,
 } from '@/lib/types/gamification';
 import { DEFAULT_LIVE2D_PRESENTER_MODEL_ID } from '@/lib/live2d/presenter-models';
+import {
+  DEFAULT_UNLOCKED_USER_AVATAR_IDS,
+  USER_AVATAR_GACHA_CATALOG,
+  type UserAvatarCatalogItem,
+} from '@/lib/constants/user-avatars';
 
 type GamificationDbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -28,6 +35,30 @@ const APP_TIME_ZONE = 'America/Toronto';
 const DAILY_PURCHASE_EARN_CAP = 120;
 const DAILY_AFFINITY_EARN_CAP = 20;
 const DEFAULT_CHARACTER_ID = DEFAULT_LIVE2D_PRESENTER_MODEL_ID;
+const CHARACTER_FRAGMENT_TARGET = 10;
+const CHARACTER_DUPLICATE_AFFINITY_GAIN = 6;
+
+const GACHA_BANNER_CONFIG = {
+  avatar: {
+    singleCost: 30,
+    tenCost: 270,
+  },
+  live2d: {
+    singleCost: 45,
+    tenCost: 405,
+  },
+} as const;
+
+const AVATAR_RARITY_RATES: Record<GamificationAvatarRarity, number> = {
+  R: 0.78,
+  SR: 0.18,
+  SSR: 0.04,
+};
+
+type AvatarInventoryState = {
+  ownedIds: string[];
+  fragmentCounts: Record<string, number>;
+};
 
 const REWARD_RULES = {
   dailySignIn: { purchaseCredits: 5, affinity: 1 },
@@ -115,7 +146,7 @@ const DEFAULT_CATALOG: Array<{
     unlockCostPurchaseCredits: 0,
     affinityLevelRequired: 1,
     sortOrder: 10,
-    isDefault: true,
+    isDefault: false,
     metadata: {
       previewSrc: '/live2d/previews/haru.jpg',
       badgeLabel: 'Haru',
@@ -145,12 +176,57 @@ const DEFAULT_CATALOG: Array<{
     unlockCostPurchaseCredits: 900,
     affinityLevelRequired: 4,
     sortOrder: 30,
-    isDefault: false,
+    isDefault: true,
     metadata: {
       previewSrc: '/live2d/previews/mark.jpg',
       badgeLabel: 'Mark',
       accentColor: '#f59e0b',
       description: '更偏策略型的学习搭子，适合你想稳定冲刺的时候。',
+    },
+  },
+  {
+    id: 'mao',
+    name: 'Mao',
+    assetType: CharacterAssetType.LIVE2D,
+    unlockCostPurchaseCredits: 260,
+    affinityLevelRequired: 1,
+    sortOrder: 40,
+    isDefault: false,
+    metadata: {
+      previewSrc: '/live2d/previews/mao.jpg',
+      badgeLabel: 'Mao',
+      accentColor: '#fb7185',
+      description: '元气更足、表情更亮的课堂搭子，适合轻松活泼的讲解场景。',
+    },
+  },
+  {
+    id: 'ren',
+    name: 'Ren',
+    assetType: CharacterAssetType.LIVE2D,
+    unlockCostPurchaseCredits: 420,
+    affinityLevelRequired: 1,
+    sortOrder: 50,
+    isDefault: false,
+    metadata: {
+      previewSrc: '/live2d/previews/ren.png',
+      badgeLabel: 'Ren',
+      accentColor: '#60a5fa',
+      description: '更成熟冷静的讲师气质，适合偏结构化、节奏稳的课堂。',
+    },
+  },
+  {
+    id: 'rice',
+    name: 'Rice',
+    assetType: CharacterAssetType.LIVE2D,
+    unlockCostPurchaseCredits: 580,
+    affinityLevelRequired: 1,
+    sortOrder: 60,
+    isDefault: false,
+    metadata: {
+      previewSrc: '/live2d/previews/rice.jpg',
+      badgeLabel: 'Rice',
+      accentColor: '#a78bfa',
+      description: '更轻盈柔和的陪伴型讲师，适合鼓励式、慢节奏的课堂体验。',
     },
   },
   {
@@ -263,12 +339,18 @@ function getMetadataString(metadata: Prisma.JsonValue | null | undefined, key: s
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getInputMetadataString(metadata: Prisma.InputJsonObject | null | undefined, key: string): string {
+function getInputMetadataString(
+  metadata: Prisma.InputJsonObject | null | undefined,
+  key: string,
+): string {
   const value = metadata?.[key];
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function getMetadataNumber(metadata: Prisma.JsonValue | null | undefined, key: string): number | null {
+function getMetadataNumber(
+  metadata: Prisma.JsonValue | null | undefined,
+  key: string,
+): number | null {
   if (!isJsonObject(metadata)) return null;
   const value = metadata[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -286,6 +368,94 @@ function computeAffinityLevel(exp: number): number {
 
 function nextLevelExp(level: number): number | null {
   return AFFINITY_LEVEL_THRESHOLDS[level] ?? null;
+}
+
+function avatarDisplayName(item: UserAvatarCatalogItem): string {
+  if (item.rarity === 'R') return `R 收藏头像 ${item.id.replace('R', '#')}`;
+  if (item.rarity === 'SR') return `SR 收藏头像 ${item.id.replace('SR', '#')}`;
+  return `SSR 收藏头像 ${item.id.replace('SSR', '#')}`;
+}
+
+function normalizeAvatarInventoryState(
+  value: Prisma.JsonValue | null | undefined,
+): AvatarInventoryState {
+  const baseOwned = new Set(DEFAULT_UNLOCKED_USER_AVATAR_IDS);
+  const baseFragments: Record<string, number> = {};
+  if (!isJsonObject(value)) {
+    return {
+      ownedIds: [...baseOwned],
+      fragmentCounts: baseFragments,
+    };
+  }
+
+  const ownedRaw = Array.isArray(value.ownedIds) ? value.ownedIds : [];
+  for (const id of ownedRaw) {
+    if (typeof id === 'string' && id.trim()) baseOwned.add(id.trim());
+  }
+
+  const fragmentRaw = isJsonObject(value.fragmentCounts) ? value.fragmentCounts : null;
+  if (fragmentRaw) {
+    Object.entries(fragmentRaw).forEach(([key, fragmentValue]) => {
+      if (typeof fragmentValue !== 'number' || !Number.isFinite(fragmentValue)) return;
+      baseFragments[key] = Math.max(0, Math.floor(fragmentValue));
+    });
+  }
+
+  return {
+    ownedIds: [...baseOwned],
+    fragmentCounts: baseFragments,
+  };
+}
+
+function toAvatarInventoryJson(state: AvatarInventoryState): Prisma.InputJsonObject {
+  return {
+    version: 1,
+    ownedIds: [...new Set(state.ownedIds)].sort(),
+    fragmentCounts: state.fragmentCounts,
+  };
+}
+
+function buildAvatarInventorySummary(
+  inventory: AvatarInventoryState,
+): GamificationAvatarInventorySummary {
+  const owned = new Set(inventory.ownedIds);
+  return {
+    ownedIds: [...owned],
+    items: USER_AVATAR_GACHA_CATALOG.map((item) => ({
+      id: item.id,
+      name: avatarDisplayName(item),
+      url: item.url,
+      rarity: item.rarity,
+      owned: owned.has(item.id),
+      fragmentCount: Math.max(0, inventory.fragmentCounts[item.id] ?? 0),
+      fragmentTarget: item.fragmentTarget,
+      directUnlock: item.directUnlock,
+    })),
+  };
+}
+
+function getRemainingAvatarDraws(inventory: AvatarInventoryState): number {
+  const owned = new Set(inventory.ownedIds);
+  return USER_AVATAR_GACHA_CATALOG.reduce((sum, item) => {
+    if (owned.has(item.id)) return sum;
+    if (item.directUnlock) return sum + 1;
+    return sum + Math.max(0, item.fragmentTarget - (inventory.fragmentCounts[item.id] ?? 0));
+  }, 0);
+}
+
+function randomPick<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+function weightedPick<T>(items: Array<{ item: T; weight: number }>): T {
+  const total = items.reduce((sum, entry) => sum + Math.max(0, entry.weight), 0);
+  if (total <= 0) return items[0]!.item;
+  let cursor = Math.random() * total;
+  for (const entry of items) {
+    cursor -= Math.max(0, entry.weight);
+    if (cursor <= 0) return entry.item;
+  }
+  return items[items.length - 1]!.item;
 }
 
 async function ensureCatalogSeeded(db: GamificationDbClient): Promise<void> {
@@ -318,12 +488,14 @@ async function normalizeEngagementProfile(
   lastStudyAt: Date | null;
   todayEarnedPurchaseCredits: number;
   preferredCharacterId: string | null;
+  avatarInventory: Prisma.JsonValue | null;
 }> {
   const existing = await db.userEngagementProfile.upsert({
     where: { userId },
     create: {
       userId,
       preferredCharacterId: DEFAULT_CHARACTER_ID,
+      avatarInventory: toAvatarInventoryJson(normalizeAvatarInventoryState(null)),
     },
     update: {},
     select: {
@@ -333,6 +505,7 @@ async function normalizeEngagementProfile(
       lastStudyAt: true,
       todayEarnedPurchaseCredits: true,
       preferredCharacterId: true,
+      avatarInventory: true,
     },
   });
 
@@ -359,6 +532,9 @@ async function normalizeEngagementProfile(
         streakDays: nextStreakDays,
         todayEarnedPurchaseCredits: nextTodayEarned,
         preferredCharacterId: existing.preferredCharacterId ?? DEFAULT_CHARACTER_ID,
+        avatarInventory: toAvatarInventoryJson(
+          normalizeAvatarInventoryState(existing.avatarInventory),
+        ),
       },
       select: {
         id: true,
@@ -367,6 +543,7 @@ async function normalizeEngagementProfile(
         lastStudyAt: true,
         todayEarnedPurchaseCredits: true,
         preferredCharacterId: true,
+        avatarInventory: true,
       },
     });
   }
@@ -374,10 +551,7 @@ async function normalizeEngagementProfile(
   return existing;
 }
 
-async function ensureUserCharacterProgress(
-  db: GamificationDbClient,
-  userId: string,
-) {
+async function ensureUserCharacterProgress(db: GamificationDbClient, userId: string) {
   const catalog = await db.characterCatalog.findMany({
     orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
   });
@@ -395,6 +569,10 @@ async function ensureUserCharacterProgress(
           userId,
           characterId: item.id,
           isUnlocked: item.isDefault,
+          fragmentCount:
+            item.isDefault && item.assetType === CharacterAssetType.LIVE2D
+              ? CHARACTER_FRAGMENT_TARGET
+              : 0,
           equippedAt:
             item.isDefault && item.assetType === CharacterAssetType.LIVE2D ? new Date() : null,
           affinityExp: item.isDefault ? 0 : 0,
@@ -426,6 +604,7 @@ async function ensureUserCharacterProgress(
       },
       data: {
         isUnlocked: true,
+        fragmentCount: CHARACTER_FRAGMENT_TARGET,
         equippedAt: new Date(),
       },
     });
@@ -553,6 +732,7 @@ async function touchStudyDay(
       lastStudyAt: true,
       todayEarnedPurchaseCredits: true,
       preferredCharacterId: true,
+      avatarInventory: true,
     },
   });
 
@@ -615,10 +795,7 @@ async function grantReward(
     0,
     DAILY_PURCHASE_EARN_CAP - Math.max(0, profile.todayEarnedPurchaseCredits),
   );
-  const grantedPurchaseCredits = Math.max(
-    0,
-    Math.min(args.purchaseCredits, remainingCredits),
-  );
+  const grantedPurchaseCredits = Math.max(0, Math.min(args.purchaseCredits, remainingCredits));
 
   const todayAffinityEarned = await getTodayAffinityEarnedForCharacter(
     db,
@@ -777,7 +954,9 @@ async function buildClaimables(
   dailyTasks: GamificationMissionSummary[],
 ) {
   const todayLogs = await getTodayLogs(db, userId);
-  const hasDailySignIn = todayLogs.some((row) => row.actionType === LearningActionType.DAILY_SIGN_IN);
+  const hasDailySignIn = todayLogs.some(
+    (row) => row.actionType === LearningActionType.DAILY_SIGN_IN,
+  );
   const hasDailyTaskReward = todayLogs.some(
     (row) => row.actionType === LearningActionType.DAILY_TASK_REWARD,
   );
@@ -792,8 +971,7 @@ async function buildClaimables(
 
   return {
     dailySignIn: !hasDailySignIn,
-    dailyTasks:
-      dailyTasks.every((task) => task.completed) && !hasDailyTaskReward,
+    dailyTasks: dailyTasks.every((task) => task.completed) && !hasDailyTaskReward,
     streakBonusDays: streakMilestone && !hasStreakReward ? streakMilestone : null,
   };
 }
@@ -874,8 +1052,10 @@ function mapCharacterSummary(
   row: Awaited<ReturnType<typeof ensureUserCharacterProgress>>[number],
 ): GamificationCharacterSummary {
   const metadata = isJsonObject(row.character.metadata) ? row.character.metadata : null;
-  const previewSrc = metadata && typeof metadata.previewSrc === 'string' ? metadata.previewSrc : null;
-  const badgeLabel = metadata && typeof metadata.badgeLabel === 'string' ? metadata.badgeLabel : null;
+  const previewSrc =
+    metadata && typeof metadata.previewSrc === 'string' ? metadata.previewSrc : null;
+  const badgeLabel =
+    metadata && typeof metadata.badgeLabel === 'string' ? metadata.badgeLabel : null;
   const accentColor =
     metadata && typeof metadata.accentColor === 'string' ? metadata.accentColor : null;
   const description =
@@ -884,7 +1064,9 @@ function mapCharacterSummary(
     metadata && typeof metadata.collectionLabel === 'string' ? metadata.collectionLabel : null;
 
   const nextUnlockHint = !row.isUnlocked
-    ? `需要 ${row.character.unlockCostPurchaseCredits} 购买积分 + 亲密度 Lv${row.character.affinityLevelRequired}`
+    ? row.character.assetType === CharacterAssetType.LIVE2D
+      ? `碎片 ${row.fragmentCount} / ${CHARACTER_FRAGMENT_TARGET}`
+      : '请前往抽卡补给站抽取'
     : null;
 
   return {
@@ -904,6 +1086,11 @@ function mapCharacterSummary(
     description,
     collectionLabel,
     nextUnlockHint,
+    fragmentCount:
+      row.character.assetType === CharacterAssetType.LIVE2D ? row.fragmentCount : undefined,
+    fragmentTarget:
+      row.character.assetType === CharacterAssetType.LIVE2D ? CHARACTER_FRAGMENT_TARGET : undefined,
+    unlockViaGacha: true,
   };
 }
 
@@ -913,6 +1100,7 @@ export async function getGamificationSummary(
 ): Promise<GamificationSummaryResponse> {
   await ensureCatalogSeeded(db);
   const profile = await normalizeEngagementProfile(db, userId);
+  const avatarInventory = normalizeAvatarInventoryState(profile.avatarInventory);
   const characterProgress = await ensureUserCharacterProgress(db, userId);
   const equipped =
     characterProgress.find((row) => row.equippedAt != null) ??
@@ -936,7 +1124,8 @@ export async function getGamificationSummary(
       streakDays: profile.streakDays,
       lastStudyAt: profile.lastStudyAt?.toISOString() ?? null,
       todayEarnedPurchaseCredits: profile.todayEarnedPurchaseCredits,
-      preferredCharacterId: profile.preferredCharacterId ?? equipped?.characterId ?? DEFAULT_CHARACTER_ID,
+      preferredCharacterId:
+        profile.preferredCharacterId ?? equipped?.characterId ?? DEFAULT_CHARACTER_ID,
       equippedCharacterId: equipped?.characterId ?? DEFAULT_CHARACTER_ID,
       affinityExp: equipped?.affinityExp ?? 0,
       affinityLevel: equipped?.affinityLevel ?? 1,
@@ -953,6 +1142,7 @@ export async function getGamificationSummary(
     dailyTasks,
     weeklyTasks,
     characters: characterProgress.map(mapCharacterSummary),
+    avatarInventory: buildAvatarInventorySummary(avatarInventory),
     nudge,
   };
 }
@@ -1263,14 +1453,7 @@ export async function recordGamificationEvent(
     | undefined;
 
   if (!completionExists) {
-    await incrementMissionProgress(
-      db,
-      userId,
-      MissionType.DAILY_QUIZ,
-      dailyTaskPeriodKey(),
-      1,
-      1,
-    );
+    await incrementMissionProgress(db, userId, MissionType.DAILY_QUIZ, dailyTaskPeriodKey(), 1, 1);
     await incrementMissionProgress(
       db,
       userId,
@@ -1383,99 +1566,10 @@ export async function unlockGamificationCharacter(
   userId: string,
   characterId: string,
 ): Promise<GamificationSummaryResponse> {
-  await ensureCatalogSeeded(db);
-  await ensureUserCharacterProgress(db, userId);
-  const catalog = await db.characterCatalog.findUnique({
-    where: { id: characterId },
-  });
-  if (!catalog) {
-    throw new Error('角色不存在');
-  }
-  const progress = await db.userCharacterProgress.findUnique({
-    where: {
-      userId_characterId: {
-        userId,
-        characterId,
-      },
-    },
-  });
-  if (!progress) {
-    throw new Error('角色进度不存在');
-  }
-  if (progress.isUnlocked) {
-    return getGamificationSummary(db, userId);
-  }
-
-  const preferredCharacterId =
-    (await normalizeEngagementProfile(db, userId)).preferredCharacterId ?? DEFAULT_CHARACTER_ID;
-  const preferredProgress = await db.userCharacterProgress.findUnique({
-    where: {
-      userId_characterId: {
-        userId,
-        characterId: preferredCharacterId,
-      },
-    },
-  });
-  if ((preferredProgress?.affinityLevel ?? 1) < catalog.affinityLevelRequired) {
-    throw new Error(`亲密度等级不足，当前需要 Lv${catalog.affinityLevelRequired}`);
-  }
-  const balances = await getUserCreditBalances(db, userId);
-  if (balances.purchaseCreditsBalance < catalog.unlockCostPurchaseCredits) {
-    throw new Error('购买积分不足，先去完成几组题吧');
-  }
-
-  if (catalog.unlockCostPurchaseCredits > 0) {
-    await applyCreditDelta(db, {
-      userId,
-      delta: -catalog.unlockCostPurchaseCredits,
-      kind:
-        catalog.assetType === CharacterAssetType.LIVE2D
-          ? CreditTransactionKind.CHARACTER_UNLOCK_SPEND
-          : CreditTransactionKind.AVATAR_UNLOCK_SPEND,
-      accountType: 'PURCHASE',
-      description:
-        catalog.assetType === CharacterAssetType.LIVE2D
-          ? `Unlock companion ${catalog.name}`
-          : `Unlock avatar pack ${catalog.name}`,
-      referenceType: 'gamification_unlock',
-      referenceId: catalog.id,
-      metadata: {
-        characterId: catalog.id,
-        assetType: catalog.assetType,
-      },
-    });
-  }
-
-  await db.userCharacterProgress.update({
-    where: {
-      userId_characterId: {
-        userId,
-        characterId,
-      },
-    },
-    data: {
-      isUnlocked: true,
-    },
-  });
-
-  await db.learningActionLog.create({
-    data: {
-      userId,
-      actionType:
-        catalog.assetType === CharacterAssetType.LIVE2D
-          ? LearningActionType.CHARACTER_UNLOCK
-          : LearningActionType.AVATAR_UNLOCK,
-      rewardedPurchaseCredits: 0,
-      rewardedAffinity: 0,
-      metadata: {
-        characterId: catalog.id,
-        assetType: catalog.assetType,
-        cost: catalog.unlockCostPurchaseCredits,
-      },
-    },
-  });
-
-  return getGamificationSummary(db, userId);
+  void db;
+  void userId;
+  void characterId;
+  throw new Error('角色与头像现已改为通过抽卡获取，请前往抽卡补给站');
 }
 
 export async function equipGamificationCharacter(
@@ -1546,6 +1640,338 @@ export async function equipGamificationCharacter(
   return getGamificationSummary(db, userId);
 }
 
+export async function selectPreferredGamificationCharacter(
+  db: GamificationDbClient,
+  userId: string,
+  characterId: string,
+): Promise<GamificationSummaryResponse> {
+  await ensureCatalogSeeded(db);
+  await ensureUserCharacterProgress(db, userId);
+  const target = await db.userCharacterProgress.findUnique({
+    where: {
+      userId_characterId: {
+        userId,
+        characterId,
+      },
+    },
+    include: {
+      character: true,
+    },
+  });
+
+  if (!target?.isUnlocked) {
+    throw new Error('角色还没有解锁');
+  }
+  if (target.character.assetType !== CharacterAssetType.LIVE2D) {
+    throw new Error('当前只支持选择 Live2D 角色');
+  }
+
+  await db.userEngagementProfile.update({
+    where: { userId },
+    data: {
+      preferredCharacterId: characterId,
+    },
+  });
+  await db.learningActionLog.create({
+    data: {
+      userId,
+      actionType: LearningActionType.CHARACTER_EQUIP,
+      rewardedPurchaseCredits: 0,
+      rewardedAffinity: 0,
+      metadata: {
+        characterId,
+        reason: 'preferred_affinity_target',
+      },
+    },
+  });
+
+  return getGamificationSummary(db, userId);
+}
+
+async function drawLive2dReward(
+  db: GamificationDbClient,
+  userId: string,
+): Promise<GamificationGachaDrawReward> {
+  const candidates = await db.userCharacterProgress.findMany({
+    where: {
+      userId,
+      character: {
+        assetType: CharacterAssetType.LIVE2D,
+      },
+    },
+    include: {
+      character: true,
+    },
+    orderBy: [{ character: { sortOrder: 'asc' } }],
+  });
+
+  const target = randomPick(candidates);
+  const metadata = isJsonObject(target.character.metadata) ? target.character.metadata : null;
+  const previewSrc =
+    metadata && typeof metadata.previewSrc === 'string'
+      ? metadata.previewSrc
+      : '/live2d/previews/mark.jpg';
+
+  if (target.isUnlocked) {
+    const nextAffinityExp = target.affinityExp + CHARACTER_DUPLICATE_AFFINITY_GAIN;
+    const nextAffinityLevel = computeAffinityLevel(nextAffinityExp);
+    await db.userCharacterProgress.update({
+      where: {
+        userId_characterId: {
+          userId,
+          characterId: target.characterId,
+        },
+      },
+      data: {
+        affinityExp: nextAffinityExp,
+        affinityLevel: nextAffinityLevel,
+      },
+    });
+
+    return {
+      kind: 'character',
+      itemId: target.characterId,
+      name: target.character.name,
+      previewSrc,
+      fragmentGain: 0,
+      fragmentTotal: target.fragmentCount,
+      fragmentTarget: CHARACTER_FRAGMENT_TARGET,
+      unlockedNow: false,
+      duplicate: true,
+      affinityGain: CHARACTER_DUPLICATE_AFFINITY_GAIN,
+    };
+  }
+
+  const nextFragmentCount = Math.min(CHARACTER_FRAGMENT_TARGET, target.fragmentCount + 1);
+  const unlockedNow = nextFragmentCount >= CHARACTER_FRAGMENT_TARGET;
+  await db.userCharacterProgress.update({
+    where: {
+      userId_characterId: {
+        userId,
+        characterId: target.characterId,
+      },
+    },
+    data: {
+      fragmentCount: nextFragmentCount,
+      isUnlocked: unlockedNow,
+    },
+  });
+
+  if (unlockedNow) {
+    await db.learningActionLog.create({
+      data: {
+        userId,
+        actionType: LearningActionType.CHARACTER_UNLOCK,
+        rewardedPurchaseCredits: 0,
+        rewardedAffinity: 0,
+        metadata: {
+          characterId: target.characterId,
+          reason: 'gacha_fragments_completed',
+        },
+      },
+    });
+  }
+
+  return {
+    kind: 'character',
+    itemId: target.characterId,
+    name: target.character.name,
+    previewSrc,
+    fragmentGain: 1,
+    fragmentTotal: nextFragmentCount,
+    fragmentTarget: CHARACTER_FRAGMENT_TARGET,
+    unlockedNow,
+    duplicate: false,
+    affinityGain: 0,
+  };
+}
+
+function drawAvatarRewardFromInventory(inventory: AvatarInventoryState): {
+  reward: GamificationGachaDrawReward;
+  nextInventory: AvatarInventoryState;
+} {
+  const owned = new Set(inventory.ownedIds);
+  const availableByRarity: Record<GamificationAvatarRarity, UserAvatarCatalogItem[]> = {
+    R: [],
+    SR: [],
+    SSR: [],
+  };
+
+  for (const item of USER_AVATAR_GACHA_CATALOG) {
+    if (owned.has(item.id)) continue;
+    availableByRarity[item.rarity].push(item);
+  }
+
+  const enabledRarities = (Object.keys(AVATAR_RARITY_RATES) as GamificationAvatarRarity[]).filter(
+    (rarity) => availableByRarity[rarity].length > 0,
+  );
+
+  if (enabledRarities.length === 0) {
+    throw new Error('头像卡池已全部收集完成，等待下一次扩充吧');
+  }
+
+  const rarity = weightedPick(
+    enabledRarities.map((candidate) => ({
+      item: candidate,
+      weight: AVATAR_RARITY_RATES[candidate],
+    })),
+  );
+  const item = randomPick(availableByRarity[rarity]);
+  const nextInventory: AvatarInventoryState = {
+    ownedIds: [...inventory.ownedIds],
+    fragmentCounts: { ...inventory.fragmentCounts },
+  };
+
+  if (item.directUnlock) {
+    nextInventory.ownedIds.push(item.id);
+    return {
+      nextInventory,
+      reward: {
+        kind: 'avatar',
+        itemId: item.id,
+        name: avatarDisplayName(item),
+        previewSrc: item.url,
+        rarity: item.rarity,
+        fragmentGain: 1,
+        fragmentTotal: 1,
+        fragmentTarget: 1,
+        unlockedNow: true,
+        duplicate: false,
+        affinityGain: 0,
+      },
+    };
+  }
+
+  const nextFragmentTotal = Math.min(
+    item.fragmentTarget,
+    (nextInventory.fragmentCounts[item.id] ?? 0) + 1,
+  );
+  nextInventory.fragmentCounts[item.id] = nextFragmentTotal;
+  const unlockedNow = nextFragmentTotal >= item.fragmentTarget;
+  if (unlockedNow) {
+    nextInventory.ownedIds.push(item.id);
+  }
+
+  return {
+    nextInventory,
+    reward: {
+      kind: 'avatar',
+      itemId: item.id,
+      name: avatarDisplayName(item),
+      previewSrc: item.url,
+      rarity: item.rarity,
+      fragmentGain: 1,
+      fragmentTotal: nextFragmentTotal,
+      fragmentTarget: item.fragmentTarget,
+      unlockedNow,
+      duplicate: false,
+      affinityGain: 0,
+    },
+  };
+}
+
+function resolveGachaCost(bannerId: GamificationGachaBannerId, drawCount: number): number {
+  const config = GACHA_BANNER_CONFIG[bannerId];
+  return drawCount === 10 ? config.tenCost : config.singleCost;
+}
+
+export async function drawGamificationGacha(
+  db: GamificationDbClient,
+  userId: string,
+  bannerId: GamificationGachaBannerId,
+  drawCount: number,
+): Promise<GamificationGachaDrawResponse> {
+  await ensureCatalogSeeded(db);
+  await ensureUserCharacterProgress(db, userId);
+  const profile = await normalizeEngagementProfile(db, userId);
+  let avatarInventory = normalizeAvatarInventoryState(profile.avatarInventory);
+
+  if (drawCount !== 1 && drawCount !== 10) {
+    throw new Error('当前只支持单抽或十连抽');
+  }
+
+  if (bannerId === 'avatar' && getRemainingAvatarDraws(avatarInventory) < drawCount) {
+    throw new Error('头像卡池剩余可抽次数不足，请改用单抽或等待后续卡池扩充');
+  }
+
+  const cost = resolveGachaCost(bannerId, drawCount);
+  const balances = await getUserCreditBalances(db, userId);
+  if (balances.purchaseCreditsBalance < cost) {
+    throw new Error('购买积分不足，先去完成几组题再回来抽吧');
+  }
+
+  await applyCreditDelta(db, {
+    userId,
+    delta: -cost,
+    kind: CreditTransactionKind.GACHA_DRAW_SPEND,
+    accountType: 'PURCHASE',
+    description: `Draw ${bannerId} gacha`,
+    referenceType: 'gamification_gacha',
+    referenceId: bannerId,
+    metadata: {
+      bannerId,
+      drawCount,
+    },
+  });
+
+  const rewards: GamificationGachaDrawReward[] = [];
+  for (let index = 0; index < drawCount; index += 1) {
+    if (bannerId === 'avatar') {
+      const result = drawAvatarRewardFromInventory(avatarInventory);
+      avatarInventory = result.nextInventory;
+      rewards.push(result.reward);
+      continue;
+    }
+
+    rewards.push(await drawLive2dReward(db, userId));
+  }
+
+  if (bannerId === 'avatar') {
+    await db.userEngagementProfile.update({
+      where: { userId },
+      data: {
+        avatarInventory: toAvatarInventoryJson(avatarInventory),
+      },
+    });
+  }
+
+  await db.learningActionLog.create({
+    data: {
+      userId,
+      actionType: LearningActionType.GACHA_DRAW,
+      rewardedPurchaseCredits: 0,
+      rewardedAffinity: rewards.reduce((sum, reward) => sum + reward.affinityGain, 0),
+      metadata: {
+        bannerId,
+        drawCount,
+        cost,
+        rewards: rewards.map((reward) => ({
+          kind: reward.kind,
+          itemId: reward.itemId,
+          rarity: reward.rarity ?? null,
+          fragmentGain: reward.fragmentGain,
+          fragmentTotal: reward.fragmentTotal,
+          unlockedNow: reward.unlockedNow,
+          duplicate: reward.duplicate,
+          affinityGain: reward.affinityGain,
+        })),
+      },
+    },
+  });
+
+  const summary = await getGamificationSummary(db, userId);
+  return {
+    success: true,
+    databaseEnabled: true,
+    bannerId,
+    drawCount,
+    cost,
+    remainingPurchaseBalance: summary.balances.purchase,
+    rewards,
+    summary,
+  };
+}
+
 export function buildGamificationDisabledSummary(): GamificationSummaryResponse {
   return {
     success: true,
@@ -1610,8 +2036,20 @@ export function buildGamificationDisabledSummary(): GamificationSummaryResponse 
       collectionLabel: String(item.metadata.collectionLabel ?? ''),
       nextUnlockHint: item.isDefault
         ? null
-        : `需要 ${item.unlockCostPurchaseCredits} 购买积分 + 亲密度 Lv${item.affinityLevelRequired}`,
+        : item.assetType === CharacterAssetType.LIVE2D
+          ? `碎片 0 / ${CHARACTER_FRAGMENT_TARGET}`
+          : '请前往抽卡补给站抽取',
+      fragmentCount:
+        item.assetType === CharacterAssetType.LIVE2D
+          ? item.isDefault
+            ? CHARACTER_FRAGMENT_TARGET
+            : 0
+          : undefined,
+      fragmentTarget:
+        item.assetType === CharacterAssetType.LIVE2D ? CHARACTER_FRAGMENT_TARGET : undefined,
+      unlockViaGacha: true,
     })),
+    avatarInventory: buildAvatarInventorySummary(normalizeAvatarInventoryState(null)),
     nudge: {
       title: '登录并启用同步后，陪伴系统就会开始记录',
       body: '数据库启用后才能保存连续学习、亲密度、任务进度和角色解锁状态。',
@@ -1631,7 +2069,7 @@ export function buildGamificationDisabledEvent(
     rewardedAffinity: 0,
     newPurchaseBalance: 0,
     characterId: DEFAULT_CHARACTER_ID,
-    characterName: 'Haru',
+    characterName: 'Mark',
     affinityLevel: 1,
   };
 }

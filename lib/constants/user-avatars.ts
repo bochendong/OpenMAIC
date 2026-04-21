@@ -2,6 +2,7 @@
  * 与 `public/avatars/user-avators/` 下已提交文件一致；新增图片时请同步更新本列表。
  */
 export const USER_AVATAR_PUBLIC_PREFIX = '/avatars/user-avators/';
+export type UserAvatarRarity = 'R' | 'SR' | 'SSR';
 
 const FILENAMES = [
   'R1.avif',
@@ -48,6 +49,31 @@ export const USER_AVATAR_PRESET_URLS: readonly string[] = FILENAMES.map(
   (f) => `${USER_AVATAR_PUBLIC_PREFIX}${f}`,
 );
 
+export type UserAvatarCatalogItem = {
+  id: string;
+  filename: string;
+  url: string;
+  rarity: UserAvatarRarity;
+  fragmentTarget: number;
+  directUnlock: boolean;
+};
+
+export const USER_AVATAR_GACHA_CATALOG: readonly UserAvatarCatalogItem[] = FILENAMES.filter(
+  (filename) => /^(R|SR|SSR)\d+\.avif$/u.test(filename),
+).map((filename) => {
+  const id = filename.replace(/\.avif$/u, '');
+  const rarity = id.startsWith('SSR') ? 'SSR' : id.startsWith('SR') ? 'SR' : 'R';
+  return {
+    id,
+    filename,
+    url: `${USER_AVATAR_PUBLIC_PREFIX}${filename}`,
+    rarity,
+    fragmentTarget: rarity === 'R' ? 1 : 10,
+    directUnlock: rarity === 'R',
+  } satisfies UserAvatarCatalogItem;
+});
+
+export const DEFAULT_UNLOCKED_USER_AVATAR_IDS: readonly string[] = ['R1'];
+
 /** 新用户默认头像（首项） */
-export const DEFAULT_USER_PRESET_AVATAR: string =
-  USER_AVATAR_PRESET_URLS[0] ?? '/avatars/user.png';
+export const DEFAULT_USER_PRESET_AVATAR: string = USER_AVATAR_PRESET_URLS[0] ?? '/avatars/user.png';

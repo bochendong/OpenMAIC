@@ -1,4 +1,4 @@
-export type Live2DPresenterModelId = 'hiyori' | 'haru' | 'mark';
+export type Live2DPresenterModelId = 'hiyori' | 'haru' | 'mark' | 'mao' | 'ren' | 'rice';
 
 export type Live2DPresenterModelConfig = {
   readonly id: Live2DPresenterModelId;
@@ -34,6 +34,30 @@ export const LIVE2D_PRESENTER_MODELS: Record<Live2DPresenterModelId, Live2DPrese
     idleMotionGroup: 'Idle',
     speakMotionGroup: 'Idle',
   },
+  mao: {
+    id: 'mao',
+    badgeLabel: 'Mao',
+    modelSrc: '/live2d/Mao/Mao.model3.json',
+    previewSrc: '/live2d/previews/mao.jpg',
+    idleMotionGroup: 'Idle',
+    speakMotionGroup: 'TapBody',
+  },
+  ren: {
+    id: 'ren',
+    badgeLabel: 'Ren',
+    modelSrc: '/live2d/Ren/Ren.model3.json',
+    previewSrc: '/live2d/previews/ren.png',
+    idleMotionGroup: 'Idle',
+    speakMotionGroup: 'TapBody',
+  },
+  rice: {
+    id: 'rice',
+    badgeLabel: 'Rice',
+    modelSrc: '/live2d/Rice/Rice.model3.json',
+    previewSrc: '/live2d/previews/rice.jpg',
+    idleMotionGroup: 'Idle',
+    speakMotionGroup: 'TapBody',
+  },
 };
 
-export const DEFAULT_LIVE2D_PRESENTER_MODEL_ID: Live2DPresenterModelId = 'haru';
+export const DEFAULT_LIVE2D_PRESENTER_MODEL_ID: Live2DPresenterModelId = 'mark';

@@ -1,6 +1,6 @@
 /**
  * 左侧栏「Dashboard」壳层：与课程/课堂内工作区分界，
- * 在此区域内固定展示 Dashboard / 充值 / 商城入口 / 个人中心 / 设置。
+ * 在此区域内固定展示 Dashboard / 充值 / 交易积分 / 商城入口 / 个人中心 / 设置。
  */
 export function isDashboardRoute(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
@@ -8,6 +8,8 @@ export function isDashboardRoute(pathname: string | null | undefined): boolean {
   if (p === '/') return true;
   if (p === '/my-courses') return true;
   if (p === '/top-up' || p.startsWith('/top-up/')) return true;
+  if (p === '/credits-market' || p.startsWith('/credits-market/')) return true;
+  if (p === '/gamification' || p.startsWith('/gamification/')) return true;
   if (p === '/profile' || p.startsWith('/profile/')) return true;
   if (p === '/settings' || p.startsWith('/settings/')) return true;
   if (p === '/live2d' || p.startsWith('/live2d/')) return true;

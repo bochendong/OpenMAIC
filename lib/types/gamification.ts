@@ -1,9 +1,14 @@
 export type GamificationCharacterAssetType = 'LIVE2D' | 'AVATAR';
+export type GamificationAvatarRarity = 'R' | 'SR' | 'SSR';
+export type GamificationGachaBannerId = 'avatar' | 'live2d';
 
 export type GamificationCharacterId =
   | 'haru'
   | 'hiyori'
   | 'mark'
+  | 'mao'
+  | 'ren'
+  | 'rice'
   | 'avatar-r-pack'
   | 'avatar-sr-pack'
   | 'avatar-ssr-pack';
@@ -41,6 +46,39 @@ export interface GamificationCharacterSummary {
   description?: string | null;
   collectionLabel?: string | null;
   nextUnlockHint?: string | null;
+  fragmentCount?: number;
+  fragmentTarget?: number;
+  unlockViaGacha?: boolean;
+}
+
+export interface GamificationAvatarInventoryItem {
+  id: string;
+  name: string;
+  url: string;
+  rarity: GamificationAvatarRarity;
+  owned: boolean;
+  fragmentCount: number;
+  fragmentTarget: number;
+  directUnlock: boolean;
+}
+
+export interface GamificationAvatarInventorySummary {
+  ownedIds: string[];
+  items: GamificationAvatarInventoryItem[];
+}
+
+export interface GamificationGachaDrawReward {
+  kind: 'avatar' | 'character';
+  itemId: string;
+  name: string;
+  previewSrc: string;
+  rarity?: GamificationAvatarRarity;
+  fragmentGain: number;
+  fragmentTotal: number;
+  fragmentTarget: number;
+  unlockedNow: boolean;
+  duplicate: boolean;
+  affinityGain: number;
 }
 
 export interface GamificationMissionSummary {
@@ -90,7 +128,19 @@ export interface GamificationSummaryResponse {
   dailyTasks: GamificationMissionSummary[];
   weeklyTasks: GamificationMissionSummary[];
   characters: GamificationCharacterSummary[];
+  avatarInventory: GamificationAvatarInventorySummary;
   nudge: GamificationNudgeSummary | null;
+}
+
+export interface GamificationGachaDrawResponse {
+  success: true;
+  databaseEnabled: boolean;
+  bannerId: GamificationGachaBannerId;
+  drawCount: number;
+  cost: number;
+  remainingPurchaseBalance: number;
+  rewards: GamificationGachaDrawReward[];
+  summary: GamificationSummaryResponse;
 }
 
 export interface GamificationEventResponse {
@@ -106,4 +156,3 @@ export interface GamificationEventResponse {
   accuracyBonusApplied?: boolean;
   reviewEligible?: boolean;
 }
-
