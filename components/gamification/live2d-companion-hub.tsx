@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Bell, CalendarCheck2, Loader2, Lock } from 'lucide-react';
+import { Bell, CalendarCheck2, Heart, Loader2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -11,6 +11,18 @@ import { cn } from '@/lib/utils';
 import { useGamificationSummary } from '@/lib/hooks/use-gamification-summary';
 import { TalkingAvatarOverlay } from '@/components/canvas/talking-avatar-overlay';
 import { useSettingsStore } from '@/lib/store/settings';
+import { useNotificationStore } from '@/lib/store/notifications';
+import { useAuthStore } from '@/lib/store/auth';
+import { backendJson } from '@/lib/utils/backend-api';
+import type { AppNotification } from '@/lib/notifications/types';
+import { buildNotificationCompanionCopy } from '@/lib/notifications/companion-copy';
+import { getNotificationCardTheme } from '@/lib/notifications/card-theme';
+import { resolveNotificationCompanionModelId } from '@/lib/notifications/companion-model';
+import {
+  formatCashCreditsLabel,
+  formatComputeCreditsLabel,
+  formatPurchaseCreditsLabel,
+} from '@/lib/utils/credits';
 import type { Live2DPresenterModelId } from '@/lib/live2d/presenter-models';
 
 const LIVE2D_CHARACTER_TRAITS: Record<
@@ -287,9 +299,34 @@ function resolveBonusTier(
   return { current, next };
 }
 
+function formatPreviewNotificationTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+function formatPreviewBalanceLabel(item: AppNotification): string {
+  switch (item.accountType) {
+    case 'PURCHASE':
+      return formatPurchaseCreditsLabel(item.balanceAfter);
+    case 'COMPUTE':
+      return formatComputeCreditsLabel(item.balanceAfter);
+    default:
+      return formatCashCreditsLabel(item.balanceAfter);
+  }
+}
+
 export function Live2DCompanionHub() {
-  const { summary, loading, equipCharacter, selectPreferredCharacter } =
+  const { summary, loading, equipCharacter, selectPreferredCharacter, sendEvent } =
     useGamificationSummary(true);
+  const authUserId = useAuthStore((s) => s.userId);
+  const activeBanners = useNotificationStore((s) => s.activeBanners);
+  const notifications = useNotificationStore((s) => s.notifications);
+  const activeNotificationUserId = useNotificationStore((s) => s.activeUserId);
+  const refreshNotifications = useNotificationStore((s) => s.refreshNotifications);
   const notificationCompanionId = useSettingsStore((s) => s.notificationCompanionId);
   const checkInCompanionId = useSettingsStore((s) => s.checkInCompanionId);
   const setNotificationCompanionId = useSettingsStore((s) => s.setNotificationCompanionId);
@@ -309,6 +346,7 @@ export function Live2DCompanionHub() {
     motionGroup: 'Idle' | 'TapBody';
     motionIndex?: number;
   } | null>(null);
+  const [mockActionLoadingId, setMockActionLoadingId] = useState<string | null>(null);
 
   const handleEquip = async (characterId: string) => {
     try {
@@ -350,12 +388,6 @@ export function Live2DCompanionHub() {
   )
     ? notificationActionId
     : (notificationActionOptions[0]?.id ?? null);
-  const selectedNotificationBonusTier = selectedNotificationTrait
-    ? resolveBonusTier(
-        selectedNotificationTrait.notificationBonuses,
-        selectedNotificationCharacter?.affinityLevel ?? 1,
-      )
-    : null;
   const selectedCheckInCharacter =
     unlockedLive2dCharacters.find((character) => {
       const modelId = toLive2DModelId(character.id);
@@ -378,6 +410,22 @@ export function Live2DCompanionHub() {
   const selectedCheckInGiftClaimed = selectedCheckInModelId
     ? giftClaimStatus[selectedCheckInModelId] === true
     : false;
+  const previewNotification = activeBanners[0] ?? notifications[0] ?? null;
+  const hasActiveNotificationBanner = activeBanners.length > 0;
+  const previewNotificationBody =
+    previewNotification?.body ?? '任务完成、连胜提醒、签到提示将使用当前讲师语气。';
+  const previewPrimaryDetail = previewNotification?.details.find((detail) =>
+    ['notebook', 'scene', 'model', 'service', 'reason'].includes(detail.key),
+  );
+  const previewCompanionCopy = previewNotification
+    ? buildNotificationCompanionCopy(previewNotification)
+    : { eyebrow: '通知预览', line: '任务完成、连胜提醒、签到提示将使用当前讲师语气。' };
+  const previewCardTheme = getNotificationCardTheme(previewNotification);
+  const previewCompanionModelId = resolveNotificationCompanionModelId(
+    previewNotification,
+    notificationCompanionId,
+    checkInCompanionId,
+  );
 
   useEffect(() => {
     if (!summary?.databaseEnabled) return;
@@ -436,6 +484,73 @@ export function Live2DCompanionHub() {
     toast.success('礼物已领取');
   };
 
+  const refreshNotificationNow = async () => {
+    const userId = (activeNotificationUserId || authUserId).trim();
+    if (!userId) return;
+    await refreshNotifications({ userId, silent: true });
+  };
+
+  const handleMockNotificationAction = async (actionId: string) => {
+    if (mockActionLoadingId) return;
+    setMockActionLoadingId(actionId);
+    const nonce = Date.now().toString(36);
+    try {
+      switch (actionId) {
+        case 'mock-convert-purchase':
+          await backendJson('/api/profile/credits/convert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: 1, targetAccountType: 'PURCHASE' }),
+          });
+          break;
+        case 'mock-convert-compute':
+          await backendJson('/api/profile/credits/convert', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: 1, targetAccountType: 'COMPUTE' }),
+          });
+          break;
+        case 'mock-lesson-reward':
+          await sendEvent({
+            type: 'lesson_milestone_completed',
+            courseId: `mock-course-${nonce}`,
+            courseName: 'Mock 课程奖励',
+            progressPercent: 40,
+            checkpointCount: 2,
+          });
+          break;
+        case 'mock-quiz-reward':
+          await sendEvent({
+            type: 'quiz_completed',
+            sceneId: `mock-scene-${nonce}`,
+            sceneTitle: 'Mock 测验奖励',
+            referenceKey: `mock-quiz-${nonce}`,
+            questionCount: 10,
+            correctCount: 8,
+            accuracyPercent: 80,
+          });
+          break;
+        case 'mock-review-reward':
+          await sendEvent({
+            type: 'review_completed',
+            sceneId: `mock-review-scene-${nonce}`,
+            sceneTitle: 'Mock 复习奖励',
+            referenceKey: `mock-review-${nonce}`,
+            hadPreviousIncorrect: true,
+          });
+          break;
+        default:
+          return;
+      }
+      await refreshNotificationNow();
+      toast.success('已触发通知 mock 事件');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '触发通知 mock 失败');
+    } finally {
+      setMockActionLoadingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Card className="p-5 !gap-0 border-muted/40 bg-white/85 backdrop-blur-xl dark:bg-slate-900/80">
@@ -446,7 +561,65 @@ export function Live2DCompanionHub() {
               通知讲师影响提醒风格与通知动作预览。
             </p>
           </div>
-          {loading ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : null}
+          <div className="flex min-w-0 flex-col items-end gap-2">
+            <div className="flex flex-wrap justify-end gap-1.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={Boolean(mockActionLoadingId)}
+                onClick={() => void handleMockNotificationAction('mock-convert-purchase')}
+              >
+                转购买积分
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={Boolean(mockActionLoadingId)}
+                onClick={() => void handleMockNotificationAction('mock-convert-compute')}
+              >
+                转算力积分
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={Boolean(mockActionLoadingId)}
+                onClick={() => void handleMockNotificationAction('mock-lesson-reward')}
+              >
+                课程奖励
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={Boolean(mockActionLoadingId)}
+                onClick={() => void handleMockNotificationAction('mock-quiz-reward')}
+              >
+                测验奖励
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 px-2 text-[11px]"
+                disabled={Boolean(mockActionLoadingId)}
+                onClick={() => void handleMockNotificationAction('mock-review-reward')}
+              >
+                复习奖励
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+              {loading ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {mockActionLoadingId ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              <span>通知 Mock 触发器</span>
+            </div>
+          </div>
         </div>
 
         {!summary ? null : !summary.databaseEnabled ? (
@@ -479,66 +652,109 @@ export function Live2DCompanionHub() {
                 {selectedNotificationCharacter && selectedNotificationModelId ? (
                   <div className="flex w-full max-w-[620px] items-start justify-center gap-3">
                     <div className="apple-glass-heavy relative w-full max-w-[420px] overflow-hidden rounded-[24px] border border-white/50 p-4 shadow-[0_24px_70px_rgba(15,23,42,0.18)] dark:border-white/8 dark:shadow-[0_24px_70px_rgba(0,0,0,0.48)]">
+                      <div
+                        className={cn(
+                          'absolute inset-x-0 top-0 h-px bg-gradient-to-r',
+                          previewCardTheme.topLineClass,
+                        )}
+                      />
+                      <div
+                        className={cn(
+                          'pointer-events-none absolute inset-x-4 top-3 h-24 rounded-[22px] blur-2xl',
+                          previewCardTheme.glowClass,
+                        )}
+                      />
                       <div className="relative flex items-start gap-3">
-                        <div className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/60 bg-emerald-500/12 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-400/12 dark:text-emerald-200">
-                          <Bell className="size-5" strokeWidth={1.8} />
-                        </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-semibold tracking-[0.18em] text-emerald-700 uppercase dark:text-emerald-200">
-                              通知预览
+                            <span
+                              className={cn(
+                                'text-[11px] font-semibold uppercase tracking-[0.18em]',
+                                previewCardTheme.eyebrowClass,
+                              )}
+                            >
+                              {previewCompanionCopy.eyebrow}
                             </span>
                             <span className="text-xs text-slate-400 dark:text-slate-500">
-                              {selectedNotificationCharacter.name}
+                              {previewNotification
+                                ? formatPreviewNotificationTime(previewNotification.createdAt)
+                                : selectedNotificationCharacter.name}
                             </span>
                           </div>
-                          <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-white">
-                            今天学习奖励已到账
-                          </p>
+                          {previewNotification ? (
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold shadow-sm',
+                                  previewCardTheme.amountPrimaryClass,
+                                )}
+                              >
+                                {previewNotification.amountLabel}
+                              </span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                当前余额 {formatPreviewBalanceLabel(previewNotification)}
+                              </span>
+                            </div>
+                          ) : null}
                           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                            任务完成、连胜提醒、签到提示将使用当前讲师语气。
+                            {previewCompanionCopy.line}
                           </p>
-                          {selectedNotificationBonusTier?.current ? (
-                            <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-                              {`通知加成（Lv${selectedNotificationBonusTier.current.requiredLevel}+）：${selectedNotificationBonusTier.current.label}`}
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                            {previewNotificationBody}
+                          </p>
+                          {previewPrimaryDetail ? (
+                            <p className="mt-2 line-clamp-1 text-xs text-slate-500 dark:text-slate-400">
+                              {previewPrimaryDetail.label}: {previewPrimaryDetail.value}
                             </p>
-                          ) : (
-                            <p className="mt-2 text-xs text-sky-700 dark:text-sky-300">
-                              通知加成尚未解锁（Lv5 开始生效）
-                            </p>
-                          )}
-                          {selectedNotificationBonusTier?.next ? (
-                            <p className="mt-1 text-[11px] text-muted-foreground">
-                              {`下一档 Lv${selectedNotificationBonusTier.next.requiredLevel}：${selectedNotificationBonusTier.next.label}`}
-                            </p>
-                          ) : (
-                            <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-300">
-                              已解锁最高通知加成
-                            </p>
-                          )}
+                          ) : null}
+                          {previewNotification ? (
+                            <div className="mt-3 flex items-center gap-2">
+                              <span
+                                className={cn(
+                                  'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium',
+                                  previewCardTheme.amountChipClass,
+                                )}
+                              >
+                                {previewNotification.amountLabel}
+                              </span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400">
+                                {previewNotification.sourceLabel}
+                              </span>
+                              {previewNotification.tone === 'positive' ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2.5 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-300/10 dark:text-amber-200">
+                                  <Heart className="size-3" strokeWidth={1.9} />
+                                  已收下
+                                </span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="shrink-0">
-                          <div className="relative flex min-h-[112px] w-[96px] items-end overflow-hidden rounded-[18px] bg-transparent">
-                            <TalkingAvatarOverlay
-                              layout="card"
-                              speaking={false}
-                              cadence="idle"
-                              speechText="通知动作预览"
-                              manualMotionTrigger={notificationMotionTrigger}
-                              modelIdOverride={selectedNotificationModelId}
-                              cardFraming={
-                                selectedNotificationModelId === 'haru' ||
-                                selectedNotificationModelId === 'hiyori' ||
-                                selectedNotificationModelId === 'rice'
-                                  ? 'half'
-                                  : 'default'
-                              }
-                              showBadge={false}
-                              showStatusDot={false}
-                              className="h-full min-h-[112px] w-[96px] flex-none"
-                            />
+                        {!hasActiveNotificationBanner ? (
+                          <div className="shrink-0 self-center">
+                            <div
+                              className="relative flex h-[172px] w-[118px] items-end overflow-hidden rounded-[22px]"
+                            >
+                              <TalkingAvatarOverlay
+                                layout="card"
+                                speaking={false}
+                                cadence={previewNotification?.tone === 'positive' ? 'active' : 'pause'}
+                                speechText={previewCompanionCopy.line}
+                                manualMotionTrigger={notificationMotionTrigger}
+                                modelIdOverride={previewCompanionModelId}
+                                cardFraming={
+                                  previewCompanionModelId === 'haru' ||
+                                  previewCompanionModelId === 'hiyori' ||
+                                  previewCompanionModelId === 'rice'
+                                    ? 'half'
+                                    : 'default'
+                                }
+                                showBadge={false}
+                                showStatusDot={false}
+                                className="h-full min-h-[172px] w-[118px] flex-none"
+                              />
+                            </div>
                           </div>
-                        </div>
+                        ) : null}
                       </div>
                     </div>
 

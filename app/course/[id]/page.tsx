@@ -10,7 +10,6 @@ import {
 } from '@/components/course-gallery-card';
 import { CreateCourseForm } from '@/components/courses/create-course-form';
 import { EditNotebookForm } from '@/components/courses/edit-notebook-form';
-import { GamificationSummaryCard } from '@/components/gamification/gamification-summary-card';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/lib/store/auth';
 import { useCurrentCourseStore } from '@/lib/store/current-course';
@@ -371,16 +370,6 @@ export default function CourseDetailPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6">
-              <GamificationSummaryCard
-                title="这门课的学习激励"
-                courseMilestone={{
-                  courseId: course.id,
-                  courseName: course.name,
-                  enabled: notebooks.length > 0,
-                }}
-              />
-            </div>
             <section className="mb-6 apple-glass rounded-[28px] p-6">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="flex min-w-0 flex-1 items-center gap-4">

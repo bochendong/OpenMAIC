@@ -132,6 +132,9 @@ export function AppCoreNavList({
 
   const live2dActive = pathname === '/live2d' || pathname?.startsWith('/live2d/');
   const avatarStoreActive = pathname === '/store/avatars' || pathname?.startsWith('/store/avatars/');
+  const courseMilestoneActive =
+    Boolean(pathname?.startsWith('/course/')) &&
+    (pathname?.endsWith('/milestone') || pathname?.includes('/milestone/'));
   const topUpActive = pathname === '/top-up' || pathname?.startsWith('/top-up/');
   const creditsMarketActive =
     pathname === '/credits-market' || pathname?.startsWith('/credits-market/');
@@ -270,6 +273,43 @@ export function AppCoreNavList({
     ? dashboardNavSections
     : [
         {
+          key: 'course-tools',
+          label: inCourseContext ? '课程内协作' : '消息与提醒',
+          items: [
+            ...(inCourseContext
+              ? [
+                  {
+                    key: 'agent-teams',
+                    href: agentTeamsHref,
+                    label: '课程主页',
+                    tooltip: '课程主页',
+                    icon: UsersRound,
+                    active: agentTeamsActive,
+                  },
+                  {
+                    key: 'course-milestone',
+                    href: `/course/${encodeURIComponent(courseId ?? '')}/milestone`,
+                    label: '课程里程碑',
+                    tooltip: '课程里程碑',
+                    icon: Flame,
+                    active: courseMilestoneActive,
+                  },
+                  ...(isChatPage
+                    ? []
+                    : ([
+                        {
+                          key: 'chat',
+                          href: '/chat',
+                          label: '聊天',
+                          icon: MessageCircle,
+                          active: false,
+                        },
+                      ] satisfies CoreNavItem[])),
+                ]
+              : []),
+          ],
+        },
+        {
           key: 'workspace',
           label: inCourseContext ? '当前工作区' : '开始使用',
           items: [
@@ -288,22 +328,6 @@ export function AppCoreNavList({
               tooltip: '学习成长',
               icon: Flame,
               active: gamificationActive,
-            },
-            {
-              key: 'top-up',
-              href: '/top-up',
-              label: '充值/转换',
-              tooltip: '充值/转换',
-              icon: Coins,
-              active: topUpActive,
-            },
-            {
-              key: 'credits-market',
-              href: '/credits-market',
-              label: '交易积分',
-              tooltip: '交易积分',
-              icon: ArrowRightLeft,
-              active: creditsMarketActive,
             },
             {
               key: 'store',
@@ -337,32 +361,25 @@ export function AppCoreNavList({
           ],
         },
         {
-          key: 'course-tools',
-          label: inCourseContext ? '课程内协作' : '消息与提醒',
+          key: 'credits',
+          label: '积分中心',
           items: [
-            ...(inCourseContext
-              ? [
-                  {
-                    key: 'agent-teams',
-                    href: agentTeamsHref,
-                    label: '课程主页',
-                    tooltip: '课程主页',
-                    icon: UsersRound,
-                    active: agentTeamsActive,
-                  },
-                  ...(isChatPage
-                    ? []
-                    : ([
-                        {
-                          key: 'chat',
-                          href: '/chat',
-                          label: '聊天',
-                          icon: MessageCircle,
-                          active: false,
-                        },
-                      ] satisfies CoreNavItem[])),
-                ]
-              : []),
+            {
+              key: 'top-up',
+              href: '/top-up',
+              label: '充值/转换',
+              tooltip: '充值/转换',
+              icon: Coins,
+              active: topUpActive,
+            },
+            {
+              key: 'credits-market',
+              href: '/credits-market',
+              label: '交易积分',
+              tooltip: '交易积分',
+              icon: ArrowRightLeft,
+              active: creditsMarketActive,
+            },
           ],
         },
         {

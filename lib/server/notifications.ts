@@ -15,6 +15,8 @@ import {
 type NotificationDbClient = PrismaClient | Prisma.TransactionClient;
 const TOKEN_USAGE_GROUP_WINDOW_MS = 3 * 60 * 1000;
 const NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS = 5 * 60 * 1000;
+const CREDIT_TRANSFER_GROUP_WINDOW_MS = 15 * 1000;
+const QUIZ_REWARD_GROUP_WINDOW_MS = 60 * 1000;
 
 const NOTEBOOK_GENERATION_OPERATION_CODES = new Set([
   'notebook_metadata_generation',
@@ -53,6 +55,20 @@ type TokenUsageGroup = {
 type NotebookGenerationGroup = {
   notebookKey: string;
   notebookLabel: string;
+  rows: CreditNotificationRow[];
+  newestCreatedAt: Date;
+  oldestCreatedAt: Date;
+};
+
+type CreditTransferGroup = {
+  kind: CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER | CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER;
+  rows: CreditNotificationRow[];
+  newestCreatedAt: Date;
+  oldestCreatedAt: Date;
+};
+
+type QuizRewardGroup = {
+  referenceKey: string;
   rows: CreditNotificationRow[];
   newestCreatedAt: Date;
   oldestCreatedAt: Date;
@@ -238,9 +254,9 @@ function buildSourceLabel(row: CreditNotificationRow): string {
     case CreditTransactionKind.TOKEN_USAGE:
       return getReasonLabel(row) || '模型调用';
     case CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER:
-      return '转入算力积分';
+      return row.accountType === 'CASH' ? '转出至算力积分' : '转入算力积分';
     case CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER:
-      return '转入购买积分';
+      return row.accountType === 'CASH' ? '转出至购买积分' : '转入购买积分';
     case CreditTransactionKind.LESSON_REWARD:
       return '看课奖励';
     case CreditTransactionKind.QUIZ_COMPLETION_REWARD:
@@ -263,6 +279,16 @@ function buildSourceLabel(row: CreditNotificationRow): string {
     default:
       return '积分通知';
   }
+}
+
+function buildSourceKind(row: CreditNotificationRow): string {
+  if (
+    row.kind === CreditTransactionKind.WELCOME_BONUS &&
+    row.referenceType === 'gamification_daily_sign_in'
+  ) {
+    return 'DAILY_SIGN_IN_REWARD';
+  }
+  return row.kind;
 }
 
 function buildNotificationDetails(row: CreditNotificationRow): AppNotificationDetail[] {
@@ -553,6 +579,101 @@ function shouldAppendToNotebookGenerationGroup(
   return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS;
 }
 
+function isCreditTransferKind(
+  kind: CreditTransactionKind,
+): kind is
+  | CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER
+  | CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER {
+  return (
+    kind === CreditTransactionKind.CASH_TO_COMPUTE_TRANSFER ||
+    kind === CreditTransactionKind.CASH_TO_PURCHASE_TRANSFER
+  );
+}
+
+function shouldAppendToCreditTransferGroup(
+  group: CreditTransferGroup,
+  row: CreditNotificationRow,
+): boolean {
+  if (group.kind !== row.kind) return false;
+  const previousAmount = Math.abs(group.rows[group.rows.length - 1]?.delta ?? 0);
+  if (previousAmount <= 0 || Math.abs(row.delta) <= 0) return false;
+  if (previousAmount !== Math.abs(row.delta)) return false;
+  return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= CREDIT_TRANSFER_GROUP_WINDOW_MS;
+}
+
+function mapCreditTransferGroupToNotification(group: CreditTransferGroup): AppNotification {
+  if (group.rows.length === 1) {
+    return mapCreditTransactionToNotification(group.rows[0]);
+  }
+
+  const preferredRow =
+    group.rows.find((row) => row.delta < 0 && row.accountType === 'CASH') ??
+    group.rows.find((row) => row.delta < 0) ??
+    group.rows.find((row) => row.delta > 0 && row.accountType !== 'CASH') ??
+    group.rows[0];
+  const base = mapCreditTransactionToNotification(preferredRow);
+
+  return {
+    ...base,
+    id: `credit-transfer-group:${preferredRow.id}`,
+    createdAt: group.newestCreatedAt.toISOString(),
+  };
+}
+
+function isQuizRewardKind(
+  kind: CreditTransactionKind,
+): kind is CreditTransactionKind.QUIZ_COMPLETION_REWARD | CreditTransactionKind.QUIZ_ACCURACY_BONUS {
+  return (
+    kind === CreditTransactionKind.QUIZ_COMPLETION_REWARD ||
+    kind === CreditTransactionKind.QUIZ_ACCURACY_BONUS
+  );
+}
+
+function getQuizReferenceKey(row: CreditNotificationRow): string {
+  return getMetadataString(row.metadata, 'referenceKey') || row.referenceId?.trim() || '';
+}
+
+function shouldAppendToQuizRewardGroup(group: QuizRewardGroup, row: CreditNotificationRow): boolean {
+  if (!isQuizRewardKind(row.kind)) return false;
+  if (group.referenceKey !== getQuizReferenceKey(row)) return false;
+  return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= QUIZ_REWARD_GROUP_WINDOW_MS;
+}
+
+function mapQuizRewardGroupToNotification(group: QuizRewardGroup): AppNotification {
+  if (group.rows.length === 1) {
+    return mapCreditTransactionToNotification(group.rows[0]);
+  }
+
+  const newestRow = group.rows[0];
+  const totalDelta = group.rows.reduce((sum, row) => sum + row.delta, 0);
+  const hasAccuracyBonus = group.rows.some(
+    (row) => row.kind === CreditTransactionKind.QUIZ_ACCURACY_BONUS,
+  );
+  const details = buildNotificationDetails(newestRow);
+  const base = mapCreditTransactionToNotification(newestRow);
+
+  return {
+    ...base,
+    id: `quiz-reward-group:${newestRow.id}`,
+    title: hasAccuracyBonus ? '测验奖励（含正确率加成）已到账' : '测验奖励已到账',
+    body: hasAccuracyBonus
+      ? `测验完成奖励与正确率加成已合并到账，共 ${formatAccountValue(
+          newestRow.accountType,
+          totalDelta,
+        )}，当前余额 ${formatAccountValue(newestRow.accountType, newestRow.balanceAfter)}。`
+      : `测验奖励已到账 ${formatAccountValue(newestRow.accountType, totalDelta)}，当前余额 ${formatAccountValue(
+          newestRow.accountType,
+          newestRow.balanceAfter,
+        )}。`,
+    amountLabel: `+${formatAccountCompactValue(newestRow.accountType, Math.abs(totalDelta))}`,
+    delta: totalDelta,
+    sourceKind: hasAccuracyBonus ? 'QUIZ_REWARD_GROUP' : newestRow.kind,
+    sourceLabel: hasAccuracyBonus ? '测验奖励（合并）' : base.sourceLabel,
+    createdAt: group.newestCreatedAt.toISOString(),
+    details,
+  };
+}
+
 export function mapCreditTransactionToNotification(row: CreditNotificationRow): AppNotification {
   const tone = row.delta >= 0 ? 'positive' : 'negative';
 
@@ -569,7 +690,7 @@ export function mapCreditTransactionToNotification(row: CreditNotificationRow): 
     )}`,
     delta: row.delta,
     balanceAfter: row.balanceAfter,
-    sourceKind: row.kind,
+    sourceKind: buildSourceKind(row),
     accountType: normalizeNotificationAccountType(row.accountType),
     sourceLabel: buildSourceLabel(row),
     createdAt: row.createdAt.toISOString(),
@@ -613,6 +734,8 @@ export async function listUserNotifications(
   const notifications: AppNotification[] = [];
   let currentTokenUsageGroup: TokenUsageGroup | null = null;
   let currentNotebookGenerationGroup: NotebookGenerationGroup | null = null;
+  let currentCreditTransferGroup: CreditTransferGroup | null = null;
+  let currentQuizRewardGroup: QuizRewardGroup | null = null;
 
   const flushTokenUsageGroup = () => {
     if (!currentTokenUsageGroup) return;
@@ -626,7 +749,67 @@ export async function listUserNotifications(
     currentNotebookGenerationGroup = null;
   };
 
+  const flushCreditTransferGroup = () => {
+    if (!currentCreditTransferGroup) return;
+    notifications.push(mapCreditTransferGroupToNotification(currentCreditTransferGroup));
+    currentCreditTransferGroup = null;
+  };
+
+  const flushQuizRewardGroup = () => {
+    if (!currentQuizRewardGroup) return;
+    notifications.push(mapQuizRewardGroupToNotification(currentQuizRewardGroup));
+    currentQuizRewardGroup = null;
+  };
+
   for (const row of rows) {
+    if (isQuizRewardKind(row.kind) && getQuizReferenceKey(row)) {
+      flushTokenUsageGroup();
+      flushNotebookGenerationGroup();
+      flushCreditTransferGroup();
+
+      if (currentQuizRewardGroup && shouldAppendToQuizRewardGroup(currentQuizRewardGroup, row)) {
+        currentQuizRewardGroup.rows.push(row);
+        currentQuizRewardGroup.oldestCreatedAt = row.createdAt;
+        continue;
+      }
+
+      flushQuizRewardGroup();
+      currentQuizRewardGroup = {
+        referenceKey: getQuizReferenceKey(row),
+        rows: [row],
+        newestCreatedAt: row.createdAt,
+        oldestCreatedAt: row.createdAt,
+      };
+      continue;
+    }
+
+    flushQuizRewardGroup();
+
+    if (isCreditTransferKind(row.kind)) {
+      flushTokenUsageGroup();
+      flushNotebookGenerationGroup();
+
+      if (
+        currentCreditTransferGroup &&
+        shouldAppendToCreditTransferGroup(currentCreditTransferGroup, row)
+      ) {
+        currentCreditTransferGroup.rows.push(row);
+        currentCreditTransferGroup.oldestCreatedAt = row.createdAt;
+        continue;
+      }
+
+      flushCreditTransferGroup();
+      currentCreditTransferGroup = {
+        kind: row.kind,
+        rows: [row],
+        newestCreatedAt: row.createdAt,
+        oldestCreatedAt: row.createdAt,
+      };
+      continue;
+    }
+
+    flushCreditTransferGroup();
+
     if (isNotebookGenerationGroupCandidate(row)) {
       flushTokenUsageGroup();
 
@@ -680,5 +863,7 @@ export async function listUserNotifications(
 
   flushTokenUsageGroup();
   flushNotebookGenerationGroup();
+  flushCreditTransferGroup();
+  flushQuizRewardGroup();
   return notifications.slice(0, Math.max(1, Math.min(limit, 100)));
 }

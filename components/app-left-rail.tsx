@@ -37,6 +37,8 @@ import { AppCoreNavList } from '@/components/app-core-nav-list';
 import { ChatContactsRail } from '@/components/chat-contacts-rail';
 import { resolveCourseOrchestratorAvatar } from '@/lib/constants/course-chat';
 import { isDashboardRoute } from '@/lib/utils/dashboard-routes';
+import { ProfileAvatarPicker } from '@/components/user-profile/profile-avatar-picker';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const scrollClass = cn(
   'min-h-0 flex-1 overflow-y-auto py-2',
@@ -113,6 +115,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat/');
 
   const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [balances, setBalances] = useState<{
     cash: number;
     compute: number;
@@ -290,24 +293,36 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                 <>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Link
-                        href={railHref}
-                        className={cn(
-                          'block w-fit outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500',
-                          inCourseContext ? 'rounded-2xl' : 'rounded-full',
-                        )}
-                      >
-                        <img
-                          src={railAvatarSrc}
-                          alt=""
+                      {inCourseContext ? (
+                        <Link
+                          href={railHref}
                           className={cn(
-                            'size-[72px] object-cover ring-1 ring-black/5 dark:ring-white/10',
-                            inCourseContext ? 'rounded-2xl' : 'rounded-full',
+                            'block w-fit outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500',
+                            'rounded-2xl',
                           )}
-                        />
-                      </Link>
+                        >
+                          <img
+                            src={railAvatarSrc}
+                            alt=""
+                            className="size-[72px] rounded-2xl object-cover ring-1 ring-black/5 dark:ring-white/10"
+                          />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAvatarPickerOpen(true)}
+                          className="block w-fit rounded-full outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500"
+                          aria-label="选择头像"
+                        >
+                          <img
+                            src={railAvatarSrc}
+                            alt=""
+                            className="size-[72px] rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+                          />
+                        </button>
+                      )}
                     </TooltipTrigger>
-                    <TooltipContent side="right">{railTooltip}</TooltipContent>
+                    <TooltipContent side="right">{inCourseContext ? railTooltip : '选择头像'}</TooltipContent>
                   </Tooltip>
                   <p className="mt-2 w-full truncate text-center text-sm font-medium text-foreground">
                     {railTitle}
@@ -348,24 +363,33 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                 <div className="flex flex-col items-center gap-2">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Link
-                        href={railHref}
-                        className={cn(
-                          'block w-fit outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500',
-                          inCourseContext ? 'rounded-xl' : 'rounded-full',
-                        )}
-                      >
-                        <img
-                          src={railAvatarSrc}
-                          alt=""
-                          className={cn(
-                            'size-10 object-cover ring-1 ring-black/5 dark:ring-white/10',
-                            inCourseContext ? 'rounded-xl' : 'rounded-full',
-                          )}
-                        />
-                      </Link>
+                      {inCourseContext ? (
+                        <Link
+                          href={railHref}
+                          className="block w-fit rounded-xl outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500"
+                        >
+                          <img
+                            src={railAvatarSrc}
+                            alt=""
+                            className="size-10 rounded-xl object-cover ring-1 ring-black/5 dark:ring-white/10"
+                          />
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setAvatarPickerOpen(true)}
+                          className="block w-fit rounded-full outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-500"
+                          aria-label="选择头像"
+                        >
+                          <img
+                            src={railAvatarSrc}
+                            alt=""
+                            className="size-10 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10"
+                          />
+                        </button>
+                      )}
                     </TooltipTrigger>
-                    <TooltipContent side="right">{railTooltip}</TooltipContent>
+                    <TooltipContent side="right">{inCourseContext ? railTooltip : '选择头像'}</TooltipContent>
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -460,7 +484,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   variant={notebookSidebar ? 'notebook' : 'home'}
                   excludeKeys={
                     notebookSidebar
-                      ? (['top-up', 'credits-market', 'contact-support', 'report-issue'] as const)
+                      ? (['contact-support', 'report-issue'] as const)
                       : undefined
                   }
                   onItemClick={(key) => {
@@ -611,6 +635,14 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
           </div>
         </div>
       </aside>
+      <Dialog open={avatarPickerOpen} onOpenChange={setAvatarPickerOpen}>
+        <DialogContent className="max-h-[85vh] w-[min(92vw,980px)] max-w-[980px] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>选择头像</DialogTitle>
+          </DialogHeader>
+          <ProfileAvatarPicker size="lg" />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

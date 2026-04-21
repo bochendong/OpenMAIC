@@ -548,129 +548,128 @@ export function AvatarCollectionStoreCard() {
           </div>
         ) : (
           <div className="space-y-6 px-5 py-6 md:px-6">
-            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="grid gap-4">
-                <BannerCard
-                  {...BANNER_META.avatar}
-                  bannerId="avatar"
-                  disabled={drawing}
-                  onDraw={handleDraw}
-                >
-                  <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
-                    <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
-                      <p className="text-xs font-medium uppercase tracking-[0.22em] text-fuchsia-600 dark:text-fuchsia-200">
-                        收藏进度
-                      </p>
-                      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
-                        {ownedAvatarCount}
-                        <span className="ml-1 text-base font-medium text-slate-400">
-                          / {totalAvatarCount}
-                        </span>
-                      </p>
-                      <div className="mt-3">
-                        <Progress
-                          value={
-                            totalAvatarCount > 0
-                              ? Math.round((ownedAvatarCount / totalAvatarCount) * 100)
-                              : 0
-                          }
-                        />
-                      </div>
-                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
-                        R 头像会直接进入库存，SR / SSR 需要通过碎片合成。
-                      </p>
+            <div className="grid gap-4">
+              <BannerCard
+                {...BANNER_META.avatar}
+                bannerId="avatar"
+                disabled={drawing}
+                onDraw={handleDraw}
+              >
+                <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
+                  <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
+                    <p className="text-xs font-medium uppercase tracking-[0.22em] text-fuchsia-600 dark:text-fuchsia-200">
+                      收藏进度
+                    </p>
+                    <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                      {ownedAvatarCount}
+                      <span className="ml-1 text-base font-medium text-slate-400">
+                        / {totalAvatarCount}
+                      </span>
+                    </p>
+                    <div className="mt-3">
+                      <Progress
+                        value={
+                          totalAvatarCount > 0
+                            ? Math.round((ownedAvatarCount / totalAvatarCount) * 100)
+                            : 0
+                        }
+                      />
                     </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      {avatarHighlights.map((item) => (
-                        <div
-                          key={item.id}
-                          className="overflow-hidden rounded-[1.25rem] border border-white/45 bg-white/70 p-2 shadow-sm dark:border-white/10 dark:bg-white/6"
-                        >
-                          <div className="relative overflow-hidden rounded-[1rem]">
-                            <img
-                              src={item.url}
-                              alt={item.name}
-                              className="aspect-square w-full object-cover"
-                            />
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-2 pb-1.5 pt-5 text-[10px] font-medium text-white">
-                              {item.rarity}
-                            </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
+                      R 头像会直接进入库存，SR / SSR 需要通过碎片合成。
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {avatarHighlights.map((item) => (
+                      <div
+                        key={item.id}
+                        className="overflow-hidden rounded-[1.25rem] border border-white/45 bg-white/70 p-2 shadow-sm dark:border-white/10 dark:bg-white/6"
+                      >
+                        <div className="relative overflow-hidden rounded-[1rem]">
+                          <img
+                            src={item.url}
+                            alt={item.name}
+                            className="aspect-square w-full object-cover"
+                          />
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-2 pb-1.5 pt-5 text-[10px] font-medium text-white">
+                            {item.rarity}
                           </div>
-                          <p className="mt-2 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
-                            {item.id}
+                        </div>
+                        <p className="mt-2 truncate text-xs font-medium text-slate-700 dark:text-slate-200">
+                          {item.id}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </BannerCard>
+
+              <BannerCard
+                {...BANNER_META.live2d}
+                bannerId="live2d"
+                disabled={drawing}
+                onDraw={handleDraw}
+              >
+                <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
+                  <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
+                    <p className="text-xs font-medium uppercase tracking-[0.22em] text-sky-600 dark:text-sky-200">
+                      讲师进度
+                    </p>
+                    <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
+                      {unlockedLive2dCount}
+                      <span className="ml-1 text-base font-medium text-slate-400">
+                        / {live2dCharacters.length}
+                      </span>
+                    </p>
+                    <div className="mt-3">
+                      <Progress
+                        value={
+                          live2dCharacters.length > 0
+                            ? Math.round((unlockedLive2dCount / live2dCharacters.length) * 100)
+                            : 0
+                        }
+                      />
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
+                      每次抽到未拥有讲师时会获得 1 碎片；集齐 10 碎片自动解锁。
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                    {live2dCharacters.map((character) => (
+                      <div
+                        key={character.id}
+                        className={cn(
+                          'overflow-hidden rounded-[1.25rem] border p-2 shadow-sm',
+                          character.isUnlocked
+                            ? 'border-white/45 bg-white/75 dark:border-white/10 dark:bg-white/6'
+                            : 'border-sky-200/70 bg-sky-50/60 dark:border-sky-400/20 dark:bg-sky-950/15',
+                        )}
+                      >
+                        <div className="relative overflow-hidden rounded-[1rem] bg-black/5 dark:bg-white/5">
+                          <img
+                            src={character.previewSrc || ''}
+                            alt={character.name}
+                            className="aspect-square w-full object-cover"
+                          />
+                        </div>
+                        <div className="mt-2">
+                          <p className="text-xs font-semibold text-slate-800 dark:text-white">
+                            {character.name}
+                          </p>
+                          <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-300">
+                            {character.isUnlocked
+                              ? `已拥有 · Lv${character.affinityLevel}`
+                              : `碎片 ${character.fragmentCount ?? 0}/${character.fragmentTarget ?? 10}`}
                           </p>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                </BannerCard>
-
-                <BannerCard
-                  {...BANNER_META.live2d}
-                  bannerId="live2d"
-                  disabled={drawing}
-                  onDraw={handleDraw}
-                >
-                  <div className="grid gap-3 sm:grid-cols-[0.78fr_1.22fr]">
-                    <div className="rounded-[1.5rem] border border-white/45 bg-white/70 p-4 backdrop-blur-sm dark:border-white/10 dark:bg-white/6">
-                      <p className="text-xs font-medium uppercase tracking-[0.22em] text-sky-600 dark:text-sky-200">
-                        讲师进度
-                      </p>
-                      <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950 dark:text-white">
-                        {unlockedLive2dCount}
-                        <span className="ml-1 text-base font-medium text-slate-400">
-                          / {live2dCharacters.length}
-                        </span>
-                      </p>
-                      <div className="mt-3">
-                        <Progress
-                          value={
-                            live2dCharacters.length > 0
-                              ? Math.round((unlockedLive2dCount / live2dCharacters.length) * 100)
-                              : 0
-                          }
-                        />
                       </div>
-                      <p className="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-300">
-                        每次抽到未拥有讲师时会获得 1 碎片；集齐 10 碎片自动解锁。
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-                      {live2dCharacters.map((character) => (
-                        <div
-                          key={character.id}
-                          className={cn(
-                            'overflow-hidden rounded-[1.25rem] border p-2 shadow-sm',
-                            character.isUnlocked
-                              ? 'border-white/45 bg-white/75 dark:border-white/10 dark:bg-white/6'
-                              : 'border-sky-200/70 bg-sky-50/60 dark:border-sky-400/20 dark:bg-sky-950/15',
-                          )}
-                        >
-                          <div className="relative overflow-hidden rounded-[1rem] bg-black/5 dark:bg-white/5">
-                            <img
-                              src={character.previewSrc || ''}
-                              alt={character.name}
-                              className="aspect-square w-full object-cover"
-                            />
-                          </div>
-                          <div className="mt-2">
-                            <p className="text-xs font-semibold text-slate-800 dark:text-white">
-                              {character.name}
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-300">
-                              {character.isUnlocked
-                                ? `已拥有 · Lv${character.affinityLevel}`
-                                : `碎片 ${character.fragmentCount ?? 0}/${character.fragmentTarget ?? 10}`}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    ))}
                   </div>
-                </BannerCard>
-              </div>
+                </div>
+              </BannerCard>
+            </div>
 
-              <div className="space-y-4">
+            <div className="grid gap-4">
                 <div className="overflow-hidden rounded-[2rem] border border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(248,250,252,0.86))] p-5 shadow-[0_20px_70px_rgba(15,23,42,0.08)] dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))]">
                   <p className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-white dark:bg-white dark:text-slate-950">
                     <Star className="size-3.5" />
@@ -734,7 +733,6 @@ export function AvatarCollectionStoreCard() {
                     ) : null}
                   </div>
                 </div>
-              </div>
             </div>
           </div>
         )}
