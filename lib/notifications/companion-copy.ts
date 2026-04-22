@@ -81,6 +81,33 @@ const QUIZ_ACCURACY_LINES = [
   '你这轮答题很准，加成奖励已经落账。',
 ] as const;
 
+const PRACTICE_SUBMISSION_PERFECT_LINES = [
+  '这题答得非常稳，我先替你鼓掌一下。',
+  '这一题发挥很亮眼，状态拉满了。',
+  '这道题你拿得很漂亮，继续这个手感。',
+  '这一题完成得特别扎实，节奏很顺。',
+  '刚这题的表现很强，我已经记住了。',
+  '这道题你处理得很成熟，继续冲。',
+] as const;
+
+const PRACTICE_SUBMISSION_GOOD_LINES = [
+  '这题做得不错，离满分已经很近了。',
+  '这道题思路是对的，再打磨一下会更稳。',
+  '这一题完成得挺好，继续保持。',
+  '这次提交很有感觉，已经在进步线上了。',
+  '这题答得挺顺，继续往前推就对了。',
+  '这道题的状态不错，已经很接近标准答案。',
+] as const;
+
+const PRACTICE_SUBMISSION_RETRY_LINES = [
+  '这题先别急，我陪你再拆一遍。',
+  '这次没关系，已经比空着强很多了。',
+  '题目就是拿来练的，我们再来一轮。',
+  '这道题先收下反馈，下一次会更稳。',
+  '别被这一题影响节奏，你已经在推进了。',
+  '这题先记成一次有效尝试，继续做就会更顺。',
+] as const;
+
 const QUIZ_MERGED_LINES = [
   '测验奖励和正确率加成我已经合并记账了，一眼就能看懂。',
   '这次测验收益我帮你打包成一条，查看更清爽。',
@@ -164,6 +191,19 @@ export function buildNotificationCompanionCopy(item: AppNotification): Companion
   }
 
   switch (item.sourceKind) {
+    case 'PRACTICE_SUBMISSION': {
+      const tier = item.details.find((detail) => detail.key === 'resultTier')?.value || 'retry';
+      const lines =
+        tier === 'perfect'
+          ? PRACTICE_SUBMISSION_PERFECT_LINES
+          : tier === 'good'
+            ? PRACTICE_SUBMISSION_GOOD_LINES
+            : PRACTICE_SUBMISSION_RETRY_LINES;
+      return {
+        eyebrow: '做题反馈',
+        line: pickBySeed(lines, seed),
+      };
+    }
     case 'LESSON_REWARD':
       return { eyebrow: '看课奖励', line: pickBySeed(LESSON_REWARD_LINES, seed) };
     case 'QUIZ_COMPLETION_REWARD':

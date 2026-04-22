@@ -13,8 +13,10 @@ const GREEN_THEME: NotificationThemePalette = {
   glowClass:
     'bg-[radial-gradient(circle_at_top_left,rgba(74,222,128,0.22),transparent_48%),radial-gradient(circle_at_top_right,rgba(20,184,166,0.2),transparent_44%)]',
   eyebrowClass: 'text-emerald-700 dark:text-emerald-200',
-  amountPrimaryClass: 'bg-emerald-500/14 text-emerald-700 dark:bg-emerald-400/16 dark:text-emerald-100',
-  amountChipClass: 'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-200',
+  amountPrimaryClass:
+    'bg-emerald-500/14 text-emerald-700 dark:bg-emerald-400/16 dark:text-emerald-100',
+  amountChipClass:
+    'bg-emerald-500/12 text-emerald-700 dark:bg-emerald-400/12 dark:text-emerald-200',
 };
 
 const BLUE_THEME: NotificationThemePalette = {
@@ -49,8 +51,10 @@ const PINK_THEME: NotificationThemePalette = {
   glowClass:
     'bg-[radial-gradient(circle_at_top_left,rgba(232,121,249,0.22),transparent_48%),radial-gradient(circle_at_top_right,rgba(244,114,182,0.2),transparent_44%)]',
   eyebrowClass: 'text-fuchsia-700 dark:text-fuchsia-200',
-  amountPrimaryClass: 'bg-fuchsia-500/14 text-fuchsia-700 dark:bg-fuchsia-400/16 dark:text-fuchsia-100',
-  amountChipClass: 'bg-fuchsia-500/12 text-fuchsia-700 dark:bg-fuchsia-400/12 dark:text-fuchsia-200',
+  amountPrimaryClass:
+    'bg-fuchsia-500/14 text-fuchsia-700 dark:bg-fuchsia-400/16 dark:text-fuchsia-100',
+  amountChipClass:
+    'bg-fuchsia-500/12 text-fuchsia-700 dark:bg-fuchsia-400/12 dark:text-fuchsia-200',
 };
 
 export function getNotificationCardTheme(
@@ -75,6 +79,7 @@ export function getNotificationCardTheme(
     case 'REVIEW_REWARD':
       return PURPLE_THEME;
     case 'QUIZ_ACCURACY_BONUS':
+    case 'PRACTICE_SUBMISSION':
       return PINK_THEME;
     default:
       return item.tone === 'negative' ? BLUE_THEME : GREEN_THEME;

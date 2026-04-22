@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
     const { model } = await resolveModelFromHeaders(req, {
       allowOpenAIModelOverride: true,
     });
-    const drafts = await runWithRequestContext(req, '/api/notebooks/problems/import-preview', () =>
+    const result = await runWithRequestContext(req, '/api/notebooks/problems/import-preview', () =>
       extractProblemDraftsFromText({
         text: payload.data.text,
         source: payload.data.source,
@@ -41,6 +41,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ id: st
       }),
     );
 
-    return NextResponse.json({ drafts });
+    return NextResponse.json(result);
   });
 }

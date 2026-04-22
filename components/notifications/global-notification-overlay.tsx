@@ -74,9 +74,12 @@ function NotificationBannerCard({ item }: { item: AppNotification }) {
   useEffect(() => {
     if (!showCompanion) return;
 
-    const timer = window.setTimeout(() => {
-      setCompanionSpeaking(false);
-    }, item.tone === 'positive' ? 2200 : 1600);
+    const timer = window.setTimeout(
+      () => {
+        setCompanionSpeaking(false);
+      },
+      item.tone === 'positive' ? 2200 : 1600,
+    );
 
     return () => {
       window.clearTimeout(timer);
@@ -98,7 +101,12 @@ function NotificationBannerCard({ item }: { item: AppNotification }) {
         <div className="relative flex items-start gap-3">
           <Link href="/notifications" className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <span className={cn('text-[11px] font-semibold uppercase tracking-[0.18em]', cardTheme.eyebrowClass)}>
+              <span
+                className={cn(
+                  'text-[11px] font-semibold uppercase tracking-[0.18em]',
+                  cardTheme.eyebrowClass,
+                )}
+              >
                 {companionCopy.eyebrow}
               </span>
               <span className="text-xs text-slate-400 dark:text-slate-500">
@@ -114,9 +122,11 @@ function NotificationBannerCard({ item }: { item: AppNotification }) {
               >
                 {item.amountLabel}
               </span>
-              <span className="text-xs text-slate-500 dark:text-slate-400">
-                当前余额 {formatBalanceLabel(item)}
-              </span>
+              {item.showBalance !== false ? (
+                <span className="text-xs text-slate-500 dark:text-slate-400">
+                  当前余额 {formatBalanceLabel(item)}
+                </span>
+              ) : null}
             </div>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{companionCopy.line}</p>
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
@@ -169,7 +179,6 @@ function NotificationBannerCard({ item }: { item: AppNotification }) {
               </div>
             </div>
           ) : null}
-
         </div>
       </div>
     </div>

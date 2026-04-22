@@ -76,7 +76,15 @@ export async function previewNotebookProblemImport(args: {
   source: 'chat' | 'pdf' | 'manual';
   text: string;
   language: 'zh-CN' | 'en-US';
-}): Promise<NotebookProblemImportDraft[]> {
+}): Promise<{
+  drafts: NotebookProblemImportDraft[];
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    estimatedCostCredits: number | null;
+  } | null;
+}> {
   const response = await backendFetch(
     `/api/notebooks/${encodeURIComponent(args.notebookId)}/problems/import-preview`,
     {
@@ -93,8 +101,15 @@ export async function previewNotebookProblemImport(args: {
     const data = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(data.error || `HTTP ${response.status}`);
   }
-  const data = (await response.json()) as { drafts: NotebookProblemImportDraft[] };
-  return data.drafts;
+  return (await response.json()) as {
+    drafts: NotebookProblemImportDraft[];
+    usage: {
+      inputTokens: number;
+      outputTokens: number;
+      cachedInputTokens: number;
+      estimatedCostCredits: number | null;
+    } | null;
+  };
 }
 
 export async function commitNotebookProblemImport(args: {

@@ -25,6 +25,7 @@ export interface AppNotification {
   sourceLabel: string;
   createdAt: string;
   details: AppNotificationDetail[];
+  showBalance?: boolean;
 }
 
 export interface NotificationsResponse {

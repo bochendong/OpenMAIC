@@ -2522,7 +2522,7 @@ export function ChatPageClient() {
           text: importText,
           attachments: attachmentsSnapshot,
         });
-        const drafts = await previewNotebookProblemImport({
+        const { drafts } = await previewNotebookProblemImport({
           notebookId,
           source: payload.source,
           text: payload.text,
@@ -2644,7 +2644,7 @@ export function ChatPageClient() {
           text: stripProblemBankImportCommand(text),
           attachments: pendingAttachments,
         });
-        const drafts = await previewNotebookProblemImport({
+        const { drafts } = await previewNotebookProblemImport({
           notebookId,
           source: payload.source,
           text: payload.text,

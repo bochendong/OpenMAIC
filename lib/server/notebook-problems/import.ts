@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { LanguageModel } from 'ai';
+import { ZodError } from 'zod';
 import { callLLM } from '@/lib/ai/llm';
 import {
   notebookProblemImportDraftSchema,
   type NotebookProblemImportDraft,
   type NotebookProblemSource,
 } from '@/lib/problem-bank';
+import { estimateOpenAITextUsageRetailCostCredits } from '@/lib/utils/openai-pricing';
 
 function stripCodeFences(text: string): string {
   const trimmed = text.trim();
@@ -253,11 +255,74 @@ function heuristicExtractProblemDrafts(
     .filter(Boolean) as NotebookProblemImportDraft[];
 }
 
-function normalizeCandidateDraft(
+function normalizeRubricValue(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean)
+    .map((item, index) => `${index + 1}. ${item}`)
+    .join('\n');
+}
+
+function normalizeRawCandidate(
   raw: unknown,
   source: NotebookProblemSource,
-): NotebookProblemImportDraft {
-  const parsed = notebookProblemImportDraftSchema.safeParse({
+): Record<string, unknown> {
+  const base =
+    typeof raw === 'object' && raw
+      ? ({ ...raw } as Record<string, unknown>)
+      : ({ title: String(raw ?? '') } as Record<string, unknown>);
+  const type = typeof base.type === 'string' ? base.type : 'short_answer';
+
+  const publicContent =
+    typeof base.publicContent === 'object' && base.publicContent
+      ? ({ ...(base.publicContent as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  if (typeof publicContent.type !== 'string') {
+    publicContent.type = type;
+  }
+
+  const grading =
+    typeof base.grading === 'object' && base.grading
+      ? ({ ...(base.grading as Record<string, unknown>) } as Record<string, unknown>)
+      : {};
+  if (typeof grading.type !== 'string') {
+    grading.type = type;
+  }
+
+  if (Array.isArray(grading.rubric)) {
+    grading.rubric = normalizeRubricValue(grading.rubric);
+  }
+
+  if (type === 'short_answer' || type === 'calculation') {
+    if (
+      grading.referenceAnswer == null &&
+      typeof (grading as { sampleAnswer?: unknown }).sampleAnswer === 'string'
+    ) {
+      grading.referenceAnswer = (grading as { sampleAnswer: string }).sampleAnswer;
+    }
+  }
+
+  if (type === 'proof') {
+    if (
+      grading.referenceProof == null &&
+      typeof (grading as { sampleAnswer?: unknown }).sampleAnswer === 'string'
+    ) {
+      grading.referenceProof = (grading as { sampleAnswer: string }).sampleAnswer;
+    }
+  }
+
+  if (type === 'short_answer' || type === 'proof') {
+    if (
+      publicContent.explanation == null &&
+      typeof grading.analysis === 'string' &&
+      grading.analysis.trim()
+    ) {
+      publicContent.explanation = grading.analysis;
+    }
+  }
+
+  return {
     source,
     draftId: randomUUID(),
     status: 'draft',
@@ -266,8 +331,27 @@ function normalizeCandidateDraft(
     difficulty: 'medium',
     sourceMeta: {},
     validationErrors: [],
-    ...(typeof raw === 'object' && raw ? raw : {}),
+    ...base,
+    publicContent,
+    grading,
+  };
+}
+
+function formatImportValidationIssues(error: ZodError): string[] {
+  return error.issues.map((issue) => {
+    const path = issue.path.length > 0 ? issue.path.join('.') : 'draft';
+    if (issue.message === 'Invalid input') {
+      return `字段 ${path} 结构不符合当前题型 schema`;
+    }
+    return `字段 ${path}: ${issue.message}`;
   });
+}
+
+function normalizeCandidateDraft(
+  raw: unknown,
+  source: NotebookProblemSource,
+): NotebookProblemImportDraft {
+  const parsed = notebookProblemImportDraftSchema.safeParse(normalizeRawCandidate(raw, source));
   if (parsed.success) return parsed.data;
 
   const fallbackText =
@@ -297,7 +381,7 @@ function normalizeCandidateDraft(
       importMode: 'fallback',
       raw,
     },
-    validationErrors: parsed.error.issues.map((issue) => issue.message),
+    validationErrors: formatImportValidationIssues(parsed.error),
   });
 }
 
@@ -306,7 +390,15 @@ async function llmExtractProblemDrafts(args: {
   source: NotebookProblemSource;
   model: LanguageModel;
   language: 'zh-CN' | 'en-US';
-}): Promise<NotebookProblemImportDraft[]> {
+}): Promise<{
+  drafts: NotebookProblemImportDraft[];
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    estimatedCostCredits: number | null;
+  } | null;
+}> {
   const system =
     args.language === 'zh-CN'
       ? `你是大学课程题库抽取助手。请把输入材料拆成一组题目草稿，并返回严格 JSON 数组，不要返回 markdown。
@@ -366,7 +458,29 @@ ${args.text}`.slice(0, 24000);
   if (!Array.isArray(parsed)) {
     throw new Error('LLM import output is not an array');
   }
-  return parsed.map((item) => normalizeCandidateDraft(item, args.source));
+  const inputTokens = result.usage.inputTokens ?? 0;
+  const outputTokens = result.usage.outputTokens ?? 0;
+  const cachedInputTokens = result.usage.cachedInputTokens ?? 0;
+  return {
+    drafts: parsed.map((item) => normalizeCandidateDraft(item, args.source)),
+    usage:
+      inputTokens > 0 || outputTokens > 0
+        ? {
+            inputTokens,
+            outputTokens,
+            cachedInputTokens,
+            estimatedCostCredits: estimateOpenAITextUsageRetailCostCredits({
+              modelString:
+                typeof args.model === 'object' && 'modelId' in args.model
+                  ? String((args.model as { modelId?: unknown }).modelId ?? '')
+                  : undefined,
+              inputTokens,
+              outputTokens,
+              cachedInputTokens,
+            }),
+          }
+        : null,
+  };
 }
 
 export async function extractProblemDraftsFromText(args: {
@@ -374,25 +488,36 @@ export async function extractProblemDraftsFromText(args: {
   source: NotebookProblemSource;
   language: 'zh-CN' | 'en-US';
   model?: LanguageModel;
-}): Promise<NotebookProblemImportDraft[]> {
+}): Promise<{
+  drafts: NotebookProblemImportDraft[];
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+    estimatedCostCredits: number | null;
+  } | null;
+}> {
   const trimmed = args.text.trim();
-  if (!trimmed) return [];
+  if (!trimmed) return { drafts: [], usage: null };
 
   if (args.model) {
     try {
-      const llmDrafts = await llmExtractProblemDrafts({
+      const llmResult = await llmExtractProblemDrafts({
         text: trimmed,
         source: args.source,
         model: args.model,
         language: args.language,
       });
-      if (llmDrafts.length > 0) {
-        return llmDrafts;
+      if (llmResult.drafts.length > 0) {
+        return llmResult;
       }
     } catch {
       // fall back to heuristic extraction below
     }
   }
 
-  return heuristicExtractProblemDrafts(trimmed, args.source);
+  return {
+    drafts: heuristicExtractProblemDrafts(trimmed, args.source),
+    usage: null,
+  };
 }

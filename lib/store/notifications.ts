@@ -6,7 +6,7 @@ import type { AppNotification, NotificationsResponse } from '@/lib/notifications
 import { backendJson } from '@/lib/utils/backend-api';
 
 const MAX_TRACKED_READ_IDS = 400;
-const MAX_ACTIVE_BANNERS = 2;
+const MAX_ACTIVE_BANNERS = 1;
 
 type NotificationReadMap = Record<string, string[]>;
 
@@ -20,6 +20,8 @@ interface NotificationStoreState {
   databaseEnabled: boolean;
   notifications: AppNotification[];
   activeBanners: AppNotification[];
+  dismissedBannerIds: string[];
+  queuedLocalBanners: AppNotification[];
   unreadCount: number;
   isLoading: boolean;
   hasInitializedSession: boolean;
@@ -30,6 +32,7 @@ interface NotificationStoreState {
   markAsRead: (notificationId: string) => void;
   markAllAsRead: () => void;
   dismissBanner: (notificationId: string) => void;
+  enqueueBanner: (notification: AppNotification) => void;
 }
 
 function clampReadIds(ids: string[]): string[] {
@@ -45,6 +48,35 @@ function countUnread(notifications: AppNotification[], readSet: Set<string>): nu
   return notifications.reduce((count, item) => count + (readSet.has(item.id) ? 0 : 1), 0);
 }
 
+function buildNextActiveBanners(args: {
+  notifications: AppNotification[];
+  activeBanners: AppNotification[];
+  readSet: Set<string>;
+  queuedLocalBanners?: AppNotification[];
+  incomingBanners?: AppNotification[];
+  excludeIds?: string[];
+}): AppNotification[] {
+  const seen = new Set<string>();
+  const excluded = new Set(args.excludeIds ?? []);
+  const queue = [
+    ...args.activeBanners,
+    ...(args.queuedLocalBanners ?? []),
+    ...(args.incomingBanners ?? []),
+    ...args.notifications.filter((item) => item.presentation === 'banner'),
+  ];
+  const next: AppNotification[] = [];
+
+  for (const item of queue) {
+    if (item.presentation !== 'banner') continue;
+    if (args.readSet.has(item.id) || excluded.has(item.id) || seen.has(item.id)) continue;
+    seen.add(item.id);
+    next.push(item);
+    if (next.length >= MAX_ACTIVE_BANNERS) break;
+  }
+
+  return next;
+}
+
 export const useNotificationStore = create<NotificationStoreState>()(
   persist(
     (set, get) => ({
@@ -52,6 +84,8 @@ export const useNotificationStore = create<NotificationStoreState>()(
       databaseEnabled: false,
       notifications: [],
       activeBanners: [],
+      dismissedBannerIds: [],
+      queuedLocalBanners: [],
       unreadCount: 0,
       isLoading: false,
       hasInitializedSession: false,
@@ -65,6 +99,8 @@ export const useNotificationStore = create<NotificationStoreState>()(
           databaseEnabled: false,
           notifications: [],
           activeBanners: [],
+          dismissedBannerIds: [],
+          queuedLocalBanners: [],
           unreadCount: 0,
           isLoading: false,
           hasInitializedSession: false,
@@ -76,6 +112,8 @@ export const useNotificationStore = create<NotificationStoreState>()(
           databaseEnabled: false,
           notifications: [],
           activeBanners: [],
+          dismissedBannerIds: [],
+          queuedLocalBanners: [],
           unreadCount: 0,
           isLoading: false,
           hasInitializedSession: false,
@@ -112,21 +150,22 @@ export const useNotificationStore = create<NotificationStoreState>()(
                       !existingIds.has(item.id),
                   )
                 : [];
-            const seenBannerIds = new Set<string>();
-            const nextBanners: AppNotification[] = [];
-
-            for (const item of [...incomingBanners, ...state.activeBanners]) {
-              if (readSet.has(item.id) || seenBannerIds.has(item.id)) continue;
-              seenBannerIds.add(item.id);
-              nextBanners.push(item);
-              if (nextBanners.length >= MAX_ACTIVE_BANNERS) break;
-            }
+            const nextBanners = buildNextActiveBanners({
+              notifications: response.notifications,
+              activeBanners: state.activeBanners,
+              readSet,
+              queuedLocalBanners: state.queuedLocalBanners,
+              incomingBanners,
+              excludeIds: state.dismissedBannerIds,
+            });
 
             return {
               activeUserId: targetUserId,
               databaseEnabled: response.databaseEnabled,
               notifications: response.notifications,
               activeBanners: nextBanners,
+              dismissedBannerIds: state.dismissedBannerIds,
+              queuedLocalBanners: state.queuedLocalBanners,
               unreadCount: countUnread(response.notifications, readSet),
               isLoading: false,
               hasInitializedSession: true,
@@ -150,7 +189,18 @@ export const useNotificationStore = create<NotificationStoreState>()(
 
           return {
             readByUser: nextReadByUser,
-            activeBanners: state.activeBanners.filter((item) => item.id !== notificationId),
+            activeBanners: buildNextActiveBanners({
+              notifications: state.notifications,
+              activeBanners: state.activeBanners.filter((item) => item.id !== notificationId),
+              readSet: nextReadSet,
+              queuedLocalBanners: state.queuedLocalBanners.filter(
+                (item) => item.id !== notificationId,
+              ),
+              excludeIds: [...state.dismissedBannerIds, notificationId],
+            }),
+            queuedLocalBanners: state.queuedLocalBanners.filter(
+              (item) => item.id !== notificationId,
+            ),
             unreadCount: countUnread(state.notifications, nextReadSet),
           };
         }),
@@ -170,13 +220,53 @@ export const useNotificationStore = create<NotificationStoreState>()(
               [userId]: nextIds,
             },
             activeBanners: [],
+            queuedLocalBanners: [],
             unreadCount: 0,
           };
         }),
       dismissBanner: (notificationId) =>
-        set((state) => ({
-          activeBanners: state.activeBanners.filter((item) => item.id !== notificationId),
-        })),
+        set((state) => {
+          const nextDismissed = clampReadIds([notificationId, ...state.dismissedBannerIds]);
+          return {
+            dismissedBannerIds: nextDismissed,
+            queuedLocalBanners: state.queuedLocalBanners.filter(
+              (item) => item.id !== notificationId,
+            ),
+            activeBanners: buildNextActiveBanners({
+              notifications: state.notifications,
+              activeBanners: state.activeBanners.filter((item) => item.id !== notificationId),
+              readSet: buildReadSet(state.readByUser, state.activeUserId),
+              queuedLocalBanners: state.queuedLocalBanners.filter(
+                (item) => item.id !== notificationId,
+              ),
+              excludeIds: nextDismissed,
+            }),
+          };
+        }),
+      enqueueBanner: (notification) =>
+        set((state) => {
+          const alreadyQueued =
+            state.activeBanners.some((item) => item.id === notification.id) ||
+            state.queuedLocalBanners.some((item) => item.id === notification.id);
+          if (alreadyQueued) return {};
+          const nextQueued =
+            state.activeBanners.length === 0
+              ? state.queuedLocalBanners
+              : [...state.queuedLocalBanners, notification];
+          return {
+            queuedLocalBanners: nextQueued,
+            activeBanners:
+              state.activeBanners.length === 0
+                ? [notification]
+                : buildNextActiveBanners({
+                    notifications: state.notifications,
+                    activeBanners: state.activeBanners,
+                    readSet: buildReadSet(state.readByUser, state.activeUserId),
+                    queuedLocalBanners: nextQueued,
+                    excludeIds: state.dismissedBannerIds,
+                  }),
+          };
+        }),
     }),
     {
       name: 'synatra-notifications',
