@@ -5,6 +5,7 @@ import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import type {
   NotebookProblemAttemptRecord,
   NotebookProblemImportDraft,
+  NotebookProblemGrading,
   NotebookProblemPublicContent,
 } from '@/lib/problem-bank';
 
@@ -22,6 +23,7 @@ export type NotebookProblemClientRecord = {
   tags: string[];
   difficulty: 'easy' | 'medium' | 'hard';
   publicContent: NotebookProblemPublicContent;
+  grading: NotebookProblemGrading;
   sourceMeta: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;

@@ -911,7 +911,9 @@ export function CourseProblemBankView({
                   <div className="space-y-2">
                     {selectedProblem.publicContent.options.map((option) => {
                       const selected = choiceAnswers[selectedProblem.id] ?? [];
-                      const multi = selectedProblem.publicContent.selectionMode === 'multiple';
+                      const multi =
+                        'selectionMode' in selectedProblem.publicContent &&
+                        selectedProblem.publicContent.selectionMode === 'multiple';
                       return (
                         <label
                           key={option.id}
