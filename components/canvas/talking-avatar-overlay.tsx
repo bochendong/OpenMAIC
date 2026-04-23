@@ -224,10 +224,12 @@ export function TalkingAvatarOverlay({
     const setup = async () => {
       const mount = mountElement;
       if (!mount) return;
+      const resolvedCoreSrc = resolveLive2dAssetUrl(LIVE2D_CORE_SRC);
+      const resolvedModelSrc = resolveLive2dAssetUrl(modelConfig.modelSrc);
 
       setStatus('loading');
 
-      await ensureCubismCore();
+      await ensureCubismCore(resolvedCoreSrc);
 
       const PIXI = await import('pixi.js');
       window.PIXI = PIXI;
@@ -256,7 +258,7 @@ export function TalkingAvatarOverlay({
 
       mount.replaceChildren(app.view as HTMLCanvasElement);
 
-      const model = await loadPresenterModel(Live2DModel, modelConfig);
+      const model = await loadPresenterModel(Live2DModel, modelConfig, resolvedModelSrc);
 
       if (cancelled) {
         app.destroy(true, { children: true });
@@ -309,10 +311,13 @@ export function TalkingAvatarOverlay({
     };
 
     setup().catch((error) => {
+      const normalizedError = normalizeUnknownError(error);
       console.error('Failed to initialize Live2D presenter', {
         modelId: modelConfig.id,
         modelSrc: modelConfig.modelSrc,
-        error,
+        resolvedModelSrc: resolveLive2dAssetUrl(modelConfig.modelSrc),
+        coreSrc: resolveLive2dAssetUrl(LIVE2D_CORE_SRC),
+        error: normalizedError,
       });
       setStatus('error');
     });
@@ -377,7 +382,7 @@ export function TalkingAvatarOverlay({
         )}
 
         <img
-          src={modelConfig.previewSrc}
+          src={resolveLive2dAssetUrl(modelConfig.previewSrc)}
           alt={modelConfig.badgeLabel}
           className={cn(
             'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
@@ -415,6 +420,7 @@ async function loadPresenterModel(
     modelSrc: string;
     idleMotionGroup: string;
   },
+  resolvedModelSrc: string,
 ): Promise<Live2DModelInstance> {
   const baseOptions = {
     autoFocus: false,
@@ -422,19 +428,21 @@ async function loadPresenterModel(
   } as const;
 
   try {
-    return (await Live2DModel.from(modelConfig.modelSrc, {
+    return (await Live2DModel.from(resolvedModelSrc, {
       ...baseOptions,
       idleMotionGroup: modelConfig.idleMotionGroup,
     })) as Live2DModelInstance;
   } catch (primaryError) {
+    const normalizedPrimaryError = normalizeUnknownError(primaryError);
     console.warn('Primary Live2D load failed, retrying without idle motion preload', {
       modelId: modelConfig.id,
       modelSrc: modelConfig.modelSrc,
+      resolvedModelSrc,
       idleMotionGroup: modelConfig.idleMotionGroup,
-      error: primaryError,
+      error: normalizedPrimaryError,
     });
 
-    return (await Live2DModel.from(modelConfig.modelSrc, baseOptions)) as Live2DModelInstance;
+    return (await Live2DModel.from(resolvedModelSrc, baseOptions)) as Live2DModelInstance;
   }
 }
 
@@ -755,7 +763,7 @@ async function playPresenterMotion(
   }
 }
 
-async function ensureCubismCore() {
+async function ensureCubismCore(coreSrc: string) {
   if (typeof window === 'undefined') return;
   if (window.Live2DCubismCore) return;
 
@@ -764,6 +772,10 @@ async function ensureCubismCore() {
       const existing = document.querySelector<HTMLScriptElement>('script[data-synatra-live2d]');
 
       if (existing) {
+        if (window.Live2DCubismCore) {
+          resolve();
+          return;
+        }
         existing.addEventListener('load', () => resolve(), { once: true });
         existing.addEventListener('error', () => reject(new Error('Cubism core failed to load')), {
           once: true,
@@ -774,9 +786,9 @@ async function ensureCubismCore() {
       const script = document.createElement('script');
       script.async = true;
       script.dataset.synatraLive2d = 'true';
-      script.src = LIVE2D_CORE_SRC;
+      script.src = coreSrc;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error('Cubism core failed to load'));
+      script.onerror = () => reject(new Error(`Cubism core failed to load: ${coreSrc}`));
       document.head.appendChild(script);
     }).catch((error) => {
       window.__synatraLive2DCorePromise = undefined;
@@ -785,4 +797,41 @@ async function ensureCubismCore() {
   }
 
   await window.__synatraLive2DCorePromise;
+}
+
+function resolveLive2dAssetUrl(path: string): string {
+  if (typeof window === 'undefined') return path;
+  if (!path.startsWith('/')) return path;
+
+  const nextData = (window as Window & { __NEXT_DATA__?: { assetPrefix?: string; basePath?: string } })
+    .__NEXT_DATA__;
+  const assetPrefix = nextData?.assetPrefix?.trim() ?? '';
+  const basePath = nextData?.basePath?.trim() ?? '';
+  const prefix = assetPrefix || basePath;
+  if (!prefix) return path;
+
+  if (/^https?:\/\//i.test(prefix)) {
+    return `${prefix.replace(/\/$/, '')}${path}`;
+  }
+  return `${prefix.startsWith('/') ? prefix : `/${prefix}`}${path}`;
+}
+
+function normalizeUnknownError(error: unknown): {
+  message: string;
+  stack?: string;
+  raw?: unknown;
+} {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+  if (typeof error === 'string') {
+    return { message: error };
+  }
+  return {
+    message: 'Unknown error',
+    raw: error,
+  };
 }
