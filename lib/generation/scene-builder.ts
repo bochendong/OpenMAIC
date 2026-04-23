@@ -20,7 +20,11 @@ import type { Action } from '@/lib/types/action';
 import { normalizeSlideTextLayout } from '@/lib/slide-text-layout';
 import { markSemanticSlideContent } from '@/lib/notebook-content/semantic-slide-render';
 import { applyOutlineFallbacks } from './outline-generator';
-import { generateSceneContent, generateSceneActions } from './scene-generator';
+import {
+  generateSceneContent,
+  generateSceneActions,
+  materializeSemanticGeneratedSlidePageContent,
+} from './scene-generator';
 import type { AgentInfo, SceneGenerationContext, AICallFn } from './pipeline-types';
 import { createLogger } from '@/lib/logger';
 const log = createLogger('Generation');
@@ -140,14 +144,26 @@ export async function buildSceneFromOutline(
     return null;
   }
 
+  const effectiveContent =
+    outline.type === 'slide' && 'elements' in content
+      ? materializeSemanticGeneratedSlidePageContent(content, outline.title)
+      : content;
+
   // Step 2: Generate Actions
   onPhaseChange?.('actions');
   log.debug(`Step 2: Generating actions for: ${outline.title}`);
-  const actions = await generateSceneActions(outline, content, aiCall, ctx, agents, userProfile);
+  const actions = await generateSceneActions(
+    outline,
+    effectiveContent,
+    aiCall,
+    ctx,
+    agents,
+    userProfile,
+  );
   log.debug(`Generated ${actions.length} actions for: ${outline.title}`);
 
   // Build complete Scene object
-  return buildCompleteScene(outline, content, actions, stageId);
+  return buildCompleteScene(outline, effectiveContent, actions, stageId);
 }
 
 /**

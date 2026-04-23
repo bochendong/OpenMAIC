@@ -26,6 +26,7 @@ function toClientProblem(
     tags: problem.tags,
     difficulty: problem.difficulty,
     publicContent: problem.publicContent,
+    grading: problem.grading,
     sourceMeta: problem.sourceMeta,
     createdAt: problem.createdAt,
     updatedAt: problem.updatedAt,

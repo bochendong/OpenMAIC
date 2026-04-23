@@ -18,8 +18,194 @@ function stripCodeFences(text: string): string {
     .trim();
 }
 
-function normalizeTitle(text: string): string {
-  const singleLine = text.replace(/\s+/g, ' ').trim();
+const MATH_SYMBOL_PATTERN = /[=<>≤≥∈∉⊆⊂⊇⊃∪∩∅∀∃∑∏√∞±×÷→↔⇒⇔]/;
+
+function detectTextLocale(text: string): 'zh-CN' | 'en-US' {
+  return /[\u4e00-\u9fff]/.test(text) ? 'zh-CN' : 'en-US';
+}
+
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function replaceLatexDelimiters(text: string): string {
+  return text
+    .replace(/\\\[((?:[\s\S]+?))\\\]/g, (_, expr: string) => `$$${expr.trim()}$$`)
+    .replace(/\\\(((?:[\s\S]+?))\\\)/g, (_, expr: string) => `$$${expr.trim()}$$`)
+    .replace(/\$([^$\n]+?)\$/g, (_, expr: string) => `$$${expr.trim()}$$`);
+}
+
+function isLikelyStandaloneMathLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith('$$') || trimmed.includes('```')) return false;
+  const longWords = trimmed.match(/[A-Za-z]{4,}/g)?.length ?? 0;
+  const mathHits = trimmed.match(/[=<>≤≥∈∉⊆⊂⊇⊃∪∩∅∀∃∑∏√∞±×÷→↔⇒⇔]/g)?.length ?? 0;
+  return (
+    mathHits > 0 &&
+    longWords <= 4 &&
+    (/^[A-Za-z0-9({[\\]/.test(trimmed) ||
+      /\b[A-Za-z]\s*=\s*[\[{(]/.test(trimmed) ||
+      /\b[A-Za-z]\s*[⊆⊂⊇⊃=]\s*[A-Za-z]/.test(trimmed))
+  );
+}
+
+function isLikelyInlineMathExpression(fragment: string): boolean {
+  const trimmed = fragment.trim();
+  if (!trimmed || trimmed.startsWith('$$') || trimmed.endsWith('$$')) return false;
+  if (!MATH_SYMBOL_PATTERN.test(trimmed)) return false;
+  const longWords = trimmed.match(/[A-Za-z]{4,}/g)?.length ?? 0;
+  return longWords <= 3;
+}
+
+function wrapInlineMathExpressions(text: string): string {
+  const parts = text.split(/(\$\$[\s\S]+?\$\$)/g);
+  return parts
+    .map((part) => {
+      if (part.startsWith('$$') && part.endsWith('$$')) return part;
+      return part.replace(
+        /(^|[\s(（\[【:：,，])([A-Za-z0-9\\][^。\n！？!?;；,，]*?[=<>≤≥∈∉⊆⊂⊇⊃∪∩∅∀∃∑∏√∞±×÷→↔⇒⇔][^。\n！？!?;；,，]*?)(?=($|[\s)）\]】,，。！？!?;；]))/g,
+        (match, prefix: string, expr: string, suffix: string) => {
+          if (!isLikelyInlineMathExpression(expr)) return match;
+          return `${prefix}$$${normalizeWhitespace(expr)}$$${suffix}`;
+        },
+      );
+    })
+    .join('');
+}
+
+function normalizeMathMarkdown(text: string): string {
+  const withLatexDelimiters = replaceLatexDelimiters(text);
+  const withDisplayLines = withLatexDelimiters
+    .split('\n')
+    .map((line) => {
+      if (isLikelyStandaloneMathLine(line)) {
+        return `$$${line.trim()}$$`;
+      }
+      return line;
+    })
+    .join('\n');
+  return wrapInlineMathExpressions(withDisplayLines)
+    .replace(/\$\$\s+/g, '$$')
+    .replace(/\s+\$\$/g, '$$');
+}
+
+function stripMathForTitle(text: string): string {
+  return normalizeWhitespace(
+    text
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/\\\[((?:[\s\S]+?))\\\]/g, ' ')
+      .replace(/\\\(((?:[\s\S]+?))\\\)/g, ' ')
+      .replace(/\$\$[\s\S]+?\$\$/g, ' ')
+      .replace(/\$[^$\n]+?\$/g, ' ')
+      .replace(/(?:^|\n)\s*[A-H][\.\):：].+/g, ' ')
+      .replace(/(?:^|\n)\s*(?:答案|Answer)\s*[:：].+/gi, ' ')
+      .replace(/[_*`#>-]+/g, ' '),
+  );
+}
+
+function inferTopicLabel(text: string, locale: 'zh-CN' | 'en-US'): string {
+  if (/(集合|set|subset|superset|⊆|⊂|∈|∩|∪)/i.test(text)) {
+    if (/(线性组合|linear combination|整数|integer|x,y∈|n∈)/i.test(text)) {
+      return locale === 'zh-CN' ? '线性组合集合' : 'Linear Combination Sets';
+    }
+    if (/(相等|相同|equal|equality)/i.test(text)) {
+      return locale === 'zh-CN' ? '集合相等' : 'Set Equality';
+    }
+    if (/(交|并|差|intersection|union|difference)/i.test(text)) {
+      return locale === 'zh-CN' ? '集合运算' : 'Set Operations';
+    }
+    return locale === 'zh-CN' ? '集合问题' : 'Set Theory';
+  }
+  if (/(递归|recursion)/i.test(text)) return locale === 'zh-CN' ? '递归' : 'Recursion';
+  if (/(矩阵|matrix)/i.test(text)) return locale === 'zh-CN' ? '矩阵' : 'Matrices';
+  if (/(导数|derivative|integral|积分)/i.test(text))
+    return locale === 'zh-CN' ? '微积分' : 'Calculus';
+  if (/(概率|probability|随机)/i.test(text)) return locale === 'zh-CN' ? '概率' : 'Probability';
+  if (/(图|graph|tree|binary tree)/i.test(text))
+    return locale === 'zh-CN' ? '图与树' : 'Graphs and Trees';
+  if (/(字符串|string|array|数组|链表|linked list)/i.test(text))
+    return locale === 'zh-CN' ? '数据结构' : 'Data Structures';
+  return locale === 'zh-CN' ? '课程题目' : 'Course Problem';
+}
+
+function inferTaskLabel(
+  text: string,
+  type: NotebookProblemImportDraft['type'],
+  locale: 'zh-CN' | 'en-US',
+): string {
+  if (/(⊆|⊂|包含|subset|superset|contain)/i.test(text)) {
+    return locale === 'zh-CN' ? '包含关系' : 'Inclusion';
+  }
+  if (/(相等|相同|equal|equality)/i.test(text)) {
+    return locale === 'zh-CN' ? '相等判断' : 'Equality';
+  }
+  if (type === 'proof') return locale === 'zh-CN' ? '证明' : 'Proof';
+  if (type === 'calculation') return locale === 'zh-CN' ? '计算' : 'Calculation';
+  if (type === 'choice') return locale === 'zh-CN' ? '选择题' : 'Multiple Choice';
+  if (type === 'fill_blank') return locale === 'zh-CN' ? '填空' : 'Fill Blank';
+  if (type === 'code') return locale === 'zh-CN' ? 'Python 编程' : 'Python Coding';
+  return locale === 'zh-CN' ? '简答' : 'Short Answer';
+}
+
+function deriveProblemTitle(text: string, type: NotebookProblemImportDraft['type']): string {
+  const locale = detectTextLocale(text);
+  const plain = stripMathForTitle(text);
+  const clauses = plain
+    .split(/[\n。！？!?;；]/)
+    .map((part) =>
+      normalizeWhitespace(
+        part
+          .replace(/^(?:\d+[\.\)]\s*)+/, '')
+          .replace(/^(?:设|已知|对于|给定|考虑|请|试|证明|计算|求|写出|判断|说明)\s*/i, '')
+          .replace(
+            /^(?:consider|given|let|show that|prove that|determine whether|find|compute|calculate|write)\s+/i,
+            '',
+          ),
+      ),
+    )
+    .filter(Boolean);
+
+  for (const clause of clauses) {
+    if (clause.length >= 4 && clause.length <= 36 && !/^[A-Z](?:\s+[A-Z])+$/.test(clause)) {
+      return clause.slice(0, 36);
+    }
+  }
+
+  const topic = inferTopicLabel(text, locale);
+  const task = inferTaskLabel(text, type, locale);
+  if (locale === 'zh-CN') {
+    return task === '选择题' || task === '填空' ? `${topic}${task}` : `${topic}的${task}`;
+  }
+  return task === 'Multiple Choice' || task === 'Fill Blank'
+    ? `${topic} ${task}`
+    : `${task} of ${topic}`;
+}
+
+function isWeakProblemTitle(title: string, type: NotebookProblemImportDraft['type']): boolean {
+  const singleLine = normalizeWhitespace(title);
+  if (!singleLine) return true;
+  if (singleLine.length > 48) return true;
+  if (/^(untitled problem|imported problem|未命名题目|题目)$/i.test(singleLine)) return true;
+  if (MATH_SYMBOL_PATTERN.test(singleLine)) return true;
+  if (
+    /^(证明|计算|求|判断|说明|show that|prove that|find|compute|calculate|determine)\b/i.test(
+      singleLine,
+    )
+  ) {
+    return true;
+  }
+  if (type === 'choice' && /^(选项|choice|multiple choice)$/i.test(singleLine)) return true;
+  return false;
+}
+
+function normalizeTitle(
+  text: string,
+  type: NotebookProblemImportDraft['type'] = 'short_answer',
+): string {
+  const singleLine = normalizeWhitespace(text);
+  if (isWeakProblemTitle(singleLine, type)) {
+    return deriveProblemTitle(text, type).slice(0, 80) || 'Untitled problem';
+  }
   return singleLine.slice(0, 80) || 'Untitled problem';
 }
 
@@ -92,7 +278,7 @@ function buildHeuristicDraft(
   if (!cleaned) return null;
 
   const type = inferType(cleaned);
-  const title = normalizeTitle(cleaned.split('\n')[0] || cleaned);
+  const title = normalizeTitle(cleaned, type);
   const common = {
     draftId: randomUUID(),
     title,
@@ -116,9 +302,12 @@ function buildHeuristicDraft(
       type,
       publicContent: {
         type,
-        stem: cleaned.replace(/(?:^|\n)\s*[A-H][\.\):：].+/g, '').trim(),
+        stem: normalizeMathMarkdown(cleaned.replace(/(?:^|\n)\s*[A-H][\.\):：].+/g, '').trim()),
         selectionMode: correctOptionIds.length > 1 ? 'multiple' : 'single',
-        options,
+        options: options.map((option) => ({
+          ...option,
+          label: normalizeMathMarkdown(option.label),
+        })),
       },
       grading: {
         type,
@@ -137,7 +326,7 @@ function buildHeuristicDraft(
       type,
       publicContent: {
         type,
-        stem: cleaned,
+        stem: normalizeMathMarkdown(cleaned),
       },
       grading: {
         type,
@@ -151,7 +340,7 @@ function buildHeuristicDraft(
       type,
       publicContent: {
         type,
-        stem: cleaned,
+        stem: normalizeMathMarkdown(cleaned),
       },
       grading: {
         type,
@@ -171,7 +360,7 @@ function buildHeuristicDraft(
       type,
       publicContent: {
         type,
-        stemTemplate: cleaned,
+        stemTemplate: normalizeMathMarkdown(cleaned),
         blanks,
       },
       grading: {
@@ -194,7 +383,7 @@ function buildHeuristicDraft(
       type,
       publicContent: {
         type,
-        stem: cleaned,
+        stem: normalizeMathMarkdown(cleaned),
         language: 'python',
         starterCode: undefined,
         functionSignature: extractCodeSignature(cleaned),
@@ -231,7 +420,7 @@ function buildHeuristicDraft(
     type: 'short_answer',
     publicContent: {
       type: 'short_answer',
-      stem: cleaned,
+      stem: normalizeMathMarkdown(cleaned),
     },
     grading: {
       type: 'short_answer',
@@ -258,10 +447,36 @@ function heuristicExtractProblemDrafts(
 function normalizeRubricValue(value: unknown): unknown {
   if (!Array.isArray(value)) return value;
   return value
-    .map((item) => String(item ?? '').trim())
+    .map((item) => {
+      if (typeof item === 'string') return item.trim();
+      if (item && typeof item === 'object') {
+        const criterion =
+          'criterion' in item && typeof item.criterion === 'string' ? item.criterion.trim() : '';
+        const points =
+          'points' in item && typeof item.points === 'number' && Number.isFinite(item.points)
+            ? item.points
+            : null;
+        if (criterion && points != null) return `${criterion}（${points} 分）`;
+        if (criterion) return criterion;
+      }
+      return String(item ?? '').trim();
+    })
     .filter(Boolean)
     .map((item, index) => `${index + 1}. ${item}`)
     .join('\n');
+}
+
+function pickFirstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function looksLikeSingleProblemInput(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return heuristicExtractProblemDrafts(trimmed, 'manual').length === 1;
 }
 
 function normalizeRawCandidate(
@@ -288,44 +503,194 @@ function normalizeRawCandidate(
 
   if (
     publicContent.stem == null &&
-    typeof base.stem === 'string' &&
+    pickFirstString(
+      publicContent.stem,
+      publicContent.statement,
+      publicContent.question,
+      publicContent.prompt,
+      publicContent.description,
+      base.stem,
+      base.statement,
+      base.question,
+      base.prompt,
+      base.description,
+    ) &&
     (type === 'short_answer' ||
       type === 'choice' ||
       type === 'proof' ||
       type === 'calculation' ||
       type === 'code')
   ) {
-    publicContent.stem = base.stem;
+    publicContent.stem = pickFirstString(
+      publicContent.stem,
+      publicContent.statement,
+      publicContent.question,
+      publicContent.prompt,
+      publicContent.description,
+      base.stem,
+      base.statement,
+      base.question,
+      base.prompt,
+      base.description,
+    );
+  }
+
+  if (typeof publicContent.stem === 'string') {
+    publicContent.stem = normalizeMathMarkdown(publicContent.stem);
   }
 
   if (
     publicContent.stemTemplate == null &&
-    typeof base.stemTemplate === 'string' &&
+    pickFirstString(
+      publicContent.stemTemplate,
+      publicContent.statement,
+      publicContent.question,
+      base.stemTemplate,
+      base.statement,
+      base.question,
+    ) &&
     type === 'fill_blank'
   ) {
-    publicContent.stemTemplate = base.stemTemplate;
+    publicContent.stemTemplate = pickFirstString(
+      publicContent.stemTemplate,
+      publicContent.statement,
+      publicContent.question,
+      base.stemTemplate,
+      base.statement,
+      base.question,
+    );
+  }
+
+  if (typeof publicContent.stemTemplate === 'string') {
+    publicContent.stemTemplate = normalizeMathMarkdown(publicContent.stemTemplate);
+  }
+
+  if (
+    type === 'choice' &&
+    (!Array.isArray(publicContent.options) || publicContent.options.length === 0) &&
+    Array.isArray(base.options)
+  ) {
+    publicContent.options = base.options.map((option, index) => {
+      if (typeof option === 'string') {
+        return { id: String.fromCharCode(65 + index), label: option.trim() };
+      }
+      if (option && typeof option === 'object') {
+        const id =
+          pickFirstString(
+            (option as { id?: unknown }).id,
+            (option as { value?: unknown }).value,
+            (option as { key?: unknown }).key,
+          ) || String.fromCharCode(65 + index);
+        const label =
+          pickFirstString(
+            (option as { label?: unknown }).label,
+            (option as { text?: unknown }).text,
+            (option as { value?: unknown }).value,
+          ) || id;
+        return { id, label };
+      }
+      return { id: String.fromCharCode(65 + index), label: String(option ?? '').trim() };
+    });
+  }
+
+  if (Array.isArray(publicContent.options)) {
+    publicContent.options = publicContent.options.map((option, index) => {
+      if (typeof option === 'string') {
+        return {
+          id: String.fromCharCode(65 + index),
+          label: normalizeMathMarkdown(option),
+        };
+      }
+      if (!option || typeof option !== 'object') return option;
+      const row = option as Record<string, unknown>;
+      return {
+        id: pickFirstString(row.id, row.value, row.key) || String.fromCharCode(65 + index),
+        label: normalizeMathMarkdown(
+          pickFirstString(row.label, row.text, row.value) || String.fromCharCode(65 + index),
+        ),
+      };
+    });
   }
 
   if (Array.isArray(grading.rubric)) {
     grading.rubric = normalizeRubricValue(grading.rubric);
   }
 
+  if (typeof publicContent.explanation === 'string') {
+    publicContent.explanation = normalizeMathMarkdown(publicContent.explanation);
+  }
+  if (typeof grading.referenceAnswer === 'string') {
+    grading.referenceAnswer = normalizeMathMarkdown(grading.referenceAnswer);
+  }
+  if (typeof grading.referenceProof === 'string') {
+    grading.referenceProof = normalizeMathMarkdown(grading.referenceProof);
+  }
+  if (typeof grading.rubric === 'string') {
+    grading.rubric = normalizeMathMarkdown(grading.rubric);
+  }
+  if (typeof grading.analysis === 'string') {
+    grading.analysis = normalizeMathMarkdown(grading.analysis);
+  }
+  if (Array.isArray(grading.acceptedForms)) {
+    grading.acceptedForms = grading.acceptedForms.map((item) =>
+      typeof item === 'string' ? normalizeMathMarkdown(item) : item,
+    );
+  }
+
   if (type === 'short_answer' || type === 'calculation') {
     if (
       grading.referenceAnswer == null &&
-      typeof (grading as { sampleAnswer?: unknown }).sampleAnswer === 'string'
+      pickFirstString(
+        grading.referenceAnswer,
+        (grading as { sampleAnswer?: unknown }).sampleAnswer,
+        (grading as { answer?: unknown }).answer,
+        (base as { referenceAnswer?: unknown }).referenceAnswer,
+        (base as { sampleAnswer?: unknown }).sampleAnswer,
+      )
     ) {
-      grading.referenceAnswer = (grading as { sampleAnswer: string }).sampleAnswer;
+      grading.referenceAnswer = pickFirstString(
+        grading.referenceAnswer,
+        (grading as { sampleAnswer?: unknown }).sampleAnswer,
+        (grading as { answer?: unknown }).answer,
+        (base as { referenceAnswer?: unknown }).referenceAnswer,
+        (base as { sampleAnswer?: unknown }).sampleAnswer,
+      );
     }
   }
 
   if (type === 'proof') {
     if (
       grading.referenceProof == null &&
-      typeof (grading as { sampleAnswer?: unknown }).sampleAnswer === 'string'
+      pickFirstString(
+        grading.referenceProof,
+        (grading as { sampleAnswer?: unknown }).sampleAnswer,
+        (grading as { proof?: unknown }).proof,
+        (base as { referenceProof?: unknown }).referenceProof,
+        (base as { sampleAnswer?: unknown }).sampleAnswer,
+      )
     ) {
-      grading.referenceProof = (grading as { sampleAnswer: string }).sampleAnswer;
+      grading.referenceProof = pickFirstString(
+        grading.referenceProof,
+        (grading as { sampleAnswer?: unknown }).sampleAnswer,
+        (grading as { proof?: unknown }).proof,
+        (base as { referenceProof?: unknown }).referenceProof,
+        (base as { sampleAnswer?: unknown }).sampleAnswer,
+      );
     }
+  }
+
+  if (
+    type === 'choice' &&
+    (!Array.isArray(grading.correctOptionIds) || grading.correctOptionIds.length === 0)
+  ) {
+    const baseAnswers = Array.isArray((grading as { answer?: unknown[] }).answer)
+      ? (grading as { answer: unknown[] }).answer
+      : Array.isArray((base as { answer?: unknown[] }).answer)
+        ? (base as { answer: unknown[] }).answer
+        : [];
+    grading.correctOptionIds = baseAnswers
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean);
   }
 
   if (type === 'short_answer' || type === 'proof') {
@@ -348,6 +713,16 @@ function normalizeRawCandidate(
     sourceMeta: {},
     validationErrors: [],
     ...base,
+    title: normalizeTitle(
+      typeof base.title === 'string'
+        ? base.title
+        : pickFirstString(
+            publicContent.stem,
+            publicContent.stemTemplate,
+            String(base.title ?? ''),
+          ) || 'Untitled problem',
+      type as NotebookProblemImportDraft['type'],
+    ),
     publicContent,
     grading,
   };
@@ -379,7 +754,7 @@ function normalizeCandidateDraft(
 
   return notebookProblemImportDraftSchema.parse({
     draftId: randomUUID(),
-    title: normalizeTitle(fallbackText || 'Imported problem'),
+    title: normalizeTitle(fallbackText || 'Imported problem', 'short_answer'),
     type: 'short_answer',
     status: 'draft',
     source,
@@ -388,7 +763,7 @@ function normalizeCandidateDraft(
     difficulty: inferDifficulty(fallbackText),
     publicContent: {
       type: 'short_answer',
-      stem: fallbackText || 'Imported problem',
+      stem: normalizeMathMarkdown(fallbackText || 'Imported problem'),
     },
     grading: {
       type: 'short_answer',
@@ -432,9 +807,12 @@ async function llmExtractProblemDrafts(args: {
 }
 要求：
 - 尽量把题目拆细，一题一个对象
+- 不要把同一道证明题 / 同一道复合题硬拆成多条草稿，除非原文明确编号成独立小题，或这些小题本身就是彼此独立可作答的问题
+- title 必须是简洁、稳定、概念导向的题目名，优先概括知识点与任务，不要直接复制整句题面，不要把公式原样塞进 title
 - choice 题必须拆出 options 与 correctOptionIds
 - code 题默认 language=python
 - 如果 code 题缺少 function signature / public tests / secret tests，也要保留，但写入 validationErrors
+- publicContent / grading 里的数学表达请使用 markdown 公式定界符 $$...$$ 包裹；choice 选项里的公式也一样
 - 不要臆造过多答案；拿不准就留空并写 validationErrors`
       : `You are a university problem-bank extraction assistant. Convert the source material into an array of problem drafts and return strict JSON only.
 Each item should follow this shape as closely as possible:
@@ -451,9 +829,12 @@ Each item should follow this shape as closely as possible:
 }
 Requirements:
 - split into one object per problem when possible
+- do not split one proof / one compound problem into multiple drafts unless the source explicitly numbers them as separate questions or they can be solved independently
+- title must be concise, concept-focused, and stable; summarize the topic/task instead of copying the whole stem, and avoid dumping raw formulas into the title
 - choice problems must include options and correctOptionIds
 - code problems default to python
 - if code problems miss function signature / public tests / secret tests, keep them as drafts and add validationErrors
+- use markdown math delimiters $$...$$ for mathematical expressions inside publicContent / grading text, including choice option labels
 - avoid inventing answers; leave fields empty and record validationErrors instead`;
 
   const prompt = `${args.language === 'zh-CN' ? '来源类型' : 'Source'}: ${args.source}
@@ -515,6 +896,7 @@ export async function extractProblemDraftsFromText(args: {
 }> {
   const trimmed = args.text.trim();
   if (!trimmed) return { drafts: [], usage: null };
+  const heuristicDrafts = heuristicExtractProblemDrafts(trimmed, args.source);
 
   if (args.model) {
     try {
@@ -525,6 +907,17 @@ export async function extractProblemDraftsFromText(args: {
         language: args.language,
       });
       if (llmResult.drafts.length > 0) {
+        if (
+          heuristicDrafts.length === 1 &&
+          llmResult.drafts.length > 1 &&
+          llmResult.drafts.some((draft) => draft.validationErrors.length > 0) &&
+          looksLikeSingleProblemInput(trimmed)
+        ) {
+          return {
+            drafts: heuristicDrafts,
+            usage: llmResult.usage,
+          };
+        }
         return llmResult;
       }
     } catch {
@@ -533,7 +926,7 @@ export async function extractProblemDraftsFromText(args: {
   }
 
   return {
-    drafts: heuristicExtractProblemDrafts(trimmed, args.source),
+    drafts: heuristicDrafts,
     usage: null,
   };
 }

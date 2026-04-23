@@ -11,6 +11,7 @@ import { MAX_VISION_IMAGES } from '@/lib/constants/generation';
 import type {
   SceneOutline,
   GeneratedSlideContent,
+  GeneratedSlidePageContent,
   GeneratedQuizContent,
   GeneratedInteractiveContent,
   GeneratedPBLContent,
@@ -33,7 +34,10 @@ import {
   type NotebookContentBlockPlacement,
   type NotebookContentDocument,
 } from '@/lib/notebook-content';
-import { markSemanticSlideContent } from '@/lib/notebook-content/semantic-slide-render';
+import {
+  markSemanticSlideContent,
+  renderSemanticSlideContent,
+} from '@/lib/notebook-content/semantic-slide-render';
 import { buildPrompt, PROMPT_IDS } from './prompts';
 import { postProcessInteractiveHtml } from './interactive-post-processor';
 import { parseActionsFromStructuredOutput } from './action-parser';
@@ -89,6 +93,25 @@ const log = createLogger('Generation');
 const SLIDE_LAYOUT_VIEWPORT = { width: 1000, height: 562.5 } as const;
 const MAX_SLIDE_LAYOUT_RETRIES = 1;
 const MAX_SEMANTIC_SLIDE_RETRIES = 1;
+
+export function materializeSemanticGeneratedSlidePageContent(
+  content: GeneratedSlidePageContent,
+  fallbackTitle: string,
+): GeneratedSlidePageContent {
+  if (!content.contentDocument) return content;
+
+  const rendered = renderSemanticSlideContent({
+    document: content.contentDocument,
+    fallbackTitle,
+  });
+
+  return {
+    ...content,
+    elements: rendered.canvas.elements,
+    background: rendered.canvas.background,
+    theme: rendered.canvas.theme,
+  };
+}
 
 export interface SceneContentDiagnostics {
   pipeline: 'semantic' | 'legacy' | 'interactive' | 'quiz' | 'pbl' | 'unknown';
@@ -452,7 +475,10 @@ export async function generateFullScenes(
 
         for (let pageIndex = 0; pageIndex < flattened.contents.length; pageIndex += 1) {
           const pageOutline = effectiveOutlines[pageIndex] || outline;
-          const pageContent = flattened.contents[pageIndex];
+          const pageContent = materializeSemanticGeneratedSlidePageContent(
+            flattened.contents[pageIndex],
+            pageOutline.title,
+          );
           log.info(`Step 3.2: Generating actions for: ${pageOutline.title}`);
           const actions = await generateSceneActions(pageOutline, { ...pageContent }, aiCall);
           const sceneId = createSceneWithActions(pageOutline, { ...pageContent }, actions, api);
@@ -462,9 +488,13 @@ export async function generateFullScenes(
           completedCount += 1;
         }
       } else {
+        const effectiveContent =
+          outline.type === 'slide' && 'elements' in content
+            ? materializeSemanticGeneratedSlidePageContent(content, outline.title)
+            : content;
         log.info(`Step 3.2: Generating actions for: ${outline.title}`);
-        const actions = await generateSceneActions(outline, content, aiCall);
-        const sceneId = createSceneWithActions(outline, content, actions, api);
+        const actions = await generateSceneActions(outline, effectiveContent, aiCall);
+        const sceneId = createSceneWithActions(outline, effectiveContent, actions, api);
         if (sceneId) {
           sceneIds.push(sceneId);
         }

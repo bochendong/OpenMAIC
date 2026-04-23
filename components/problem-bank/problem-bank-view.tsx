@@ -10,6 +10,7 @@ import {
   Filter,
   Globe2,
   Loader2,
+  Pencil,
   Play,
   Save,
   ShieldCheck,
@@ -35,6 +36,7 @@ import {
   previewNotebookProblemImport,
   runNotebookCodeProblem,
   submitNotebookProblem,
+  updateNotebookProblem,
   type NotebookProblemClientRecord,
 } from '@/lib/utils/notebook-problem-api';
 import { Button } from '@/components/ui/button';
@@ -50,6 +52,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { CommonMathSymbols } from '@/components/problem-bank/common-math-symbols';
+import { ProblemEditDialog } from '@/components/problem-bank/problem-edit-dialog';
+import { ProblemDraftForm } from '@/components/problem-bank/problem-draft-form';
+import { ProblemRichText } from '@/components/problem-bank/problem-rich-text';
 
 function typeLabel(type: NotebookProblemClientRecord['type'], locale: 'zh-CN' | 'en-US') {
   const zh = {
@@ -275,6 +280,37 @@ function estimateProblemCountFromText(text: string): number {
   return Math.max(1, blocks.length);
 }
 
+function createManualProblemDraft(
+  locale: 'zh-CN' | 'en-US',
+  notebookId?: string | null,
+): NotebookProblemImportDraft {
+  return notebookProblemImportDraftSchema.parse({
+    draftId: crypto.randomUUID(),
+    notebookId: notebookId ?? null,
+    title: locale === 'zh-CN' ? '未命名题目' : 'Untitled problem',
+    type: 'short_answer',
+    status: 'draft',
+    source: 'manual',
+    points: 1,
+    tags: [],
+    difficulty: 'medium',
+    publicContent: {
+      type: 'short_answer',
+      stem:
+        locale === 'zh-CN'
+          ? '请在此输入题目内容，并按需修改题型与评分规则。'
+          : 'Enter the problem statement here, then adjust the type and grading as needed.',
+    },
+    grading: {
+      type: 'short_answer',
+    },
+    sourceMeta: {
+      importMode: 'manual_create',
+    },
+    validationErrors: [],
+  });
+}
+
 function buildPracticeNotification(args: {
   locale: 'zh-CN' | 'en-US';
   problem: NotebookProblemClientRecord;
@@ -393,9 +429,11 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [runningCode, setRunningCode] = useState(false);
   const [deletingProblem, setDeletingProblem] = useState(false);
+  const [editProblemOpen, setEditProblemOpen] = useState(false);
+  const [editingProblemId, setEditingProblemId] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
-  const [importMode, setImportMode] = useState<'text' | 'pdf' | 'web'>('text');
+  const [importMode, setImportMode] = useState<'text' | 'pdf' | 'web' | 'manual'>('text');
   const [importText, setImportText] = useState('');
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importWebQuery, setImportWebQuery] = useState('');
@@ -474,6 +512,10 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
       : null;
   const latestDetailedAttempt = attempts[0] ?? null;
   const latestAttempt = latestDetailedAttempt ?? selectedProblem?.latestAttempt ?? null;
+  const editingProblem =
+    problems.find((problem) => problem.id === editingProblemId) ??
+    filteredProblems.find((problem) => problem.id === editingProblemId) ??
+    null;
 
   useEffect(() => {
     if (!selectedProblem?.id) {
@@ -641,12 +683,62 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
     }
   }, [deletingProblem, locale, notebookId, problems, selectedProblem]);
 
+  const openEditProblemDialog = useCallback((problemId: string) => {
+    setEditingProblemId(problemId);
+    setEditProblemOpen(true);
+  }, []);
+
+  const handleUpdateProblem = useCallback(
+    async (patch: {
+      title?: string;
+      status?: 'draft' | 'published' | 'archived';
+      points?: number;
+      tags?: string[];
+      difficulty?: 'easy' | 'medium' | 'hard';
+      publicContent?: unknown;
+      grading?: unknown;
+      secretJudge?: unknown | null;
+    }) => {
+      if (!editingProblemId) return;
+      const updated = await updateNotebookProblem({
+        notebookId,
+        problemId: editingProblemId,
+        patch,
+      });
+      setProblems((prev) => prev.map((problem) => (problem.id === updated.id ? updated : problem)));
+      setSelectedProblemId(updated.id);
+    },
+    [editingProblemId, notebookId],
+  );
+
   const handlePreviewImport = useCallback(async () => {
     setPreviewLoading(true);
     setImportSummaryNote(null);
     setImportUsage(null);
     setImportWebSearchSummary(null);
     try {
+      if (importMode === 'manual') {
+        const manualDraft = createManualProblemDraft(locale, notebookId);
+        setImportEstimatedProblemCount(1);
+        setImportProcessedProblemCount(1);
+        setImportProcessingStage('preview-ready');
+        setImportProcessingDetail(
+          locale === 'zh-CN'
+            ? '已创建 1 道手动草稿，可以直接在右侧表单里补全题目。'
+            : 'Created 1 manual draft. You can complete it in the form editor.',
+        );
+        setDrafts([manualDraft]);
+        setIncludedDraftIds({ [manualDraft.draftId]: true });
+        setEditingDraftId(manualDraft.draftId);
+        setDraftEditorText(JSON.stringify(manualDraft, null, 2));
+        setImportSummaryNote(
+          locale === 'zh-CN'
+            ? '已创建 1 道手动题目草稿。手动添加不触发导题扣费，补充完成后可直接写入题库。'
+            : 'Created 1 manual draft. Manual creation does not trigger import charges.',
+        );
+        return;
+      }
+
       let text = importText.trim();
       let source: 'manual' | 'pdf' | 'web' = 'manual';
       let searchQuery = '';
@@ -802,6 +894,18 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
     }
   }, [draftEditorText, editingDraftId, locale]);
 
+  const handleSaveManualDraft = useCallback(
+    (nextDraft: NotebookProblemImportDraft) => {
+      setDrafts((prev) =>
+        prev.map((draft) => (draft.draftId === nextDraft.draftId ? nextDraft : draft)),
+      );
+      setEditingDraftId(nextDraft.draftId);
+      setDraftEditorText(JSON.stringify(nextDraft, null, 2));
+      toast.success(locale === 'zh-CN' ? '草稿表单已保存' : 'Draft form saved');
+    },
+    [locale],
+  );
+
   const handleCommitImport = useCallback(async () => {
     const selectedDrafts = drafts.filter((draft) => includedDraftIds[draft.draftId]);
     if (selectedDrafts.length === 0) {
@@ -851,6 +955,12 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
       setCommitLoading(false);
     }
   }, [drafts, importUsage, includedDraftIds, locale, notebookId]);
+
+  const editingDraft = drafts.find((draft) => draft.draftId === editingDraftId) || null;
+  const editingDraftIsManual =
+    editingDraft?.sourceMeta &&
+    typeof editingDraft.sourceMeta === 'object' &&
+    (editingDraft.sourceMeta as Record<string, unknown>).importMode === 'manual_create';
 
   return (
     <div className="flex h-full min-h-0 bg-gray-50 dark:bg-gray-900">
@@ -916,10 +1026,8 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
           ) : (
             <div className="space-y-2">
               {filteredProblems.map((problem) => (
-                <button
+                <div
                   key={problem.id}
-                  type="button"
-                  onClick={() => setSelectedProblemId(problem.id)}
                   className={cn(
                     'w-full rounded-xl border p-3 text-left transition-colors',
                     selectedProblemId === problem.id
@@ -928,17 +1036,27 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        {problem.title}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                        {typeLabel(problem.type, locale)} ·{' '}
-                        {difficultyLabel(problem.difficulty, locale)} ·{' '}
-                        {sourceLabel(problem.source, locale)}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedProblemId(problem.id)}
+                        className="block w-full min-w-0 text-left"
+                      >
+                        <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                          {problem.title}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          {typeLabel(problem.type, locale)} ·{' '}
+                          {difficultyLabel(problem.difficulty, locale)} ·{' '}
+                          {sourceLabel(problem.source, locale)}
+                        </p>
+                      </button>
                     </div>
-                    <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => setSelectedProblemId(problem.id)}>
+                        <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge className="border-0 bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -962,7 +1080,7 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                       </Badge>
                     ) : null}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -1020,6 +1138,13 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                   </div>
                   {selectedProblem.type === 'code' ? (
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => openEditProblemDialog(selectedProblem.id)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        {locale === 'zh-CN' ? '编辑题目' : 'Edit problem'}
+                      </Button>
                       <Button variant="outline" onClick={handleRunCode} disabled={runningCode}>
                         {runningCode ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1051,6 +1176,13 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        onClick={() => openEditProblemDialog(selectedProblem.id)}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        {locale === 'zh-CN' ? '编辑题目' : 'Edit problem'}
+                      </Button>
                       <Button onClick={handleSubmit} disabled={submitting}>
                         {submitting ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1078,9 +1210,7 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
               <CardContent className="space-y-4">
                 {choiceContent ? (
                   <div className="space-y-3">
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
-                      {choiceContent.stem}
-                    </p>
+                    <ProblemRichText content={choiceContent.stem} />
                     {choiceContent.options.map((option) => {
                       const selected = choiceAnswer[selectedProblem.id] ?? [];
                       const multi = choiceContent.selectionMode === 'multiple';
@@ -1104,18 +1234,20 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                               });
                             }}
                           />
-                          <span>
-                            <span className="font-medium">{option.id}.</span> {option.label}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="font-medium">{option.id}.</span>
+                            <ProblemRichText
+                              content={option.label}
+                              className="inline-block align-middle [&_p]:inline [&_.katex-display]:inline-block"
+                            />
+                          </div>
                         </label>
                       );
                     })}
                   </div>
                 ) : fillBlankContent ? (
                   <div className="space-y-4">
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
-                      {fillBlankContent.stemTemplate}
-                    </p>
+                    <ProblemRichText content={fillBlankContent.stemTemplate} />
                     {fillBlankContent.blanks.map((blank) => (
                       <div key={blank.id} className="space-y-2">
                         <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -1138,9 +1270,7 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                   </div>
                 ) : codeContent ? (
                   <div className="space-y-4">
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
-                      {codeContent.stem}
-                    </p>
+                    <ProblemRichText content={codeContent.stem} />
                     {codeContent.functionSignature ? (
                       <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-950/40">
                         <div className="mb-2 flex items-center gap-2 font-medium">
@@ -1183,9 +1313,11 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
-                      {textLikeContent && 'stem' in textLikeContent ? textLikeContent.stem : ''}
-                    </p>
+                    <ProblemRichText
+                      content={
+                        textLikeContent && 'stem' in textLikeContent ? textLikeContent.stem : ''
+                      }
+                    />
                     {latestAttempt && typeof latestAttempt.score === 'number' ? (
                       <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-3 text-sm dark:border-sky-900/40 dark:bg-sky-950/20">
                         <div className="flex flex-wrap items-center gap-2">
@@ -1213,7 +1345,9 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                     selectedProblem.type === 'calculation' ? (
                       <CommonMathSymbols
                         locale={locale}
-                        onInsert={(symbol) => insertSymbolIntoTextAnswer(selectedProblem.id, symbol)}
+                        onInsert={(symbol) =>
+                          insertSymbolIntoTextAnswer(selectedProblem.id, symbol)
+                        }
                       />
                     ) : null}
                     <Textarea
@@ -1266,6 +1400,17 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
         )}
       </div>
 
+      <ProblemEditDialog
+        open={editProblemOpen}
+        onOpenChange={(open) => {
+          setEditProblemOpen(open);
+          if (!open) setEditingProblemId(null);
+        }}
+        locale={locale}
+        problem={editingProblem}
+        onSave={handleUpdateProblem}
+      />
+
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
@@ -1300,6 +1445,13 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
               <Globe2 className="mr-2 h-4 w-4" />
               {locale === 'zh-CN' ? '联网搜索' : 'Web search'}
             </Button>
+            <Button
+              type="button"
+              variant={importMode === 'manual' ? 'default' : 'outline'}
+              onClick={() => setImportMode('manual')}
+            >
+              {locale === 'zh-CN' ? '手动添加题目' : 'Manual draft'}
+            </Button>
           </div>
 
           {importMode === 'text' ? (
@@ -1324,7 +1476,7 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                 <p className="text-sm text-slate-500 dark:text-slate-400">{importFile.name}</p>
               ) : null}
             </div>
-          ) : (
+          ) : importMode === 'web' ? (
             <div className="space-y-3">
               <Input
                 value={importWebQuery}
@@ -1351,6 +1503,12 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                 </div>
               ) : null}
             </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300">
+              {locale === 'zh-CN'
+                ? '会先创建 1 道可编辑的默认草稿，并自动打开表单编辑器。你可以在里面修改题型、题面和评分规则，再保存到题库。'
+                : 'We will create one editable draft and open the form editor right away so you can adjust the type, statement, and grading before saving.'}
+            </div>
           )}
 
           <div className="flex justify-end">
@@ -1360,7 +1518,13 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
               ) : (
                 <FileUp className="mr-2 h-4 w-4" />
               )}
-              {locale === 'zh-CN' ? '生成预览' : 'Preview import'}
+              {importMode === 'manual'
+                ? locale === 'zh-CN'
+                  ? '创建草稿'
+                  : 'Create draft'
+                : locale === 'zh-CN'
+                  ? '生成预览'
+                  : 'Preview import'}
             </Button>
           </div>
 
@@ -1541,7 +1705,15 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                           setDraftEditorText(JSON.stringify(draft, null, 2));
                         }}
                       >
-                        {locale === 'zh-CN' ? '编辑 JSON' : 'Edit JSON'}
+                        {draft.sourceMeta &&
+                        typeof draft.sourceMeta === 'object' &&
+                        (draft.sourceMeta as Record<string, unknown>).importMode === 'manual_create'
+                          ? locale === 'zh-CN'
+                            ? '编辑表单'
+                            : 'Edit form'
+                          : locale === 'zh-CN'
+                            ? '编辑 JSON'
+                            : 'Edit JSON'}
                       </Button>
                     </div>
                     {draft.validationErrors.length > 0 ? (
@@ -1568,24 +1740,35 @@ export function ProblemBankView({ notebookId }: { notebookId: string }) {
                 ))}
               </div>
               <div className="space-y-3">
-                <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                  {locale === 'zh-CN' ? '草稿 JSON 编辑器' : 'Draft JSON editor'}
-                </p>
-                <Textarea
-                  className="min-h-[420px] font-mono text-xs"
-                  value={draftEditorText}
-                  onChange={(event) => setDraftEditorText(event.target.value)}
-                />
-                <div className="flex justify-between">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    {locale === 'zh-CN'
-                      ? '可以直接修正类型、标题、publicContent、grading、secretJudge。'
-                      : 'You can directly edit title, publicContent, grading, and secretJudge.'}
-                  </p>
-                  <Button type="button" variant="outline" onClick={handleSaveDraftEditor}>
-                    {locale === 'zh-CN' ? '保存草稿修改' : 'Save draft changes'}
-                  </Button>
-                </div>
+                {editingDraft && editingDraftIsManual ? (
+                  <ProblemDraftForm
+                    key={editingDraft.draftId}
+                    draft={editingDraft}
+                    locale={locale}
+                    onSave={handleSaveManualDraft}
+                  />
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                      {locale === 'zh-CN' ? '草稿 JSON 编辑器' : 'Draft JSON editor'}
+                    </p>
+                    <Textarea
+                      className="min-h-[420px] font-mono text-xs"
+                      value={draftEditorText}
+                      onChange={(event) => setDraftEditorText(event.target.value)}
+                    />
+                    <div className="flex justify-between">
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {locale === 'zh-CN'
+                          ? '可以直接修正类型、标题、publicContent、grading、secretJudge。'
+                          : 'You can directly edit title, publicContent, grading, and secretJudge.'}
+                      </p>
+                      <Button type="button" variant="outline" onClick={handleSaveDraftEditor}>
+                        {locale === 'zh-CN' ? '保存草稿修改' : 'Save draft changes'}
+                      </Button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           ) : null}

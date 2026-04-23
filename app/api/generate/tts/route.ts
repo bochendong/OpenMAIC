@@ -18,7 +18,7 @@ import { verbalizeNarrationText } from '@/lib/audio/spoken-text';
 
 const log = createLogger('TTS API');
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {

@@ -215,6 +215,32 @@ export async function commitNotebookProblemImport(args: {
   return data.problems;
 }
 
+export async function updateNotebookProblem(args: {
+  notebookId: string;
+  problemId: string;
+  patch: {
+    title?: string;
+    status?: 'draft' | 'published' | 'archived';
+    points?: number;
+    order?: number;
+    tags?: string[];
+    difficulty?: 'easy' | 'medium' | 'hard';
+    publicContent?: unknown;
+    grading?: unknown;
+    secretJudge?: unknown | null;
+  };
+}): Promise<NotebookProblemClientRecord> {
+  const data = await backendJson<{ problem: NotebookProblemClientRecord }>(
+    `/api/notebooks/${encodeURIComponent(args.notebookId)}/problems/${encodeURIComponent(args.problemId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args.patch),
+    },
+  );
+  return data.problem;
+}
+
 export async function commitCourseProblemImport(args: {
   courseId: string;
   drafts: NotebookProblemImportDraft[];

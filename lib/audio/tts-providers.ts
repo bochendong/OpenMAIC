@@ -97,6 +97,8 @@ import { analyzeMouthCuesFromAudio } from './rhubarb-lip-sync';
 import type { TTSModelConfig } from './types';
 import { TTS_PROVIDERS } from './constants';
 
+const MOUTH_CUE_ANALYSIS_TIMEOUT_MS = 4000;
+
 /**
  * Result of TTS generation
  */
@@ -156,10 +158,13 @@ export async function generateTTS(
   }
 
   if (!result.mouthCues?.length && config.providerId !== 'azure-tts') {
-    const analyzedMouthCues = await analyzeMouthCuesFromAudio(result.audio, result.format, text);
-    if (analyzedMouthCues?.length) {
-      result.mouthCues = analyzedMouthCues;
-    }
+    const analyzedMouthCues = await Promise.race([
+      analyzeMouthCuesFromAudio(result.audio, result.format, text),
+      new Promise<undefined>((resolve) =>
+        setTimeout(() => resolve(undefined), MOUTH_CUE_ANALYSIS_TIMEOUT_MS),
+      ),
+    ]);
+    if (analyzedMouthCues?.length) result.mouthCues = analyzedMouthCues;
   }
 
   return result;
