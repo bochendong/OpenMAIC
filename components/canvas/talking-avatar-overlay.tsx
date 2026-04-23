@@ -871,13 +871,34 @@ function resolveLive2dAssetUrl(path: string): string {
   ).__NEXT_DATA__;
   const assetPrefix = nextData?.assetPrefix?.trim() ?? '';
   const basePath = nextData?.basePath?.trim() ?? '';
-  const prefix = assetPrefix || basePath;
-  if (!prefix) return path;
 
-  if (/^https?:\/\//i.test(prefix)) {
-    return `${prefix.replace(/\/$/, '')}${path}`;
+  const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
+  const normalizePathPrefix = (value: string) => {
+    if (!value) return '';
+    const prefixed = value.startsWith('/') ? value : `/${value}`;
+    return trimTrailingSlash(prefixed);
+  };
+
+  const normalizedAssetPrefix = trimTrailingSlash(assetPrefix);
+  const normalizedBasePath = normalizePathPrefix(basePath);
+
+  // Next.js deployments may enable both assetPrefix and basePath.
+  // Live2D assets are under /public, so we need to preserve basePath
+  // even when an assetPrefix (especially absolute CDN URL) is set.
+  const needsBasePath =
+    normalizedBasePath &&
+    (!normalizedAssetPrefix || !normalizedAssetPrefix.endsWith(normalizedBasePath));
+  const pathWithBasePath = `${needsBasePath ? normalizedBasePath : ''}${path}`;
+
+  if (!normalizedAssetPrefix) {
+    return pathWithBasePath;
   }
-  return `${prefix.startsWith('/') ? prefix : `/${prefix}`}${path}`;
+  if (/^https?:\/\//i.test(normalizedAssetPrefix)) {
+    return `${normalizedAssetPrefix}${pathWithBasePath}`;
+  }
+
+  const relativePrefix = normalizePathPrefix(normalizedAssetPrefix);
+  return `${relativePrefix}${pathWithBasePath}`;
 }
 
 function normalizeUnknownError(error: unknown): {
