@@ -93,10 +93,7 @@ function getBalance(user: UserBalances, accountType: CreditAccountType): number 
   return user[getBalanceField(accountType)];
 }
 
-async function loadUserBalances(
-  db: CreditDbClient,
-  userId: string,
-): Promise<UserBalances | null> {
+async function loadUserBalances(db: CreditDbClient, userId: string): Promise<UserBalances | null> {
   return db.user.findUnique({
     where: { id: userId },
     select: {
@@ -122,17 +119,12 @@ export async function getUserCreditBalances(
   );
 }
 
-async function chargeCreditsForUsdCost(
-  args: ChargeCreditsForUsdArgs,
-): Promise<
-  | {
-      requestedCreditsCost: number;
-      chargedCredits: number;
-      previousBalance: number;
-      nextBalance: number;
-    }
-  | null
-> {
+async function chargeCreditsForUsdCost(args: ChargeCreditsForUsdArgs): Promise<{
+  requestedCreditsCost: number;
+  chargedCredits: number;
+  previousBalance: number;
+  nextBalance: number;
+} | null> {
   const userId = args.userId?.trim();
   if (!userId) return null;
 
@@ -149,14 +141,12 @@ async function chargeCreditsForUsdCost(
   const prisma = getOptionalPrisma();
   if (!prisma) return null;
 
-  let chargeSummary:
-    | {
-        requestedCreditsCost: number;
-        chargedCredits: number;
-        previousBalance: number;
-        nextBalance: number;
-      }
-    | null = null;
+  let chargeSummary: {
+    requestedCreditsCost: number;
+    chargedCredits: number;
+    previousBalance: number;
+    nextBalance: number;
+  } | null = null;
 
   await prisma.$transaction(async (tx) => {
     const balances = await getUserCreditBalances(tx, userId);
@@ -374,6 +364,8 @@ export async function chargeCreditsForTokenUsage(args: {
   route?: string | null;
   source?: string | null;
   modelString?: string | null;
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
   notebookId?: string | null;
   notebookName?: string | null;
   courseId?: string | null;
@@ -455,6 +447,8 @@ export async function chargeCreditsForTokenUsage(args: {
       route: args.route ?? null,
       source: args.source ?? null,
       modelString: args.modelString ?? null,
+      notebookGenerationSessionId: args.notebookGenerationSessionId ?? null,
+      notebookGenerationTaskId: args.notebookGenerationTaskId ?? null,
       notebookId: args.notebookId ?? null,
       notebookName: args.notebookName ?? null,
       courseId: args.courseId ?? null,
@@ -470,8 +464,7 @@ export async function chargeCreditsForTokenUsage(args: {
       chargeReason: args.chargeReason ?? null,
       serviceLabel: args.serviceLabel ?? null,
       estimatedBaseUsdCost,
-      retailMarkupMultiplier:
-        estimatedUsdCost == null ? null : OPENAI_RETAIL_MARKUP_MULTIPLIER,
+      retailMarkupMultiplier: estimatedUsdCost == null ? null : OPENAI_RETAIL_MARKUP_MULTIPLIER,
       pricingMode: estimatedUsdCost == null ? 'legacy-token-fallback' : 'openai-retail',
     },
   });
@@ -510,6 +503,8 @@ export async function chargeCreditsForImageGeneration(args: {
   modelId?: string | null;
   route?: string | null;
   prompt?: string | null;
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
   notebookId?: string | null;
   notebookName?: string | null;
   courseId?: string | null;
@@ -549,6 +544,8 @@ export async function chargeCreditsForImageGeneration(args: {
     metadata: {
       providerId: args.providerId ?? null,
       modelId: args.modelId ?? null,
+      notebookGenerationSessionId: args.notebookGenerationSessionId ?? null,
+      notebookGenerationTaskId: args.notebookGenerationTaskId ?? null,
       notebookId: args.notebookId ?? null,
       notebookName: args.notebookName ?? null,
       courseId: args.courseId ?? null,
@@ -580,6 +577,8 @@ export async function chargeCreditsForWebSearch(args: {
   query?: string | null;
   callCount?: number | null;
   source?: string | null;
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
   notebookId?: string | null;
   notebookName?: string | null;
   courseId?: string | null;
@@ -608,6 +607,8 @@ export async function chargeCreditsForWebSearch(args: {
     referenceType: 'web_search',
     referenceId: args.route?.trim() || undefined,
     metadata: {
+      notebookGenerationSessionId: args.notebookGenerationSessionId ?? null,
+      notebookGenerationTaskId: args.notebookGenerationTaskId ?? null,
       notebookId: args.notebookId ?? null,
       notebookName: args.notebookName ?? null,
       courseId: args.courseId ?? null,

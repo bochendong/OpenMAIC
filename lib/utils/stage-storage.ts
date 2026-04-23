@@ -10,6 +10,7 @@ import {
   sanitizeScenesForPersistence,
   writeStageDraftSnapshot,
 } from '@/lib/utils/stage-draft-snapshot';
+import { clearPersistedStageOutlines } from '@/lib/utils/stage-outline-storage';
 import { refreshSemanticSlideScene } from '@/lib/notebook-content/semantic-slide-render';
 
 const log = createLogger('StageStorage');
@@ -336,6 +337,7 @@ export async function deleteStageData(stageId: string): Promise<void> {
     method: 'DELETE',
   });
   await clearStageDraftSnapshot(stageId);
+  clearPersistedStageOutlines(stageId);
 }
 
 /**

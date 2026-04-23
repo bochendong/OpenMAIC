@@ -8,6 +8,10 @@ import { getCurrentPageGenerationData } from '@/lib/utils/current-page-generatio
 import { createLogger } from '@/lib/logger';
 import { applySceneUpdatesWithSpeechTtsInvalidation } from '@/lib/audio/speech-tts-invalidation';
 import { queueWriteStageDraftSnapshot } from '@/lib/utils/stage-draft-snapshot';
+import {
+  readPersistedStageOutlines,
+  writePersistedStageOutlines,
+} from '@/lib/utils/stage-outline-storage';
 
 const log = createLogger('StageStore');
 
@@ -166,7 +170,8 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   setScenes: (scenes) => {
     set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     // Auto-select first scene if no current scene
-    const nextCurrentSceneId = !get().currentSceneId && scenes.length > 0 ? scenes[0].id : get().currentSceneId;
+    const nextCurrentSceneId =
+      !get().currentSceneId && scenes.length > 0 ? scenes[0].id : get().currentSceneId;
     if (nextCurrentSceneId !== get().currentSceneId) {
       set({ currentSceneId: nextCurrentSceneId });
     }
@@ -195,7 +200,11 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       storageSaveError: null,
       ...(shouldSwitch ? { currentSceneId: scene.id } : {}),
     });
-    writeDraftSnapshotForState(currentStage, scenes, shouldSwitch ? scene.id : get().currentSceneId);
+    writeDraftSnapshotForState(
+      currentStage,
+      scenes,
+      shouldSwitch ? scene.id : get().currentSceneId,
+    );
     debouncedSave();
   },
 
@@ -259,11 +268,8 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
 
   setOutlines: (outlines) => {
     set({ outlines });
-    // Persist outlines to sessionStorage (deprecated local fallback)
     const stageId = get().stage?.id;
-    if (stageId && typeof window !== 'undefined') {
-      sessionStorage.setItem(`stage-outlines:${stageId}`, JSON.stringify(outlines));
-    }
+    if (stageId) writePersistedStageOutlines(stageId, outlines);
   },
 
   setGenerationStatus: (generationStatus) => set({ generationStatus }),
@@ -291,7 +297,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
     );
     const nextCurrentSceneId =
       state.currentSceneId === PENDING_SCENE_ID
-        ? state.scenes[state.scenes.length - 1]?.id ?? state.scenes[0]?.id ?? null
+        ? (state.scenes[state.scenes.length - 1]?.id ?? state.scenes[0]?.id ?? null)
         : state.currentSceneId;
 
     set({
@@ -305,8 +311,8 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       storageSaveError: null,
     });
 
-    if (state.stage?.id && typeof window !== 'undefined') {
-      sessionStorage.setItem(`stage-outlines:${state.stage.id}`, JSON.stringify(nextOutlines));
+    if (state.stage?.id) {
+      writePersistedStageOutlines(state.stage.id, nextOutlines);
     }
 
     writeDraftSnapshotForState(state.stage, state.scenes, nextCurrentSceneId);
@@ -445,21 +451,18 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       const { loadStageData } = await import('@/lib/utils/stage-storage');
       const data = await loadStageData(stageId);
 
-      // Load outlines for resume-on-refresh (sessionStorage fallback)
-      const outlines =
-        typeof window !== 'undefined'
-          ? (JSON.parse(sessionStorage.getItem(`stage-outlines:${stageId}`) || '[]') as SceneOutline[])
-          : [];
+      const outlines = readPersistedStageOutlines(stageId);
 
       if (data) {
         const loadedScenes = Array.isArray(data.scenes) ? data.scenes : [];
         const loadedChats = Array.isArray(data.chats) ? data.chats : [];
-        const pendingOutlines = outlines.filter((o) => !loadedScenes.some((s) => s.order === o.order));
+        const pendingOutlines = outlines.filter(
+          (o) => !loadedScenes.some((s) => s.order === o.order),
+        );
         const resolvedCurrentSceneId =
           data.currentSceneId && loadedScenes.some((scene) => scene.id === data.currentSceneId)
             ? data.currentSceneId
-            : loadedScenes[0]?.id ||
-              (pendingOutlines.length > 0 ? PENDING_SCENE_ID : null);
+            : loadedScenes[0]?.id || (pendingOutlines.length > 0 ? PENDING_SCENE_ID : null);
         set({
           stage: data.stage,
           scenes: loadedScenes,

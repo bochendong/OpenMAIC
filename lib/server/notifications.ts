@@ -53,8 +53,11 @@ type TokenUsageGroup = {
 };
 
 type NotebookGenerationGroup = {
+  groupKey: string;
   notebookKey: string;
   notebookLabel: string;
+  notebookGenerationSessionId?: string;
+  notebookGenerationTaskId?: string;
   rows: CreditNotificationRow[];
   newestCreatedAt: Date;
   oldestCreatedAt: Date;
@@ -450,25 +453,38 @@ function inferUsageContext(row: CreditNotificationRow): UsageContext {
 }
 
 function getNotebookKey(row: CreditNotificationRow): string {
-  return getMetadataString(row.metadata, 'notebookId') || getMetadataString(row.metadata, 'notebookName');
+  return (
+    getMetadataString(row.metadata, 'notebookId') || getMetadataString(row.metadata, 'notebookName')
+  );
+}
+
+function getNotebookGenerationSessionId(row: CreditNotificationRow): string {
+  return getMetadataString(row.metadata, 'notebookGenerationSessionId');
+}
+
+function getNotebookGenerationTaskId(row: CreditNotificationRow): string {
+  return getMetadataString(row.metadata, 'notebookGenerationTaskId');
+}
+
+function getNotebookGenerationGroupKey(row: CreditNotificationRow): string {
+  return (
+    getNotebookGenerationTaskId(row) || getNotebookGenerationSessionId(row) || getNotebookKey(row)
+  );
 }
 
 function isNotebookGenerationGroupCandidate(row: CreditNotificationRow): boolean {
   if (row.kind !== CreditTransactionKind.TOKEN_USAGE) return false;
 
-  const notebookKey = getNotebookKey(row);
-  if (!notebookKey) return false;
-
   const operationCode = getOperationCode(row);
-  return NOTEBOOK_GENERATION_OPERATION_CODES.has(operationCode);
+  if (!NOTEBOOK_GENERATION_OPERATION_CODES.has(operationCode)) return false;
+
+  return Boolean(getNotebookGenerationGroupKey(row));
 }
 
 function summarizeOperationLabels(rows: CreditNotificationRow[]): string {
   const labels = Array.from(
     new Set(
-      rows
-        .map((row) => getReasonLabel(row))
-        .filter((label): label is string => Boolean(label)),
+      rows.map((row) => getReasonLabel(row)).filter((label): label is string => Boolean(label)),
     ),
   );
 
@@ -491,20 +507,18 @@ function buildNotebookGenerationDetails(group: NotebookGenerationGroup): AppNoti
 }
 
 function mapNotebookGenerationGroupToNotification(group: NotebookGenerationGroup): AppNotification {
-  if (group.rows.length === 1) {
-    return mapCreditTransactionToNotification(group.rows[0]);
-  }
-
   const newestRow = group.rows[0];
   const totalDelta = group.rows.reduce((sum, row) => sum + row.delta, 0);
   const usageCount = group.rows.length;
   const stageSummary = summarizeOperationLabels(group.rows);
+  const notebookLabel = getNotebookLabel(newestRow) || group.notebookLabel;
+  const targetLabel = notebookLabel ? `笔记本《${notebookLabel}》` : '这次笔记本生成';
 
   return {
-    id: `notebook-generation-group:${newestRow.id}`,
+    id: `notebook-generation-group:${group.notebookGenerationTaskId || group.notebookGenerationSessionId || newestRow.id}`,
     kind: 'credit_spent',
     title: '笔记本生成共扣费',
-    body: `笔记本《${group.notebookLabel}》这次生成我帮你合并记成一笔了。共触发 ${usageCount} 次生成调用${stageSummary ? `，涵盖 ${stageSummary}` : ''}，总计消耗 ${formatAccountValue(
+    body: `${targetLabel}我帮你合并记成一笔了。共触发 ${usageCount} 次生成调用${stageSummary ? `，涵盖 ${stageSummary}` : ''}，总计消耗 ${formatAccountValue(
       newestRow.accountType,
       Math.abs(totalDelta),
     )}，当前余额 ${formatAccountValue(newestRow.accountType, newestRow.balanceAfter)}。`,
@@ -575,8 +589,12 @@ function shouldAppendToNotebookGenerationGroup(
   group: NotebookGenerationGroup,
   row: CreditNotificationRow,
 ): boolean {
-  if (group.notebookKey !== getNotebookKey(row)) return false;
-  return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS;
+  if (group.groupKey !== getNotebookGenerationGroupKey(row)) return false;
+  if (group.notebookGenerationTaskId || group.notebookGenerationSessionId) return true;
+  return (
+    group.oldestCreatedAt.getTime() - row.createdAt.getTime() <=
+    NOTEBOOK_GENERATION_GROUP_IDLE_GAP_MS
+  );
 }
 
 function isCreditTransferKind(
@@ -596,7 +614,9 @@ function shouldAppendToCreditTransferGroup(
   const previousAmount = Math.abs(group.rows[group.rows.length - 1]?.delta ?? 0);
   if (previousAmount <= 0 || Math.abs(row.delta) <= 0) return false;
   if (previousAmount !== Math.abs(row.delta)) return false;
-  return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= CREDIT_TRANSFER_GROUP_WINDOW_MS;
+  return (
+    group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= CREDIT_TRANSFER_GROUP_WINDOW_MS
+  );
 }
 
 function mapCreditTransferGroupToNotification(group: CreditTransferGroup): AppNotification {
@@ -631,7 +651,10 @@ function getQuizReferenceKey(row: CreditNotificationRow): string {
   return getMetadataString(row.metadata, 'referenceKey') || row.referenceId?.trim() || '';
 }
 
-function shouldAppendToQuizRewardGroup(group: QuizRewardGroup, row: CreditNotificationRow): boolean {
+function shouldAppendToQuizRewardGroup(
+  group: QuizRewardGroup,
+  row: CreditNotificationRow,
+): boolean {
   if (!isQuizRewardKind(row.kind)) return false;
   if (group.referenceKey !== getQuizReferenceKey(row)) return false;
   return group.oldestCreatedAt.getTime() - row.createdAt.getTime() <= QUIZ_REWARD_GROUP_WINDOW_MS;
@@ -729,6 +752,32 @@ export async function listUserNotifications(
     },
   });
 
+  const notebookGenerationTaskIds = Array.from(
+    new Set(
+      rows
+        .map((row) => getNotebookGenerationTaskId(row))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const activeNotebookGenerationTaskIds = new Set<string>();
+  if (notebookGenerationTaskIds.length > 0) {
+    const tasks = await db.agentTask.findMany({
+      where: {
+        id: { in: notebookGenerationTaskIds },
+        ownerId: userId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+    for (const task of tasks) {
+      if (task.status === 'queued' || task.status === 'running' || task.status === 'waiting') {
+        activeNotebookGenerationTaskIds.add(task.id);
+      }
+    }
+  }
+
   const notifications: AppNotification[] = [];
   let currentTokenUsageGroup: TokenUsageGroup | null = null;
   let currentNotebookGenerationGroup: NotebookGenerationGroup | null = null;
@@ -743,6 +792,13 @@ export async function listUserNotifications(
 
   const flushNotebookGenerationGroup = () => {
     if (!currentNotebookGenerationGroup) return;
+    if (
+      currentNotebookGenerationGroup.notebookGenerationTaskId &&
+      activeNotebookGenerationTaskIds.has(currentNotebookGenerationGroup.notebookGenerationTaskId)
+    ) {
+      currentNotebookGenerationGroup = null;
+      return;
+    }
     notifications.push(mapNotebookGenerationGroupToNotification(currentNotebookGenerationGroup));
     currentNotebookGenerationGroup = null;
   };
@@ -816,14 +872,24 @@ export async function listUserNotifications(
         shouldAppendToNotebookGenerationGroup(currentNotebookGenerationGroup, row)
       ) {
         currentNotebookGenerationGroup.rows.push(row);
+        if (!currentNotebookGenerationGroup.notebookKey) {
+          currentNotebookGenerationGroup.notebookKey = getNotebookKey(row);
+        }
+        if (!currentNotebookGenerationGroup.notebookLabel) {
+          currentNotebookGenerationGroup.notebookLabel =
+            getNotebookLabel(row) || getNotebookKey(row);
+        }
         currentNotebookGenerationGroup.oldestCreatedAt = row.createdAt;
         continue;
       }
 
       flushNotebookGenerationGroup();
       currentNotebookGenerationGroup = {
+        groupKey: getNotebookGenerationGroupKey(row),
         notebookKey: getNotebookKey(row),
         notebookLabel: getNotebookLabel(row) || getNotebookKey(row),
+        notebookGenerationSessionId: getNotebookGenerationSessionId(row) || undefined,
+        notebookGenerationTaskId: getNotebookGenerationTaskId(row) || undefined,
         rows: [row],
         newestCreatedAt: row.createdAt,
         oldestCreatedAt: row.createdAt,

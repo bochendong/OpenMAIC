@@ -10,6 +10,8 @@ export interface LLMUsagePayload {
   userName?: string | null;
   route: string;
   source: string;
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
   providerId: string;
   modelId: string;
   modelString: string;
@@ -90,6 +92,8 @@ export async function recordLLMUsage(payload: LLMUsagePayload): Promise<void> {
       route: payload.route,
       source: payload.source,
       modelString: payload.modelString,
+      notebookGenerationSessionId: payload.notebookGenerationSessionId,
+      notebookGenerationTaskId: payload.notebookGenerationTaskId,
       notebookId: payload.notebookId,
       notebookName: payload.notebookName,
       courseId: payload.courseId,

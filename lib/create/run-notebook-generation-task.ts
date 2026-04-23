@@ -38,6 +38,7 @@ import type {
 import { parsePdfForGeneration } from '@/lib/pdf/parse-for-generation';
 import type { PdfSourceSelection } from '@/lib/pdf/page-selection';
 import { backendFetch } from '@/lib/utils/backend-api';
+import { writePersistedStageOutlines } from '@/lib/utils/stage-outline-storage';
 
 type NotebookMetadata = {
   name: string;
@@ -85,6 +86,7 @@ export type NotebookGenerationProgress =
 
 export type NotebookGenerationTaskInput = {
   courseId?: string;
+  generationTaskId?: string | null;
   requirement: string;
   /** 仅覆盖本次 notebook 创建链路所用的 OpenAI 模型；null/undefined 时沿用当前设置 */
   modelIdOverride?: string | null;
@@ -126,6 +128,8 @@ function getApiHeaders(overrides?: {
   modelIdOverride?: string | null;
   notebookStageModelOverrides?: NotebookStageModelOverrides | null;
   notebookModelMode?: NotebookGenerationModelMode;
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
 }): HeadersInit {
   const modelConfig = getCurrentModelConfig();
   const settings = useSettingsStore.getState();
@@ -178,6 +182,33 @@ function getApiHeaders(overrides?: {
         }
       }
     }
+  }
+
+  const notebookGenerationSessionId = overrides?.notebookGenerationSessionId?.trim();
+  const notebookGenerationTaskId = overrides?.notebookGenerationTaskId?.trim();
+  if (notebookGenerationSessionId) {
+    headers['x-notebook-generation-session-id'] = notebookGenerationSessionId;
+  }
+  if (notebookGenerationTaskId) {
+    headers['x-notebook-generation-task-id'] = notebookGenerationTaskId;
+  }
+
+  return headers;
+}
+
+function getNotebookGenerationTrackingHeaders(tracking?: {
+  notebookGenerationSessionId?: string | null;
+  notebookGenerationTaskId?: string | null;
+}): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const notebookGenerationSessionId = tracking?.notebookGenerationSessionId?.trim();
+  const notebookGenerationTaskId = tracking?.notebookGenerationTaskId?.trim();
+
+  if (notebookGenerationSessionId) {
+    headers['x-notebook-generation-session-id'] = notebookGenerationSessionId;
+  }
+  if (notebookGenerationTaskId) {
+    headers['x-notebook-generation-task-id'] = notebookGenerationTaskId;
   }
 
   return headers;
@@ -236,9 +267,11 @@ function buildShortFailureReason(message: string): string {
 async function readApiErrorMessage(response: Response, fallback: string): Promise<string> {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
-    const data = (await response.json().catch(() => null)) as
-      | { error?: string; message?: string; details?: string }
-      | null;
+    const data = (await response.json().catch(() => null)) as {
+      error?: string;
+      message?: string;
+      details?: string;
+    } | null;
     const diagnosticsSummary = summarizeSceneContentDiagnostics(data?.details);
     const baseMessage = data?.message?.trim() || data?.error?.trim() || '';
     if (baseMessage && diagnosticsSummary) return `${baseMessage} (${diagnosticsSummary})`;
@@ -509,6 +542,10 @@ async function maybeRunWebSearch(args: {
   requirement: string;
   enabled: boolean;
   signal?: AbortSignal;
+  tracking?: {
+    notebookGenerationSessionId?: string | null;
+    notebookGenerationTaskId?: string | null;
+  };
   usageContext?: {
     courseId?: string;
     courseName?: string;
@@ -524,7 +561,10 @@ async function maybeRunWebSearch(args: {
 
   const res = await backendFetch('/api/web-search', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...getNotebookGenerationTrackingHeaders(args.tracking),
+    },
     body: JSON.stringify({
       query: args.requirement,
       apiKey,
@@ -1368,6 +1408,7 @@ export async function runNotebookGenerationTask(
         : (settings.imageGenerationEnabled ?? false),
     videoEnabled: settings.videoGenerationEnabled ?? false,
   };
+  const notebookGenerationSessionId = nanoid(12);
   const getHeaders = () =>
     getApiHeaders({
       imageGenerationEnabled:
@@ -1377,6 +1418,8 @@ export async function runNotebookGenerationTask(
       modelIdOverride: input.modelIdOverride,
       notebookStageModelOverrides: input.notebookStageModelOverrides ?? undefined,
       notebookModelMode: input.notebookModelMode ?? 'recommended',
+      notebookGenerationSessionId,
+      notebookGenerationTaskId: input.generationTaskId,
     });
   input.onProgress?.({ stage: 'preparing', detail: '正在初始化创建任务…' });
 
@@ -1459,6 +1502,10 @@ export async function runNotebookGenerationTask(
         requirement,
         enabled: webSearch,
         signal: input.signal,
+        tracking: {
+          notebookGenerationSessionId,
+          notebookGenerationTaskId: input.generationTaskId,
+        },
         usageContext: {
           courseId: currentCourse?.id,
           courseName: currentCourse?.name,
@@ -1490,7 +1537,7 @@ export async function runNotebookGenerationTask(
     });
 
     const stageId = nanoid(10);
-    const stage: Stage = {
+    let stage: Stage = {
       id: stageId,
       courseId: resolvedCourseId,
       avatarUrl: pickStableNotebookAgentAvatarUrl(stageId),
@@ -1595,6 +1642,7 @@ export async function runNotebookGenerationTask(
     });
 
     if (!outlines.length) throw new Error('未生成任何课程大纲');
+    writePersistedStageOutlines(stage.id, outlines);
 
     const scenes: Scene[] = [];
     const failedScenes: Array<{ outlineId: string; title: string; error: string }> = [];
@@ -1629,10 +1677,21 @@ export async function runNotebookGenerationTask(
         if (result.effectiveOutlines.length > 1) {
           const spliced = spliceGeneratedOutlines(outlines, outline.id, result.effectiveOutlines);
           outlines = spliced.outlines;
+          writePersistedStageOutlines(stage.id, outlines);
           i += result.effectiveOutlines.length - 1;
         }
         scenes.push(...result.scenes);
         previousSpeeches = result.previousSpeeches;
+        stage = {
+          ...stage,
+          updatedAt: Date.now(),
+        };
+        await saveStageData(stage.id, {
+          stage,
+          scenes,
+          currentSceneId: scenes[0]?.id || null,
+          chats: [],
+        });
       } catch (error) {
         const message =
           error instanceof Error
@@ -1661,19 +1720,17 @@ export async function runNotebookGenerationTask(
     }
 
     input.onProgress?.({ stage: 'saving', detail: '正在保存笔记本与页面…' });
+    stage = {
+      ...stage,
+      updatedAt: Date.now(),
+    };
     await saveStageData(stage.id, {
-      stage: {
-        ...stage,
-        updatedAt: Date.now(),
-      },
+      stage,
       scenes,
       currentSceneId: scenes[0]?.id || null,
       chats: [],
     });
-
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem(`stage-outlines:${stage.id}`, JSON.stringify(outlines));
-    }
+    writePersistedStageOutlines(stage.id, outlines);
 
     input.onProgress?.({
       stage: 'completed',

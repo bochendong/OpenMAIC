@@ -1429,6 +1429,25 @@ export function ChatPageClient() {
     if (agentId !== COURSE_ORCHESTRATOR_ID) return;
     setOrchestratorComposerMode(comp as OrchestratorComposerMode);
   }, [searchParams, agentId]);
+
+  const notebookGenerationInFlight =
+    agentId === COURSE_ORCHESTRATOR_ID &&
+    (chatView === 'group' ? 'group' : 'private') === 'private' &&
+    orchestratorComposerMode === 'generate-notebook' &&
+    sending;
+
+  useEffect(() => {
+    if (!notebookGenerationInFlight || typeof window === 'undefined') return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [notebookGenerationInFlight]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerDragDepthRef = useRef(0);
@@ -2976,6 +2995,7 @@ export function ChatPageClient() {
           const orchGen = useOrchestratorNotebookGenStore.getState();
           const created = await runNotebookGenerationTask({
             courseId: courseId || undefined,
+            generationTaskId: parentTaskId,
             requirement: mergedPrompt,
             modelIdOverride: orchGen.modelIdOverride,
             notebookStageModelOverrides: orchGen.notebookStageModelOverrides,
@@ -3002,6 +3022,22 @@ export function ChatPageClient() {
               });
               if (progress.stage === 'completed') {
                 return;
+              }
+              if (progress.stage === 'notebook-ready') {
+                if (courseId) {
+                  window.dispatchEvent(
+                    new CustomEvent('synatra-notebook-list-updated', {
+                      detail: { courseId, notebookId: progress.notebookId },
+                    }),
+                  );
+                }
+                if (parentTaskId) {
+                  void updateAgentTask(parentTaskId, {
+                    detail: progress.detail,
+                    status: 'running',
+                    notebookId: progress.notebookId,
+                  });
+                }
               }
               setOrchestratorPipelineProgress(progress);
               if (parentTaskId) {

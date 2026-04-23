@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
   return runWithRequestContext(req, '/api/web-search', async () => {
     try {
       const body = await req.json();
-      const { query, apiKey: clientApiKey, usageContext } = body as {
+      const {
+        query,
+        apiKey: clientApiKey,
+        usageContext,
+      } = body as {
         query?: string;
         apiKey?: string;
         usageContext?: {
@@ -63,6 +67,8 @@ export async function POST(req: NextRequest) {
         userId: getRequestContext()?.userId,
         route: '/api/web-search',
         query: query.trim(),
+        notebookGenerationSessionId: getRequestContext()?.notebookGenerationSessionId,
+        notebookGenerationTaskId: getRequestContext()?.notebookGenerationTaskId,
         notebookId: usageContext?.notebookId,
         notebookName: usageContext?.notebookName,
         courseId: usageContext?.courseId,

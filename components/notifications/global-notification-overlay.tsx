@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Heart } from 'lucide-react';
 import { TalkingAvatarOverlay } from '@/components/canvas/talking-avatar-overlay';
@@ -186,9 +187,11 @@ function NotificationBannerCard({ item }: { item: AppNotification }) {
 }
 
 export function GlobalNotificationOverlay() {
+  const pathname = usePathname();
   const activeBanners = useNotificationStore((state) => state.activeBanners);
+  const suppressOnLive2dPage = pathname === '/live2d' || pathname?.startsWith('/live2d/');
 
-  if (activeBanners.length === 0) return null;
+  if (activeBanners.length === 0 || suppressOnLive2dPage) return null;
 
   return (
     <div className="pointer-events-none fixed inset-x-0 top-4 z-[1600] flex justify-center px-4 sm:justify-end sm:px-6">

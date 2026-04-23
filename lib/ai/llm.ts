@@ -77,6 +77,8 @@ async function persistUsage(
     userName: requestContext?.userName,
     route: requestContext?.route || 'unknown',
     source,
+    notebookGenerationSessionId: requestContext?.notebookGenerationSessionId,
+    notebookGenerationTaskId: requestContext?.notebookGenerationTaskId,
     providerId,
     modelId,
     modelString: `${providerId}:${modelId}`,

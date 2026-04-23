@@ -45,6 +45,18 @@ type GrantResponse = {
   granted: number;
 };
 
+type UnlockAllResourcesResponse = {
+  success: true;
+  user: {
+    id: string;
+    email: string | null;
+    name: string | null;
+  };
+  unlockedLive2dCount: number;
+  unlockedAvatarCharacterCount: number;
+  unlockedAvatarInventoryCount: number;
+};
+
 type BackfillPreviewResponse = {
   success: true;
   targetCredits: number;
@@ -77,6 +89,7 @@ export function AdminCreditsSection() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [unlockingAll, setUnlockingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<CreditUserRow[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -179,6 +192,37 @@ export function AdminCreditsSection() {
       toast.error(loadError instanceof Error ? loadError.message : String(loadError));
     } finally {
       setBackfillLoading(false);
+    }
+  };
+
+  const handleUnlockAllResources = async () => {
+    if (!selectedUserId) {
+      toast.error('先搜索并选择一个用户');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      '将为该用户解锁全部资源（Live2D、头像收藏、角色相关测试资源），仅用于测试。确认继续吗？',
+    );
+    if (!confirmed) return;
+
+    setUnlockingAll(true);
+    try {
+      const response = await backendJson<UnlockAllResourcesResponse>(
+        '/api/admin/gamification/unlock-all',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ userId: selectedUserId }),
+        },
+      );
+      toast.success(
+        `已完成测试解锁：Live2D ${response.unlockedLive2dCount} 个，角色头像包 ${response.unlockedAvatarCharacterCount} 个，头像收藏 ${response.unlockedAvatarInventoryCount} 个`,
+      );
+    } catch (unlockError) {
+      toast.error(unlockError instanceof Error ? unlockError.message : String(unlockError));
+    } finally {
+      setUnlockingAll(false);
     }
   };
 
@@ -338,6 +382,15 @@ export function AdminCreditsSection() {
               <Button type="button" onClick={() => void handleGrant()} disabled={!selectedUserId || submitting}>
                 {submitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Gift className="mr-2 size-4" />}
                 发放积分
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleUnlockAllResources()}
+                disabled={!selectedUserId || unlockingAll}
+              >
+                {unlockingAll ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                解锁全部资源（测试）
               </Button>
             </div>
           </div>

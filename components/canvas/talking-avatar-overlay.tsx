@@ -31,8 +31,8 @@ interface TalkingAvatarOverlayProps extends TalkingAvatarOverlayState {
   readonly className?: string;
   /** `overlay` = 幻灯片角标；`sidebar` = 左侧栏全高面板；`card` = 设置面板卡片预览 */
   readonly layout?: 'overlay' | 'sidebar' | 'card';
-  /** 仅在 `layout=card` 下生效，用于卡片预览取景（默认全身，half=半身） */
-  readonly cardFraming?: 'default' | 'half';
+  /** 仅在 `layout=card` 下生效，用于卡片预览取景（default=卡片全身，half=半身，stage=舞台全身居中） */
+  readonly cardFraming?: 'default' | 'half' | 'stage';
   readonly pointerInteraction?: TalkingAvatarPointerInteractionState | null;
   readonly modelIdOverride?: Live2DPresenterModelId;
   readonly manualMotionTrigger?: {
@@ -256,11 +256,7 @@ export function TalkingAvatarOverlay({
 
       mount.replaceChildren(app.view as HTMLCanvasElement);
 
-      const model = (await Live2DModel.from(modelConfig.modelSrc, {
-        autoFocus: false,
-        autoHitTest: false,
-        idleMotionGroup: modelConfig.idleMotionGroup,
-      })) as Live2DModelInstance;
+      const model = await loadPresenterModel(Live2DModel, modelConfig);
 
       if (cancelled) {
         app.destroy(true, { children: true });
@@ -313,7 +309,11 @@ export function TalkingAvatarOverlay({
     };
 
     setup().catch((error) => {
-      console.error('Failed to initialize Live2D presenter', error);
+      console.error('Failed to initialize Live2D presenter', {
+        modelId: modelConfig.id,
+        modelSrc: modelConfig.modelSrc,
+        error,
+      });
       setStatus('error');
     });
 
@@ -337,7 +337,7 @@ export function TalkingAvatarOverlay({
         mountElement.replaceChildren();
       }
     };
-  }, [cardFraming, layout, modelConfig.idleMotionGroup, modelConfig.modelSrc]);
+  }, [cardFraming, layout, modelConfig]);
 
   return (
     <div
@@ -376,10 +376,20 @@ export function TalkingAvatarOverlay({
           </div>
         )}
 
+        <img
+          src={modelConfig.previewSrc}
+          alt={modelConfig.badgeLabel}
+          className={cn(
+            'absolute inset-0 h-full w-full object-cover transition-opacity duration-300',
+            status === 'ready' ? 'opacity-0' : 'opacity-100',
+          )}
+          draggable={false}
+        />
+
         <div
           ref={mountRef}
           className={cn(
-            'relative w-full overflow-hidden bg-transparent',
+            'relative z-[1] w-full overflow-hidden bg-transparent',
             layout === 'overlay'
               ? 'h-52 [mask-image:linear-gradient(180deg,black_80%,transparent_100%)] sm:h-60'
               : layout === 'sidebar'
@@ -398,18 +408,56 @@ export function TalkingAvatarOverlay({
   );
 }
 
+async function loadPresenterModel(
+  Live2DModel: Live2DModule['Live2DModel'],
+  modelConfig: {
+    id: string;
+    modelSrc: string;
+    idleMotionGroup: string;
+  },
+): Promise<Live2DModelInstance> {
+  const baseOptions = {
+    autoFocus: false,
+    autoHitTest: false,
+  } as const;
+
+  try {
+    return (await Live2DModel.from(modelConfig.modelSrc, {
+      ...baseOptions,
+      idleMotionGroup: modelConfig.idleMotionGroup,
+    })) as Live2DModelInstance;
+  } catch (primaryError) {
+    console.warn('Primary Live2D load failed, retrying without idle motion preload', {
+      modelId: modelConfig.id,
+      modelSrc: modelConfig.modelSrc,
+      idleMotionGroup: modelConfig.idleMotionGroup,
+      error: primaryError,
+    });
+
+    return (await Live2DModel.from(modelConfig.modelSrc, baseOptions)) as Live2DModelInstance;
+  }
+}
+
 function fitModelToFrame(
   model: Live2DModelInstance,
   mount: HTMLDivElement,
   baseSize: ModelBaseSize,
   layout: 'overlay' | 'sidebar' | 'card',
-  cardFraming: 'default' | 'half' = 'default',
+  cardFraming: 'default' | 'half' | 'stage' = 'default',
 ) {
   const width = mount.clientWidth;
   const height = mount.clientHeight;
   if (!width || !height) return;
 
   if (layout === 'card') {
+    if (cardFraming === 'stage') {
+      model.anchor.set(0.5, 0.5);
+      const scale = Math.min((width * 0.9) / baseSize.width, (height * 0.9) / baseSize.height);
+      model.scale.set(scale);
+      model.position.set(width * 0.5, height * 0.5);
+      return;
+    }
+
     const isHalf = cardFraming === 'half';
     model.anchor.set(0.5, isHalf ? 0.08 : 0.04);
     const scale =

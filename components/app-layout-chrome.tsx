@@ -19,8 +19,8 @@ function railOuterPaddingPx(collapsed: boolean): number {
 
 function MainShellNoRail({ children }: { children: ReactNode }) {
   return (
-    <div className="box-border min-h-dvh py-4 px-4">
-      <div className="h-[calc(100dvh-2rem)] w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[20px]">
+    <div className="box-border min-h-dvh px-4 pt-4 pb-0">
+      <div className="h-[calc(100dvh-1rem)] w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[20px]">
         {children}
       </div>
     </div>
@@ -113,11 +113,11 @@ function SidebarInset({
 
   return (
     <div
-      className="box-border min-h-dvh py-4 transition-[padding-left,padding-right] duration-300 ease-in-out"
+      className="box-border min-h-dvh pt-4 pb-0 transition-[padding-left,padding-right] duration-300 ease-in-out"
       style={{ paddingLeft: padLeft, paddingRight: padRight }}
     >
-      {/* 与侧栏一致：top-4 + h-[calc(100dvh-2rem)] + rounded-[20px] */}
-      <div className="h-[calc(100dvh-2rem)] w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[20px]">
+      {/* 与侧栏一致：top-4 + h-[calc(100dvh-1rem)] + rounded-[20px] */}
+      <div className="h-[calc(100dvh-1rem)] w-full min-w-0 overflow-x-hidden overflow-y-auto rounded-[20px]">
         {children}
       </div>
     </div>

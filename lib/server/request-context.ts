@@ -10,6 +10,8 @@ export interface RequestLLMContext {
   userEmail?: string;
   userName?: string;
   route?: string;
+  notebookGenerationSessionId?: string;
+  notebookGenerationTaskId?: string;
   notebookId?: string;
   notebookName?: string;
   courseId?: string;
@@ -80,12 +82,19 @@ export async function runWithRequestContext<T>(
     }
   }
 
+  const notebookGenerationSessionId =
+    req.headers.get('x-notebook-generation-session-id')?.trim() || undefined;
+  const notebookGenerationTaskId =
+    req.headers.get('x-notebook-generation-task-id')?.trim() || undefined;
+
   if (route.startsWith('/api/generate/') || !user?.id) {
     log.info('Resolved request user', {
       route,
       authSource,
       userId: user?.id ?? null,
       userEmail: user?.email ?? null,
+      notebookGenerationSessionId: notebookGenerationSessionId ?? null,
+      notebookGenerationTaskId: notebookGenerationTaskId ?? null,
     });
   }
 
@@ -95,6 +104,8 @@ export async function runWithRequestContext<T>(
       userId: user?.id,
       userEmail: user?.email,
       userName: user?.name,
+      notebookGenerationSessionId,
+      notebookGenerationTaskId,
       ...extraContext,
     },
     callback,

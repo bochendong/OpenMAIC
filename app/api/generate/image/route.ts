@@ -72,7 +72,9 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const baseUrl = clientBaseUrl ? clientBaseUrl : resolveImageBaseUrl(providerId, clientBaseUrl);
+      const baseUrl = clientBaseUrl
+        ? clientBaseUrl
+        : resolveImageBaseUrl(providerId, clientBaseUrl);
 
       // Resolve dimensions from aspect ratio if not explicitly set
       if (!body.width && !body.height && body.aspectRatio) {
@@ -99,6 +101,8 @@ export async function POST(request: NextRequest) {
           modelId: result.usage?.modelId || clientModel || 'gpt-image-1.5',
           route: '/api/generate/image',
           prompt: body.prompt,
+          notebookGenerationSessionId: getRequestContext()?.notebookGenerationSessionId,
+          notebookGenerationTaskId: getRequestContext()?.notebookGenerationTaskId,
           notebookId: body.notebookContext?.id,
           notebookName: body.notebookContext?.name,
           courseId: body.notebookContext?.courseId,
