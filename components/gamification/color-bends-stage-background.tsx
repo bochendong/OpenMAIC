@@ -219,14 +219,10 @@ export function ColorBendsStageBackground({
     };
 
     handleResize();
-
-    if ('ResizeObserver' in window) {
-      const observer = new ResizeObserver(handleResize);
-      observer.observe(container);
-      resizeObserverRef.current = observer;
-    } else {
-      window.addEventListener('resize', handleResize);
-    }
+    window.addEventListener('resize', handleResize);
+    const observer = new ResizeObserver(handleResize);
+    observer.observe(container);
+    resizeObserverRef.current = observer;
 
     const loop = () => {
       const dt = clock.getDelta();
@@ -251,8 +247,8 @@ export function ColorBendsStageBackground({
 
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      if (resizeObserverRef.current) resizeObserverRef.current.disconnect();
-      else window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', handleResize);
+      resizeObserverRef.current?.disconnect();
       geometry.dispose();
       material.dispose();
       renderer.dispose();
