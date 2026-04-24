@@ -232,7 +232,11 @@ export function TalkingAvatarOverlay({
 
       setStatus('loading');
 
-      await ensureCubismCore(resolvedCoreSrc);
+      await ensureCubismCoreRuntimeWithFallback(
+        resolvedCoreSrc,
+        LIVE2D_CORE_CDN_FALLBACK_SRC,
+        modelConfig.id,
+      );
 
       const PIXI = await import('pixi.js');
       window.PIXI = PIXI;
@@ -829,7 +833,8 @@ async function ensureCubismCore(coreSrc: string) {
       }
 
       const script = document.createElement('script');
-      script.async = true;
+      script.async = false;
+      script.type = 'text/javascript';
       script.dataset.synatraLive2d = 'true';
       script.src = coreSrc;
       script.onload = () => resolve();
@@ -842,6 +847,9 @@ async function ensureCubismCore(coreSrc: string) {
   }
 
   await window.__synatraLive2DCorePromise;
+  if (!window.Live2DCubismCore) {
+    throw new Error(`Cubism core loaded but runtime global is missing: ${coreSrc}`);
+  }
 }
 
 async function forceReloadCubismCore(coreSrc: string) {
@@ -860,6 +868,37 @@ async function forceReloadCubismCore(coreSrc: string) {
 
   const cacheBustedSrc = `${coreSrc}${coreSrc.includes('?') ? '&' : '?'}reload=${Date.now()}`;
   await ensureCubismCore(cacheBustedSrc);
+}
+
+async function ensureCubismCoreRuntimeWithFallback(
+  primaryCoreSrc: string,
+  fallbackCoreSrc: string,
+  modelId: string,
+) {
+  try {
+    await ensureCubismCore(primaryCoreSrc);
+    return;
+  } catch (primaryError) {
+    console.warn('Primary Cubism core load failed, forcing local reload', {
+      modelId,
+      coreSrc: primaryCoreSrc,
+      error: normalizeUnknownError(primaryError),
+    });
+  }
+
+  try {
+    await forceReloadCubismCore(primaryCoreSrc);
+    return;
+  } catch (reloadError) {
+    console.warn('Local Cubism core reload failed, trying CDN fallback', {
+      modelId,
+      coreSrc: primaryCoreSrc,
+      fallbackCoreSrc,
+      error: normalizeUnknownError(reloadError),
+    });
+  }
+
+  await forceReloadCubismCore(fallbackCoreSrc);
 }
 
 function resolveLive2dAssetUrl(path: string): string {
