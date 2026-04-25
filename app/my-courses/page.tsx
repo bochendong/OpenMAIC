@@ -345,7 +345,6 @@ export default function MyCoursesPage() {
         >
           <DialogHeader className="pr-8 text-left">
             <DialogTitle className="text-lg font-semibold">新建课程</DialogTitle>
-            <DialogDescription>填写课程信息；创建后可进入课程页添加笔记本。</DialogDescription>
           </DialogHeader>
           <CreateCourseForm
             key={formKey}

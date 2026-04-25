@@ -31,7 +31,7 @@ export default function NewCoursePage() {
             新建课程
           </h1>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            先创建课程，再在该课程下生成笔记本。
+            分步填写：名称与描述 → 用途与语言 → Tag → 头像；再在该课程下生成笔记本。
           </p>
 
           <CreateCourseForm

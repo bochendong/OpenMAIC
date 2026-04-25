@@ -8,7 +8,7 @@ import {
   useMemo,
   useState,
 } from 'react';
-import { ArrowRight, Compass, Library, Search, Star, X } from 'lucide-react';
+import { ArrowRight, Compass, Library, Search, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { CourseGalleryCard } from '@/components/course-gallery-card';
 import { PurchaseConfirmDialog } from '@/components/courses/purchase-confirm-dialog';
@@ -524,7 +524,7 @@ export default function CourseStorePage() {
                     </p>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
                   {shelf.items.map((item) => (
                     <CourseGalleryCard
                       key={item.id}
@@ -642,29 +642,6 @@ export default function CourseStorePage() {
             </div>
           )}
         </section>
-
-        {featuredCourse && !searchActive ? (
-          <section className="mt-14">
-            <div className="store-section-panel flex flex-col gap-6 rounded-[36px] px-6 py-7 md:flex-row md:items-center md:justify-between md:px-8">
-              <div>
-                <p className="flex items-center gap-2 text-sm font-medium text-slate-500 dark:text-slate-400">
-                  <Star className="size-4" />
-                  课程详情页已同步升级
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-slate-950 dark:text-white">
-                  继续查看课程详情，像浏览产品发布页一样了解完整内容。
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => router.push(`/store/courses/${featuredCourse.id}`)}
-                className="store-cta-primary rounded-full px-5 py-3 text-sm font-semibold"
-              >
-                打开精选课程
-              </button>
-            </div>
-          </section>
-        ) : null}
 
         <PurchaseConfirmDialog
           open={Boolean(pendingPurchaseCourse)}

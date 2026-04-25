@@ -2,12 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight,
   BookOpen,
   FolderInput,
   Pencil,
   School,
-  Sparkles,
   Star,
   Trash2,
 } from 'lucide-react';
@@ -213,19 +211,20 @@ export function CourseGalleryCard({
     const m = course.name.match(/\b[A-Za-z]{2,}\s?-?\d{2,}[A-Za-z0-9-]*\b/);
     return m?.[0]?.replace(/\s+/g, '') || null;
   })();
-  const universityCourseCodeLabel = isUniversityCourse
-    ? courseMetaChips?.courseCode?.trim() ||
-      inferredCourseCodeFromName ||
-      courseMetaChips?.school?.trim() ||
-      null
-    : null;
-  const coverKickerLabel =
-    universityCourseCodeLabel ??
-    (variant === 'store-course'
+  const universitySchoolLine = isUniversityCourse
+    ? courseMetaChips?.school?.trim() || undefined
+    : undefined;
+  const universityCodeLine = isUniversityCourse
+    ? courseMetaChips?.courseCode?.trim() || inferredCourseCodeFromName || undefined
+    : undefined;
+  const showUniversityKicker =
+    isUniversityCourse && Boolean(universitySchoolLine || universityCodeLine);
+  const defaultCoverKicker =
+    variant === 'store-course'
       ? 'Featured Course'
       : variant === 'owned-course'
         ? 'My Library'
-        : 'Notebook Library');
+        : 'Notebook Library';
 
   return (
     <article
@@ -327,19 +326,38 @@ export function CourseGalleryCard({
 
         <div className="absolute inset-x-5 bottom-5 z-10 flex items-end justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-[12px] font-medium tracking-[0.12em] text-white/78 uppercase">
-              {coverKickerLabel}
-            </p>
+            {showUniversityKicker ? (
+              <p className="min-w-0 truncate text-[12px] font-medium text-white/80">
+                {universitySchoolLine && universityCodeLine ? (
+                  <>
+                    <span className="text-white/90">{universitySchoolLine}</span>
+                    <span className="mx-1.5 text-white/50" aria-hidden>
+                      ·
+                    </span>
+                    <span className="tracking-[0.12em] text-white/78 uppercase">
+                      {universityCodeLine}
+                    </span>
+                  </>
+                ) : universityCodeLine ? (
+                  <span className="tracking-[0.12em] text-white/78 uppercase">
+                    {universityCodeLine}
+                  </span>
+                ) : (
+                  <span className="text-white/90">{universitySchoolLine}</span>
+                )}
+              </p>
+            ) : (
+              <p className="truncate text-[12px] font-medium tracking-[0.12em] text-white/78 uppercase">
+                {defaultCoverKicker}
+              </p>
+            )}
             <h3 className={cn('mt-1 truncate text-white', cfg.title)}>{course.name}</h3>
-          </div>
-          <div className="hidden rounded-full border border-white/18 bg-white/10 p-2 text-white backdrop-blur-md md:block">
-            <ArrowRight className="size-4" />
           </div>
         </div>
       </div>
 
       <div className={cn('relative flex min-h-0 flex-1 flex-col', cfg.body)}>
-        <div className="mb-4 flex items-start gap-3">
+        <div className="mb-4 flex items-center gap-3">
           <div
             className={cn(
               'flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/70 bg-white/92 shadow-[0_12px_30px_rgba(15,23,42,0.08)] dark:border-white/12 dark:bg-white/8',
@@ -357,16 +375,58 @@ export function CourseGalleryCard({
             )}
           </div>
           <div className="min-w-0 flex-1">
-            <p className={cn('truncate text-xs', cfg.metaTone)}>{subtitle}</p>
-            {creatorName?.trim() ? (
-              <p className="mt-1 truncate text-sm font-medium text-slate-900 dark:text-white">
-                {`创作者 · ${creatorName.trim()}`}
-              </p>
-            ) : secondaryLabel?.trim() ? (
-              <p className="mt-1 truncate text-sm font-medium text-slate-900 dark:text-white">
-                {secondaryLabel.trim()}
-              </p>
+            {creatorName?.trim() ||
+            secondaryLabel?.trim() ||
+            speechStatusLabel?.trim() ? (
+              <div
+                className={cn(
+                  'flex min-w-0 items-center gap-2',
+                  creatorName?.trim() || secondaryLabel?.trim()
+                    ? 'justify-between'
+                    : 'justify-end',
+                )}
+              >
+                {creatorName?.trim() ? (
+                  <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-white">
+                    {`创作者 · ${creatorName.trim()}`}
+                  </p>
+                ) : secondaryLabel?.trim() ? (
+                  <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900 dark:text-white">
+                    {secondaryLabel.trim()}
+                  </p>
+                ) : null}
+                {speechStatusLabel?.trim() ? (
+                  <span
+                    className={cn(
+                      'store-chip max-w-[min(100%,11rem)] shrink-0 truncate text-[11px]',
+                      cfg.pillTone,
+                    )}
+                  >
+                    {speechStatusLabel.trim()}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
+            <div
+              className={cn(
+                'flex min-w-0 items-center justify-between gap-2',
+                (creatorName?.trim() ||
+                  secondaryLabel?.trim() ||
+                  speechStatusLabel?.trim()) &&
+                  'mt-1',
+              )}
+            >
+              <p className={cn('min-w-0 flex-1 truncate text-xs', cfg.metaTone)}>{subtitle}</p>
+              <span
+                className={cn(
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px]',
+                  cfg.pillTone,
+                )}
+              >
+                <School className="size-3.5 opacity-75" />
+                {course.sceneCount} {countUnit}
+              </span>
+            </div>
             {showNotebookCourseMeta && (parentCourseName?.trim() || schoolLine?.trim()) ? (
               <div className="mt-1 space-y-0.5">
                 {parentCourseName?.trim() ? (
@@ -420,56 +480,21 @@ export function CourseGalleryCard({
           {description}
         </p>
 
-        <div className="mt-4 space-y-3">
-          {tags && tags.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {tags.slice(0, 4).map((tag, index) => (
-                <span
-                  key={`${tag}-${index}`}
-                  className="store-chip store-chip-soft max-w-full truncate text-[11px]"
-                >
-                  {tag}
-                </span>
-              ))}
-              {tags.length > 4 ? (
-                <span className="store-chip text-[11px]">+{tags.length - 4}</span>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap gap-2">
-            <span
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px]',
-                cfg.pillTone,
-              )}
-            >
-              <School className="size-3.5 opacity-75" />
-              {course.sceneCount} {countUnit}
-            </span>
-            {courseMetaChips?.school?.trim() ? (
-              <span className={cn('store-chip text-[11px]', cfg.pillTone)}>
-                {courseMetaChips.school.trim()}
+        {tags && tags.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            {tags.slice(0, 4).map((tag, index) => (
+              <span
+                key={`${tag}-${index}`}
+                className="store-chip store-chip-soft max-w-full truncate text-[11px]"
+              >
+                {tag}
               </span>
-            ) : null}
-            {courseMetaChips?.purposeType?.trim() ? (
-              <span className={cn('store-chip text-[11px]', cfg.pillTone)}>
-                <Sparkles className="size-3.5" />
-                {courseMetaChips.purposeType.trim()}
-              </span>
-            ) : null}
-            {courseMetaChips?.courseCode?.trim() ? (
-              <span className={cn('store-chip text-[11px]', cfg.pillTone)}>
-                {courseMetaChips.courseCode.trim()}
-              </span>
-            ) : null}
-            {speechStatusLabel?.trim() ? (
-              <span className={cn('store-chip text-[11px]', cfg.pillTone)}>
-                {speechStatusLabel.trim()}
-              </span>
+            ))}
+            {tags.length > 4 ? (
+              <span className="store-chip text-[11px]">+{tags.length - 4}</span>
             ) : null}
           </div>
-        </div>
+        ) : null}
 
         <div className="mt-auto flex gap-2 pt-6">
           <button
