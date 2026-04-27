@@ -51,8 +51,9 @@ function pickDefaultTemplateForFamily(
     case 'problem_statement':
       return 'problem_focus';
     case 'problem_solution':
+      return 'problem_walkthrough';
     case 'derivation':
-      return 'steps_sidebar';
+      return 'derivation_ladder';
     case 'code_walkthrough':
       return 'code_split';
     case 'formula_focus':
@@ -76,6 +77,20 @@ function pickAlternateLayoutTemplate(
   if (template === 'two_column') return 'three_cards';
   if (template === 'three_cards') return 'four_grid';
   if (template === 'four_grid') return 'title_content';
+  if (template === 'definition_board') return 'concept_map';
+  if (template === 'concept_map') return 'two_column_explain';
+  if (template === 'two_column_explain') return 'three_cards';
+  if (template === 'process_steps') return 'timeline_road';
+  if (template === 'problem_walkthrough') return 'steps_sidebar';
+  if (template === 'derivation_ladder') return 'formula_focus';
+  if (template === 'graph_explain') return 'visual_right';
+  if (template === 'data_insight') return 'comparison_matrix';
+  if (template === 'thesis_evidence') return 'quote_analysis';
+  if (template === 'quote_analysis') return 'source_close_reading';
+  if (template === 'source_close_reading') return 'case_analysis';
+  if (template === 'case_analysis') return 'argument_map';
+  if (template === 'argument_map') return 'two_column_explain';
+  if (template === 'compare_perspectives') return 'comparison_matrix';
   if (template === 'steps_sidebar') return family === 'derivation' ? 'formula_focus' : 'two_column';
   if (template === 'formula_focus') return 'steps_sidebar';
   return pickDefaultTemplateForFamily(family, index + 1);

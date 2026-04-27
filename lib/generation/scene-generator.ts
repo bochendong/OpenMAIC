@@ -166,6 +166,8 @@ function buildSemanticFallbackSlideContent(outline: SceneOutline): GeneratedSlid
     title: outline.title || fallbackDocumentBase.title,
     layoutFamily: outline.layoutIntent?.layoutFamily,
     layoutTemplate: outline.layoutIntent?.layoutTemplate,
+    disciplineStyle: outline.layoutIntent?.disciplineStyle || fallbackDocumentBase.disciplineStyle,
+    teachingFlow: outline.layoutIntent?.teachingFlow || fallbackDocumentBase.teachingFlow,
     density: outline.layoutIntent?.density || fallbackDocumentBase.density,
     visualRole: outline.layoutIntent?.visualRole || fallbackDocumentBase.visualRole,
     overflowPolicy: outline.layoutIntent?.overflowPolicy || fallbackDocumentBase.overflowPolicy,
@@ -406,6 +408,8 @@ function formatLayoutIntentForPrompt(outline: SceneOutline, language: 'zh-CN' | 
       '版式意图（硬约束）：',
       `- layoutFamily: ${intent.layoutFamily}`,
       `- layoutTemplate: ${intent.layoutTemplate || 'auto'}`,
+      `- disciplineStyle: ${intent.disciplineStyle || 'general'}`,
+      `- teachingFlow: ${intent.teachingFlow || 'standalone'}`,
       `- density: ${intent.density || 'standard'}`,
       `- visualRole: ${intent.visualRole || 'none'}`,
       `- overflowPolicy: ${intent.overflowPolicy || 'compress_first'}`,
@@ -418,6 +422,8 @@ function formatLayoutIntentForPrompt(outline: SceneOutline, language: 'zh-CN' | 
     'Layout intent (hard constraint):',
     `- layoutFamily: ${intent.layoutFamily}`,
     `- layoutTemplate: ${intent.layoutTemplate || 'auto'}`,
+    `- disciplineStyle: ${intent.disciplineStyle || 'general'}`,
+    `- teachingFlow: ${intent.teachingFlow || 'standalone'}`,
     `- density: ${intent.density || 'standard'}`,
     `- visualRole: ${intent.visualRole || 'none'}`,
     `- overflowPolicy: ${intent.overflowPolicy || 'compress_first'}`,
@@ -556,6 +562,14 @@ function applyOutlineIntentToSemanticDocument(args: {
     ...args.document,
     layoutFamily: args.document.layoutFamily || intent?.layoutFamily,
     layoutTemplate: args.document.layoutTemplate || intent?.layoutTemplate,
+    disciplineStyle:
+      args.document.disciplineStyle && args.document.disciplineStyle !== 'general'
+        ? args.document.disciplineStyle
+        : intent?.disciplineStyle || 'general',
+    teachingFlow:
+      args.document.teachingFlow && args.document.teachingFlow !== 'standalone'
+        ? args.document.teachingFlow
+        : intent?.teachingFlow || 'standalone',
     density: args.document.density || intent?.density || 'standard',
     visualRole:
       args.document.visualRole ||

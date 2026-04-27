@@ -2,6 +2,28 @@ import { z } from 'zod';
 
 export const notebookContentLanguageSchema = z.enum(['zh-CN', 'en-US']);
 export const notebookContentProfileSchema = z.enum(['general', 'math', 'code']);
+export const notebookContentDisciplineStyleSchema = z.enum([
+  'general',
+  'math',
+  'science',
+  'code',
+  'humanities',
+  'social_science',
+]);
+export const notebookContentTeachingFlowSchema = z.enum([
+  'standalone',
+  'concept_explain',
+  'definition_to_example',
+  'problem_walkthrough',
+  'proof_walkthrough',
+  'code_walkthrough',
+  'argument_evidence',
+  'close_reading',
+  'case_analysis',
+  'comparison_review',
+  'timeline_story',
+  'practice_check',
+]);
 export const notebookContentLayoutModeSchema = z.enum(['stack', 'grid']);
 export const notebookContentLayoutFamilySchema = z.enum([
   'cover',
@@ -33,6 +55,20 @@ export const notebookContentLayoutTemplateSchema = z.enum([
   'code_split',
   'formula_focus',
   'summary_board',
+  'definition_board',
+  'concept_map',
+  'two_column_explain',
+  'process_steps',
+  'problem_walkthrough',
+  'derivation_ladder',
+  'graph_explain',
+  'data_insight',
+  'thesis_evidence',
+  'quote_analysis',
+  'source_close_reading',
+  'case_analysis',
+  'argument_map',
+  'compare_perspectives',
 ]);
 export const notebookContentDensitySchema = z.enum(['light', 'standard', 'dense']);
 export const notebookContentVisualRoleSchema = z.enum([
@@ -314,6 +350,8 @@ export const notebookContentDocumentSchema = z.object({
   version: z.literal(1).default(1),
   language: notebookContentLanguageSchema.default('zh-CN'),
   profile: notebookContentProfileSchema.default('general'),
+  disciplineStyle: notebookContentDisciplineStyleSchema.default('general'),
+  teachingFlow: notebookContentTeachingFlowSchema.default('standalone'),
   layout: notebookContentLayoutSchema.default({ mode: 'stack' }),
   layoutFamily: notebookContentLayoutFamilySchema.optional(),
   layoutTemplate: notebookContentLayoutTemplateSchema.optional(),
@@ -334,6 +372,8 @@ export const notebookContentDocumentSchema = z.object({
 
 export type NotebookContentLanguage = z.infer<typeof notebookContentLanguageSchema>;
 export type NotebookContentProfile = z.infer<typeof notebookContentProfileSchema>;
+export type NotebookContentDisciplineStyle = z.infer<typeof notebookContentDisciplineStyleSchema>;
+export type NotebookContentTeachingFlow = z.infer<typeof notebookContentTeachingFlowSchema>;
 export type NotebookContentLayoutMode = z.infer<typeof notebookContentLayoutModeSchema>;
 export type NotebookContentLayoutFamily = z.infer<typeof notebookContentLayoutFamilySchema>;
 export type NotebookContentLayoutTemplate = z.infer<typeof notebookContentLayoutTemplateSchema>;

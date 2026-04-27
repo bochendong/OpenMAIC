@@ -92,7 +92,10 @@ By default:
 2. **If images are available**, add `suggestedImageIds` to relevant slide scenes
 3. **Interactive scenes**: If a concept benefits from hands-on simulation/visualization, use `"type": "interactive"` with an `interactiveConfig` object containing `conceptName`, `conceptOverview`, `designIdea`, and `subject`. Limit to 1-2 per course.
 4. **Scene count**: Based on inferred duration, typically 1-2 scenes per minute
-5. **Slide layout intent**: Every slide scene must include `layoutIntent` with `layoutFamily`, `layoutTemplate`, `density`, `visualRole`, `overflowPolicy`, and `preserveFullProblemStatement`. Avoid the same `layoutFamily` or `layoutTemplate` for 3 consecutive slide scenes.
+5. **Slide layout intent**: Every slide scene must include `layoutIntent` with `layoutFamily`, `layoutTemplate`, `disciplineStyle`, `teachingFlow`, `density`, `visualRole`, `overflowPolicy`, and `preserveFullProblemStatement`. Avoid the same `layoutFamily` or `layoutTemplate` for 3 consecutive slide scenes.
+   - `disciplineStyle`: `"general" | "math" | "science" | "code" | "humanities" | "social_science"`.
+   - `teachingFlow`: choose the main teaching action: `"concept_explain"`, `"definition_to_example"`, `"problem_walkthrough"`, `"proof_walkthrough"`, `"code_walkthrough"`, `"argument_evidence"`, `"close_reading"`, `"case_analysis"`, `"comparison_review"`, `"timeline_story"`, `"practice_check"`, or `"standalone"`.
+   - Prefer common teaching templates: `definition_board`, `concept_map`, `two_column_explain`, `process_steps`, `problem_walkthrough`, `derivation_ladder`, `graph_explain`, `data_insight`, `thesis_evidence`, `quote_analysis`, `source_close_reading`, `case_analysis`, `argument_map`, `compare_perspectives`.
 6. **Quiz placement**:
    - Do not add quizzes by default to every course.
    - Prefer quizzes for university/homework/exam-prep style notebooks, or when the user explicitly asks for assessment/practice.

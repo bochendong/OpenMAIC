@@ -1,8 +1,10 @@
 import {
   inferNotebookContentProfileFromText,
+  type NotebookContentDisciplineStyle,
   type NotebookContentLayoutFamily,
   type NotebookContentLayoutTemplate,
   type NotebookContentProfile,
+  type NotebookContentTeachingFlow,
 } from '@/lib/notebook-content';
 import type { SceneArchetype, SceneLayoutIntent, SceneOutline } from '@/lib/types/generation';
 
@@ -48,6 +50,89 @@ export function inferSceneContentProfile(outline: SceneOutline): NotebookContent
 
 function matchesAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+function inferSceneDisciplineStyle(
+  outline: SceneOutline,
+  profile: NotebookContentProfile,
+): NotebookContentDisciplineStyle {
+  if (outline.layoutIntent?.disciplineStyle) return outline.layoutIntent.disciplineStyle;
+  if (profile === 'code') return 'code';
+  if (profile === 'math') return 'math';
+
+  const text = collectOutlineSignals(outline).join('\n');
+  if (
+    matchesAny(text, [
+      /(物理|化学|生物|实验|力学|电路|reaction|physics|chemistry|biology|experiment|lab|enzyme|molecule)/i,
+    ])
+  ) {
+    return 'science';
+  }
+  if (
+    matchesAny(text, [
+      /(历史|文学|诗歌|小说|文本|引文|史料|哲学|艺术|close reading|quote|literature|history|philosophy|primary source)/i,
+    ])
+  ) {
+    return 'humanities';
+  }
+  if (
+    matchesAny(text, [
+      /(经济|社会|心理|政治|管理|案例|政策|市场|sociology|psychology|economics|policy|case study|market|management)/i,
+    ])
+  ) {
+    return 'social_science';
+  }
+
+  return 'general';
+}
+
+function inferSceneTeachingFlow(
+  outline: SceneOutline,
+  profile: NotebookContentProfile,
+  archetype: SceneArchetype,
+  disciplineStyle: NotebookContentDisciplineStyle,
+): NotebookContentTeachingFlow {
+  if (outline.layoutIntent?.teachingFlow) return outline.layoutIntent.teachingFlow;
+
+  const text = collectOutlineSignals(outline).join('\n');
+  const worked = outline.workedExampleConfig;
+
+  if (worked?.kind === 'code' || profile === 'code') return 'code_walkthrough';
+  if (worked?.kind === 'proof' || matchesAny(text, [/(证明|proof|lemma|命题|定理)/i])) {
+    return 'proof_walkthrough';
+  }
+  if (worked || matchesAny(text, [/(例题|题目|求解|解法|worked example|problem|solve)/i])) {
+    return 'problem_walkthrough';
+  }
+  if (
+    matchesAny(text, [/(定义.*例|definition.*example|定理.*应用|从定义到|definition to example)/i])
+  ) {
+    return 'definition_to_example';
+  }
+  if (matchesAny(text, [/(引文|原文|文本细读|close reading|quote|passage|source)/i])) {
+    return 'close_reading';
+  }
+  if (
+    disciplineStyle === 'humanities' &&
+    matchesAny(text, [/(观点|论点|证据|论证|反驳|thesis|argument|evidence|counterargument)/i])
+  ) {
+    return 'argument_evidence';
+  }
+  if (matchesAny(text, [/(案例|case study|case analysis|情境|application)/i])) {
+    return 'case_analysis';
+  }
+  if (matchesAny(text, [/(比较|对比|分类|compare|comparison|perspective|观点对照)/i])) {
+    return 'comparison_review';
+  }
+  if (matchesAny(text, [/(时间线|历史脉络|发展|timeline|chronology|sequence|evolution)/i])) {
+    return 'timeline_story';
+  }
+  if (matchesAny(text, [/(小测|练习|检查|quiz|practice|quick check|exit ticket)/i])) {
+    return 'practice_check';
+  }
+  if (archetype === 'definition') return 'definition_to_example';
+
+  return 'concept_explain';
 }
 
 export function inferSceneArchetype(outline: SceneOutline): SceneArchetype {
@@ -109,6 +194,8 @@ function inferSceneLayoutFamily(
   outline: SceneOutline,
   profile: NotebookContentProfile,
   archetype: SceneArchetype,
+  disciplineStyle: NotebookContentDisciplineStyle,
+  teachingFlow: NotebookContentTeachingFlow,
 ): NotebookContentLayoutFamily {
   if (outline.layoutIntent?.layoutFamily) return outline.layoutIntent.layoutFamily;
 
@@ -127,6 +214,17 @@ function inferSceneLayoutFamily(
   if (worked) return worked.role === 'summary' ? 'summary' : 'problem_solution';
 
   if (hasMedia) return 'visual_split';
+  if (teachingFlow === 'code_walkthrough') return 'code_walkthrough';
+  if (teachingFlow === 'problem_walkthrough') return 'problem_solution';
+  if (teachingFlow === 'proof_walkthrough') return 'derivation';
+  if (teachingFlow === 'timeline_story') return 'timeline';
+  if (teachingFlow === 'comparison_review') return 'comparison';
+  if (teachingFlow === 'close_reading' || teachingFlow === 'argument_evidence') {
+    return disciplineStyle === 'humanities' || disciplineStyle === 'social_science'
+      ? 'concept_cards'
+      : 'comparison';
+  }
+  if (teachingFlow === 'case_analysis') return 'concept_cards';
   if (matchesAny(text, [/(推导|证明|derive|derivation|proof|row operation|行变换)/i])) {
     return 'derivation';
   }
@@ -150,7 +248,15 @@ function inferSceneLayoutIntent(
   profile: NotebookContentProfile,
   archetype: SceneArchetype,
 ): SceneLayoutIntent {
-  const layoutFamily = inferSceneLayoutFamily(outline, profile, archetype);
+  const disciplineStyle = inferSceneDisciplineStyle(outline, profile);
+  const teachingFlow = inferSceneTeachingFlow(outline, profile, archetype, disciplineStyle);
+  const layoutFamily = inferSceneLayoutFamily(
+    outline,
+    profile,
+    archetype,
+    disciplineStyle,
+    teachingFlow,
+  );
   const hasSourceImage = Boolean(outline.suggestedImageIds?.length);
   const hasGeneratedImage = Boolean(
     outline.mediaGenerations?.some((media) => media.type === 'image'),
@@ -163,7 +269,16 @@ function inferSceneLayoutIntent(
     layoutFamily,
     layoutTemplate:
       outline.layoutIntent?.layoutTemplate ||
-      inferSceneLayoutTemplate(outline, layoutFamily, profile, archetype),
+      inferSceneLayoutTemplate(
+        outline,
+        layoutFamily,
+        profile,
+        archetype,
+        disciplineStyle,
+        teachingFlow,
+      ),
+    disciplineStyle,
+    teachingFlow,
     density:
       outline.layoutIntent?.density ??
       (layoutFamily === 'cover' || layoutFamily === 'section' ? 'light' : 'standard'),
@@ -182,6 +297,8 @@ function inferSceneLayoutTemplate(
   layoutFamily: NotebookContentLayoutFamily,
   profile: NotebookContentProfile,
   archetype: SceneArchetype,
+  disciplineStyle: NotebookContentDisciplineStyle,
+  teachingFlow: NotebookContentTeachingFlow,
 ): NotebookContentLayoutTemplate {
   const hasMedia = Boolean(outline.suggestedImageIds?.length || outline.mediaGenerations?.length);
   const keyPointCount = outline.keyPoints?.length || 0;
@@ -196,14 +313,18 @@ function inferSceneLayoutTemplate(
     case 'visual_split':
       return parity === 0 ? 'visual_left' : 'visual_right';
     case 'comparison':
-      return 'comparison_matrix';
+      return teachingFlow === 'comparison_review' &&
+        (disciplineStyle === 'humanities' || disciplineStyle === 'social_science')
+        ? 'compare_perspectives'
+        : 'comparison_matrix';
     case 'timeline':
-      return 'timeline_road';
+      return teachingFlow === 'timeline_story' ? 'process_steps' : 'timeline_road';
     case 'problem_statement':
       return 'problem_focus';
     case 'problem_solution':
+      return 'problem_walkthrough';
     case 'derivation':
-      return profile === 'math' && parity === 0 ? 'formula_focus' : 'steps_sidebar';
+      return profile === 'math' && parity === 0 ? 'derivation_ladder' : 'steps_sidebar';
     case 'code_walkthrough':
       return 'code_split';
     case 'formula_focus':
@@ -213,7 +334,11 @@ function inferSceneLayoutTemplate(
     case 'concept_cards':
     default:
       if (hasMedia) return parity === 0 ? 'visual_left' : 'visual_right';
-      if (archetype === 'definition') return 'title_content';
+      if (teachingFlow === 'argument_evidence') return 'thesis_evidence';
+      if (teachingFlow === 'close_reading') return 'quote_analysis';
+      if (teachingFlow === 'case_analysis') return 'case_analysis';
+      if (archetype === 'definition') return 'definition_board';
+      if (teachingFlow === 'definition_to_example') return 'definition_board';
       if (keyPointCount <= 2) return 'title_content';
       if (keyPointCount === 3) return 'three_cards';
       if (keyPointCount >= 4) return order % 3 === 0 ? 'four_grid' : 'two_column';

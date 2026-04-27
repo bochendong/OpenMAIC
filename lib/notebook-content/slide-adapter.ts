@@ -3,11 +3,13 @@ import type { PPTElement, PPTShapeElement, PPTTextElement, Slide } from '@/lib/t
 import { normalizeLatexSource } from '@/lib/latex-utils';
 import type {
   NotebookContentBlock,
+  NotebookContentDisciplineStyle,
   NotebookContentDocument,
   NotebookContentLayout,
   NotebookContentLayoutFamily,
   NotebookContentLayoutTemplate,
   NotebookContentProfile,
+  NotebookContentTeachingFlow,
   NotebookContentTextTemplate,
   NotebookContentTitleTone,
   NotebookContentVisualSlot,
@@ -1159,9 +1161,35 @@ function createFamilyTitleElements(args: {
   continuation?: NotebookContentDocument['continuation'];
 }): PPTElement[] {
   const titleTop = args.family === 'cover' ? 126 : args.family === 'section' ? 116 : 38;
-  const titleHeight = args.family === 'cover' ? 110 : args.family === 'section' ? 88 : 52;
-  const titleSize = args.family === 'cover' ? 46 : args.family === 'section' ? 38 : 30;
-  const width = args.family === 'cover' || args.family === 'section' ? 760 : CONTENT_WIDTH;
+  const normalizedTitleLength = args.title.replace(/\s+/g, '').length;
+  const titleSize =
+    args.family === 'cover'
+      ? 46
+      : args.family === 'section'
+        ? 38
+        : normalizedTitleLength > 46
+          ? 24
+          : normalizedTitleLength > 34
+            ? 26
+            : normalizedTitleLength > 26
+              ? 28
+              : 30;
+  const titleHeight =
+    args.family === 'cover'
+      ? 110
+      : args.family === 'section'
+        ? 88
+        : titleSize <= 24
+          ? 58
+          : titleSize <= 26
+            ? 56
+            : 52;
+  const width =
+    args.family === 'cover' || args.family === 'section'
+      ? 760
+      : args.continuation
+        ? CONTENT_WIDTH - 188
+        : CONTENT_WIDTH;
   const elements: PPTElement[] = [
     createTextElement({
       left: CONTENT_LEFT,
@@ -1176,15 +1204,12 @@ function createFamilyTitleElements(args: {
 
   if (args.family !== 'cover' && args.family !== 'section') {
     elements.push(
-      createTextElement({
+      createRectShape({
         left: CONTENT_LEFT,
-        top: titleTop + titleHeight + 2,
-        width: 160,
-        height: 8,
-        html: '<p style="font-size:1px;"> </p>',
+        top: titleTop + titleHeight + 8,
+        width: 150,
+        height: 5,
         fill: args.tokens.titleAccent,
-        color: args.tokens.titleAccent,
-        textType: 'notes',
       }),
     );
   }
@@ -1318,49 +1343,7 @@ function renderVisualPanel(args: {
     return elements;
   }
 
-  const lines = args.blocks
-    .flatMap((block) => [
-      blockToGridHeading(args.language, block),
-      ...blockSummaryLines(args.language, block),
-    ])
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 4);
-  const stepHeight = Math.max(48, Math.floor((args.height - 28) / Math.max(1, lines.length)));
-  const elements: PPTElement[] = [
-    createTextElement({
-      left: args.left,
-      top: args.top,
-      width: args.width,
-      height: args.height,
-      groupId,
-      html: `<p style="font-size:14px;color:${args.tokens.titleAccent};"><strong>${escapeHtml(
-        args.language === 'en-US' ? 'Concept Map' : '结构图解',
-      )}</strong></p>`,
-      color: args.tokens.titleAccent,
-      fill: '#ffffff',
-      outlineColor: '#dbeafe',
-      textType: 'content',
-    }),
-  ];
-  lines.forEach((line, index) => {
-    const top = args.top + 34 + index * stepHeight;
-    elements.push(
-      createTextElement({
-        left: args.left + 18,
-        top,
-        width: args.width - 36,
-        height: Math.max(40, stepHeight - 10),
-        groupId,
-        html: `<p style="font-size:14px;line-height:19px;color:#334155;"><span style="color:${args.tokens.titleAccent};font-weight:700;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
-        color: '#334155',
-        fill: index % 2 === 0 ? '#f8fafc' : '#f5f9ff',
-        outlineColor: index % 2 === 0 ? '#e2e8f0' : '#d9e6ff',
-        textType: 'content',
-      }),
-    );
-  });
-  return elements;
+  return [];
 }
 
 function findFirstBlock<T extends NotebookContentBlock['type']>(
@@ -1460,6 +1443,34 @@ function inferLayoutTemplateFromDocument(args: {
       if (args.blocks.length === 3) return 'three_cards';
       return 'four_grid';
   }
+}
+
+function isHumanitiesDiscipline(style?: NotebookContentDisciplineStyle): boolean {
+  return style === 'humanities' || style === 'social_science';
+}
+
+function isHumanitiesTeachingFlow(flow?: NotebookContentTeachingFlow): boolean {
+  return (
+    flow === 'argument_evidence' ||
+    flow === 'close_reading' ||
+    flow === 'case_analysis' ||
+    flow === 'comparison_review'
+  );
+}
+
+function isHumanitiesAnalysisTemplate(template: NotebookContentLayoutTemplate): boolean {
+  return (
+    template === 'thesis_evidence' ||
+    template === 'quote_analysis' ||
+    template === 'source_close_reading' ||
+    template === 'case_analysis' ||
+    template === 'argument_map' ||
+    template === 'compare_perspectives'
+  );
+}
+
+function isDefinitionBoardTemplate(template: NotebookContentLayoutTemplate): boolean {
+  return template === 'definition_board' || template === 'concept_map';
 }
 
 function renderBlockCardGrid(args: {
@@ -1563,6 +1574,1179 @@ function renderTitleContentTemplate(args: {
   return elements;
 }
 
+function uniqueTeachingLines(lines: string[], maxItems: number): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .forEach((line) => {
+      const key = line.replace(/\s+/g, '').toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(line);
+    });
+  return result.slice(0, maxItems);
+}
+
+function renderHumanitiesAnalysisTemplate(args: {
+  title: string;
+  blocks: NotebookContentBlock[];
+  language: 'zh-CN' | 'en-US';
+  tokens: ReturnType<typeof getProfileTokens>;
+  template: NotebookContentLayoutTemplate;
+  teachingFlow?: NotebookContentTeachingFlow;
+  cardPalettes: readonly ContentCardTone[];
+  bodyTop: number;
+  bodyHeight: number;
+}): PPTElement[] {
+  const allLines = uniqueTeachingLines(
+    args.blocks.flatMap((block) => blockSummaryLines(args.language, block)),
+    8,
+  );
+  const callout = findFirstBlock(args.blocks, 'callout');
+  const primary =
+    callout?.text ||
+    allLines[0] ||
+    (args.language === 'en-US'
+      ? 'State the central idea, then support it with evidence.'
+      : '先提出中心观点，再用证据支撑。');
+  const evidence = uniqueTeachingLines(
+    allLines.filter((line) => line !== primary),
+    5,
+  );
+  const isCloseReading =
+    args.template === 'quote_analysis' ||
+    args.template === 'source_close_reading' ||
+    args.teachingFlow === 'close_reading';
+  const isCase = args.template === 'case_analysis' || args.teachingFlow === 'case_analysis';
+  const isCompare =
+    args.template === 'compare_perspectives' || args.teachingFlow === 'comparison_review';
+  const leftWidth = isCloseReading ? 430 : 388;
+  const rightLeft = CONTENT_LEFT + leftWidth + 28;
+  const rightWidth = CONTENT_WIDTH - leftWidth - 28;
+  const groupId = createCardGroupId('humanities_analysis');
+  const label =
+    args.language === 'en-US'
+      ? isCloseReading
+        ? 'Source / Quote'
+        : isCase
+          ? 'Case'
+          : isCompare
+            ? 'Perspective'
+            : 'Thesis'
+      : isCloseReading
+        ? '原文 / 引文'
+        : isCase
+          ? '案例'
+          : isCompare
+            ? '观点'
+            : '核心论点';
+  const rightLabel =
+    args.language === 'en-US'
+      ? isCloseReading
+        ? 'Reading Moves'
+        : isCase
+          ? 'Analysis Lens'
+          : isCompare
+            ? 'Compare'
+            : 'Evidence Chain'
+      : isCloseReading
+        ? '细读动作'
+        : isCase
+          ? '分析维度'
+          : isCompare
+            ? '对照角度'
+            : '证据链';
+  const primaryFontSize = primary.length > 180 ? 16 : primary.length > 110 ? 18 : 21;
+  const rowCount = Math.max(2, Math.min(4, evidence.length || 3));
+  const rowHeight = Math.min(78, Math.max(58, (args.bodyHeight - 42) / rowCount - 8));
+  const defaultEvidence =
+    args.language === 'en-US'
+      ? ['Identify the claim.', 'Locate supporting evidence.', 'Explain why the evidence matters.']
+      : ['明确主张。', '定位证据。', '解释证据为何有效。'];
+  const evidenceLines = evidence.length > 0 ? evidence : defaultEvidence;
+
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: CONTENT_LEFT,
+      top: args.bodyTop,
+      width: leftWidth,
+      height: args.bodyHeight,
+      fill: '#ffffff',
+      outlineColor: '#dbeafe',
+      groupId,
+      shadow: {
+        h: 0,
+        v: 8,
+        blur: 22,
+        color: 'rgba(15,23,42,0.06)',
+      },
+    }),
+    createTextElement({
+      left: CONTENT_LEFT + 24,
+      top: args.bodyTop + 22,
+      width: leftWidth - 48,
+      height: 34,
+      groupId,
+      html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:780;">${escapeHtml(label)}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'content',
+    }),
+    createTextElement({
+      left: CONTENT_LEFT + 28,
+      top: args.bodyTop + 70,
+      width: leftWidth - 56,
+      height: args.bodyHeight - 104,
+      groupId,
+      html: `<p style="font-size:${primaryFontSize}px;line-height:${Math.round(primaryFontSize * 1.45)}px;color:#0f172a;font-weight:720;">${renderInlineLatexToHtml(primary)}</p>`,
+      color: '#0f172a',
+      textType: 'content',
+    }),
+    createTextElement({
+      left: rightLeft,
+      top: args.bodyTop,
+      width: rightWidth,
+      height: 34,
+      html: `<p style="font-size:15px;color:${args.tokens.titleText};font-weight:780;">${escapeHtml(rightLabel)}</p>`,
+      color: args.tokens.titleText,
+      textType: 'content',
+    }),
+  ];
+
+  evidenceLines.slice(0, rowCount).forEach((line, index) => {
+    const tone = args.cardPalettes[index % args.cardPalettes.length];
+    const rowTop = args.bodyTop + 42 + index * (rowHeight + 10);
+    elements.push(
+      createRectShape({
+        left: rightLeft,
+        top: rowTop + 5,
+        width: 5,
+        height: rowHeight - 10,
+        fill: tone.accent,
+      }),
+      createTextElement({
+        left: rightLeft + 18,
+        top: rowTop,
+        width: rightWidth - 18,
+        height: rowHeight,
+        html: `<p style="font-size:13px;line-height:19px;color:#334155;"><span style="color:${tone.accent};font-weight:800;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
+        color: '#334155',
+        fill: '#ffffff',
+        outlineColor: tone.border,
+        textType: 'content',
+      }),
+    );
+  });
+
+  return elements;
+}
+
+function shouldUseDefinitionFocusTemplate(args: {
+  document: NotebookContentDocument;
+  family: NotebookContentLayoutFamily;
+  blocks: NotebookContentBlock[];
+}): boolean {
+  if (args.document.archetype === 'definition') return true;
+  if (args.family === 'formula_focus') return true;
+  if (
+    args.blocks.some((block) =>
+      ['definition', 'theorem', 'equation', 'matrix', 'derivation_steps'].includes(block.type),
+    )
+  ) {
+    return true;
+  }
+
+  const text = [
+    args.document.title || '',
+    ...args.blocks.flatMap((block) => blockSummaryLines('zh-CN', block)),
+  ]
+    .join('\n')
+    .toLowerCase();
+  return /(定义|函数|定理|公式|映射|domain|codomain|definition|function|theorem|formula|mapping)/i.test(
+    text,
+  );
+}
+
+function renderDefinitionFocusTemplate(args: {
+  title: string;
+  blocks: NotebookContentBlock[];
+  language: 'zh-CN' | 'en-US';
+  tokens: ReturnType<typeof getProfileTokens>;
+  cardPalettes: readonly ContentCardTone[];
+  bodyTop: number;
+  bodyHeight: number;
+}): PPTElement[] {
+  const definition = args.blocks.find(
+    (block): block is Extract<NotebookContentBlock, { type: 'definition' | 'theorem' }> =>
+      block.type === 'definition' || block.type === 'theorem',
+  );
+  const equation = findFirstBlock(args.blocks, 'equation');
+  const matrix = findFirstBlock(args.blocks, 'matrix');
+  const firstParagraph = findFirstBlock(args.blocks, 'paragraph');
+  const firstBulletList = findFirstBlock(args.blocks, 'bullet_list');
+  const callout = findFirstBlock(args.blocks, 'callout');
+  const latex = equation?.latex || (matrix ? matrixBlockToLatex(matrix) : undefined);
+  const leadText =
+    definition?.text ||
+    firstParagraph?.text ||
+    args.blocks.flatMap((block) => blockSummaryLines(args.language, block))[0] ||
+    args.title;
+  const conditionLines = [
+    ...(firstBulletList?.items || []),
+    ...args.blocks
+      .filter(
+        (block) => block !== definition && block !== firstParagraph && block !== firstBulletList,
+      )
+      .flatMap((block) => blockSummaryLines(args.language, block)),
+  ]
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => line !== leadText)
+    .slice(0, 3);
+  const noteText =
+    callout?.text || (definition?.type === 'theorem' ? definition.proofIdea : undefined) || '';
+  const leftWidth = 520;
+  const rightLeft = CONTENT_LEFT + leftWidth + 28;
+  const rightWidth = CONTENT_WIDTH - leftWidth - 28;
+  const top = args.bodyTop;
+  const hasNote = Boolean(noteText);
+  const mainHeight = hasNote ? args.bodyHeight - 92 : args.bodyHeight;
+  const groupId = createCardGroupId('definition_focus');
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: CONTENT_LEFT,
+      top,
+      width: leftWidth,
+      height: mainHeight,
+      fill: '#ffffff',
+      outlineColor: '#dbeafe',
+      groupId,
+      shadow: {
+        h: 0,
+        v: 8,
+        blur: 22,
+        color: 'rgba(15,23,42,0.07)',
+      },
+    }),
+    createTextElement({
+      left: CONTENT_LEFT + 24,
+      top: top + 22,
+      width: leftWidth - 48,
+      height: 52,
+      groupId,
+      html: `<p style="font-size:15px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+        args.language === 'en-US' ? 'Formal Definition' : '正式定义',
+      )}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'content',
+    }),
+  ];
+
+  if (latex) {
+    elements.push(
+      createLatexElement({
+        latex,
+        left: CONTENT_LEFT + 34,
+        top: top + 82,
+        width: leftWidth - 68,
+        height: 126,
+        align: 'center',
+        color: args.tokens.titleText,
+        groupId,
+      }),
+      createTextElement({
+        left: CONTENT_LEFT + 30,
+        top: top + 222,
+        width: leftWidth - 60,
+        height: mainHeight - 246,
+        groupId,
+        html: `<p style="font-size:16px;line-height:24px;color:#334155;">${renderInlineLatexToHtml(leadText)}</p>`,
+        color: '#334155',
+        textType: 'content',
+      }),
+    );
+  } else {
+    elements.push(
+      createTextElement({
+        left: CONTENT_LEFT + 30,
+        top: top + 76,
+        width: leftWidth - 60,
+        height: mainHeight - 100,
+        groupId,
+        html: `<p style="font-size:21px;line-height:31px;color:#0f172a;font-weight:720;">${renderInlineLatexToHtml(leadText)}</p>`,
+        color: '#0f172a',
+        textType: 'content',
+      }),
+    );
+  }
+
+  const conditionAreaHeight = mainHeight;
+  const rowHeight = Math.max(86, Math.floor((conditionAreaHeight - 24) / 3));
+  const normalizedConditions =
+    conditionLines.length > 0
+      ? conditionLines
+      : args.blocks.flatMap((block) => blockSummaryLines(args.language, block)).slice(1, 4);
+  normalizedConditions.slice(0, 3).forEach((line, index) => {
+    const rowTop = top + index * (rowHeight + 12);
+    const tone = args.cardPalettes[index % args.cardPalettes.length];
+    elements.push(
+      createRectShape({
+        left: rightLeft,
+        top: rowTop,
+        width: 5,
+        height: rowHeight,
+        fill: tone.accent,
+      }),
+      createTextElement({
+        left: rightLeft + 18,
+        top: rowTop,
+        width: rightWidth - 18,
+        height: rowHeight,
+        html: `<p style="font-size:13px;color:${tone.accent};font-weight:760;">${escapeHtml(
+          args.language === 'en-US' ? `Point ${index + 1}` : `要点 ${index + 1}`,
+        )}</p><p style="font-size:16px;line-height:24px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`,
+        color: '#334155',
+        fill: '#ffffff',
+        outlineColor: '#e2e8f0',
+        textType: 'content',
+      }),
+    );
+  });
+
+  if (hasNote) {
+    elements.push(
+      createTextElement({
+        left: CONTENT_LEFT,
+        top: CONTENT_BOTTOM - 78,
+        width: CONTENT_WIDTH,
+        height: 78,
+        html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+          args.language === 'en-US' ? 'Common Confusion' : '容易混淆',
+        )}</p><p style="font-size:15px;line-height:22px;color:#334155;">${renderInlineLatexToHtml(noteText)}</p>`,
+        color: '#334155',
+        fill: '#f8fafc',
+        outlineColor: '#dbeafe',
+        textType: 'content',
+      }),
+    );
+  }
+
+  return elements;
+}
+
+type ProblemStatementParts = {
+  problem: string;
+  hasExplicitProblem: boolean;
+  givens: string[];
+  goals: string[];
+  supportLines: string[];
+};
+
+function stripProblemLabel(text: string): string {
+  return text.replace(/^(题目|Problem)\s*[：:]\s*/i, '').trim();
+}
+
+function stripProblemContextLabel(text: string): string {
+  return text
+    .replace(/^[•\-\s]+/, '')
+    .replace(/^(已知|Given|Known|条件|Condition)\s*[：:]\s*/i, '')
+    .replace(/^(目标|Goal|求解目标|证明目标|要求)\s*[：:]\s*/i, '')
+    .trim();
+}
+
+function isProblemGoalLine(line: string): boolean {
+  return /^(目标|Goal|求|证明|要证明|结论|Conclusion|Show|Prove)\b|目标|要求|求出|求得|要证明|不能只写答案|结论|得到/i.test(
+    line,
+  );
+}
+
+function uniqueProblemLines(lines: string[], maxItems: number): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  lines
+    .map((line) => stripProblemContextLabel(line))
+    .filter(Boolean)
+    .forEach((line) => {
+      const key = line.replace(/\s+/g, '').toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      normalized.push(line);
+    });
+  return normalized.slice(0, maxItems);
+}
+
+function collectProblemStatementParts(args: {
+  title: string;
+  language: 'zh-CN' | 'en-US';
+  blocks: NotebookContentBlock[];
+}): ProblemStatementParts {
+  const example = findFirstBlock(args.blocks, 'example');
+  const paragraphs = args.blocks.filter(
+    (block): block is Extract<NotebookContentBlock, { type: 'paragraph' }> =>
+      block.type === 'paragraph',
+  );
+  const problemParagraph = paragraphs.find((block) =>
+    /^(题目|Problem)\s*[：:]/i.test(block.text.trim()),
+  );
+  const bulletItems = args.blocks
+    .filter(
+      (block): block is Extract<NotebookContentBlock, { type: 'bullet_list' }> =>
+        block.type === 'bullet_list',
+    )
+    .flatMap((block) => block.items);
+  const summaryLines = args.blocks.flatMap((block) => blockSummaryLines(args.language, block));
+  const problem = stripProblemLabel(example?.problem || problemParagraph?.text || '');
+  const hasExplicitProblem = Boolean(example?.problem || problemParagraph);
+  const rawContext = [
+    ...(example?.givens || []),
+    ...(example?.goal ? [example.goal] : []),
+    ...bulletItems,
+    ...paragraphs
+      .filter((block) => block !== problemParagraph)
+      .map((block) => block.text)
+      .filter((line) => stripProblemLabel(line) !== problem),
+  ];
+  const givens: string[] = [];
+  const goals: string[] = [];
+
+  rawContext.forEach((line) => {
+    const cleanLine = stripProblemContextLabel(line);
+    if (!cleanLine || cleanLine === problem) return;
+    if (isProblemGoalLine(line)) {
+      goals.push(cleanLine);
+    } else {
+      givens.push(cleanLine);
+    }
+  });
+
+  if (!hasExplicitProblem && givens.length === 0 && goals.length === 0) {
+    summaryLines
+      .filter((line) => line.trim() && line.trim() !== args.title)
+      .forEach((line) => {
+        if (isProblemGoalLine(line)) {
+          goals.push(stripProblemContextLabel(line));
+        } else {
+          givens.push(stripProblemContextLabel(line));
+        }
+      });
+  }
+
+  return {
+    problem,
+    hasExplicitProblem,
+    givens: uniqueProblemLines(givens, 5),
+    goals: uniqueProblemLines(goals, 3),
+    supportLines: uniqueProblemLines([...givens, ...goals], 6),
+  };
+}
+
+function normalizeIntervalSnippet(value: string | undefined): string | undefined {
+  return value?.replace(/[［]/g, '[').replace(/[］]/g, ']').trim();
+}
+
+function extractProblemVisualFacts(text: string): {
+  inputSet?: string;
+  outputSet?: string;
+  expression?: string;
+} {
+  const inputSet = normalizeIntervalSnippet(
+    text.match(/f\s*\(\s*([［\[][^\]］]+[］\]])\s*\)/i)?.[1] ||
+      text.match(/输入集合\s*[：:]\s*[（(]?\s*([［\[][^\]］]+[］\]])/i)?.[1],
+  );
+  const outputSet = normalizeIntervalSnippet(
+    text.match(/f\s*\(\s*[［\[][^\]］]+[］\]]\s*\)\s*=\s*([［\[][^\]］]+[］\]])/i)?.[1] ||
+      text.match(/像集\s*(?:为|是|=|等于|:|：)\s*([［\[][^\]］]+[］\]])/i)?.[1],
+  );
+  const expression = text.match(/f\s*\(\s*x\s*\)\s*=\s*([^\s，。,；;）)]+)/i)?.[1];
+  return { inputSet, outputSet, expression };
+}
+
+function renderProblemInfoRows(args: {
+  title: string;
+  items: string[];
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  tokens: ReturnType<typeof getProfileTokens>;
+  language: 'zh-CN' | 'en-US';
+  tone: ContentCardTone;
+  maxItems?: number;
+}): PPTElement[] {
+  const rowGap = 8;
+  const availableHeight = Math.max(44, args.height - 42);
+  const maxRowsByHeight = Math.max(1, Math.floor((availableHeight + rowGap) / (44 + rowGap)));
+  const items = uniqueProblemLines(args.items, Math.min(args.maxItems || 4, maxRowsByHeight));
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: args.left,
+      top: args.top + 5,
+      width: 5,
+      height: Math.min(args.height - 10, 64),
+      fill: args.tone.accent,
+    }),
+    createTextElement({
+      left: args.left + 18,
+      top: args.top,
+      width: args.width - 18,
+      height: 34,
+      html: `<p style="font-size:16px;color:${args.tokens.titleText};font-weight:780;">${escapeHtml(args.title)}</p>`,
+      color: args.tokens.titleText,
+      textType: 'content',
+    }),
+  ];
+
+  if (items.length === 0) {
+    elements.push(
+      createTextElement({
+        left: args.left + 18,
+        top: args.top + 42,
+        width: args.width - 18,
+        height: 54,
+        html: `<p style="font-size:14px;line-height:21px;color:#64748b;">${escapeHtml(
+          args.language === 'en-US'
+            ? 'Extract the usable facts from the prompt.'
+            : '从题干中提取可用信息。',
+        )}</p>`,
+        color: '#64748b',
+        fill: '#f8fafc',
+        outlineColor: '#e2e8f0',
+        textType: 'content',
+      }),
+    );
+    return elements;
+  }
+
+  const rowHeight = Math.min(
+    62,
+    Math.max(44, (availableHeight - rowGap * Math.max(0, items.length - 1)) / items.length),
+  );
+  items.forEach((item, index) => {
+    elements.push(
+      createTextElement({
+        left: args.left + 18,
+        top: args.top + 42 + index * (rowHeight + rowGap),
+        width: args.width - 18,
+        height: rowHeight,
+        html: `<p style="font-size:13px;line-height:19px;color:#334155;"><span style="color:${args.tone.accent};font-weight:800;">${index + 1}.</span> ${renderInlineLatexToHtml(item)}</p>`,
+        color: '#334155',
+        fill: '#ffffff',
+        outlineColor: args.tone.border,
+        textType: 'content',
+      }),
+    );
+  });
+
+  return elements;
+}
+
+function renderProblemMappingVisual(args: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  text: string;
+  tokens: ReturnType<typeof getProfileTokens>;
+  language: 'zh-CN' | 'en-US';
+}): PPTElement[] {
+  const facts = extractProblemVisualFacts(args.text);
+  const groupId = createCardGroupId('problem_mapping');
+  const compact = args.height < 180;
+  const boxWidth = Math.min(118, Math.max(92, (args.width - 86) / 2));
+  const boxHeight = compact ? 54 : 76;
+  const boxTop = args.top + (compact ? 52 : Math.max(62, Math.min(84, args.height * 0.34)));
+  const inputLeft = args.left + 22;
+  const outputLeft = args.left + args.width - boxWidth - 22;
+  const lineY = boxTop + boxHeight / 2;
+  const lineStart = inputLeft + boxWidth + 12;
+  const lineEnd = outputLeft - 12;
+  const expression = facts.expression ? `f(x)=${facts.expression}` : 'f';
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: args.left,
+      top: args.top,
+      width: args.width,
+      height: args.height,
+      fill: '#f8fbff',
+      outlineColor: '#dbeafe',
+      groupId,
+    }),
+    createTextElement({
+      left: args.left + 20,
+      top: args.top + 18,
+      width: args.width - 40,
+      height: 32,
+      groupId,
+      html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+        args.language === 'en-US' ? 'Reasoning Map' : '求解路径',
+      )}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'content',
+    }),
+    createTextElement({
+      left: inputLeft,
+      top: boxTop,
+      width: boxWidth,
+      height: boxHeight,
+      groupId,
+      html: `<p style="font-size:12px;color:#64748b;text-align:center;">${escapeHtml(
+        args.language === 'en-US' ? 'Input' : '输入',
+      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:#0f172a;text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.inputSet || 'A')}</p>`,
+      color: '#0f172a',
+      fill: '#ffffff',
+      outlineColor: '#bfdbfe',
+      textType: 'content',
+    }),
+    createTextElement({
+      left: outputLeft,
+      top: boxTop,
+      width: boxWidth,
+      height: boxHeight,
+      groupId,
+      html: `<p style="font-size:12px;color:#64748b;text-align:center;">${escapeHtml(
+        args.language === 'en-US' ? 'Image' : '像集',
+      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:#0f172a;text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.outputSet || '?')}</p>`,
+      color: '#0f172a',
+      fill: '#ffffff',
+      outlineColor: '#bbf7d0',
+      textType: 'content',
+    }),
+    createLineElement({
+      start: [lineStart, lineY],
+      end: [lineEnd, lineY],
+      color: args.tokens.titleAccent,
+      width: 2,
+      groupId,
+    }),
+    createLineElement({
+      start: [lineEnd - 9, lineY - 6],
+      end: [lineEnd, lineY],
+      color: args.tokens.titleAccent,
+      width: 2,
+      groupId,
+    }),
+    createLineElement({
+      start: [lineEnd - 9, lineY + 6],
+      end: [lineEnd, lineY],
+      color: args.tokens.titleAccent,
+      width: 2,
+      groupId,
+    }),
+    createLatexElement({
+      latex: expression,
+      left: lineStart,
+      top: lineY - (compact ? 34 : 42),
+      width: Math.max(52, lineEnd - lineStart),
+      height: compact ? 24 : 30,
+      align: 'center',
+      color: args.tokens.titleText,
+      groupId,
+    }),
+  ];
+
+  if (!compact) {
+    elements.push(
+      createTextElement({
+        left: args.left + 20,
+        top: args.top + args.height - 52,
+        width: args.width - 40,
+        height: 34,
+        groupId,
+        html: `<p style="font-size:12px;line-height:17px;color:#475569;text-align:center;">${escapeHtml(
+          args.language === 'en-US'
+            ? 'Track how the input set becomes the image set.'
+            : '先看输入范围，再追踪输出范围。',
+        )}</p>`,
+        color: '#475569',
+        textType: 'notes',
+      }),
+    );
+  }
+
+  return elements;
+}
+
+function renderProblemReasoningRail(args: {
+  top: number;
+  tokens: ReturnType<typeof getProfileTokens>;
+  language: 'zh-CN' | 'en-US';
+  activeIndex: number;
+}): PPTElement[] {
+  const steps =
+    args.language === 'en-US' ? ['Read', 'Translate', 'Conclude'] : ['读题', '转化', '结论'];
+  const left = CONTENT_LEFT + 42;
+  const width = CONTENT_WIDTH - 84;
+  const y = args.top + 23;
+  const segment = width / Math.max(1, steps.length - 1);
+  const elements: PPTElement[] = [
+    createLineElement({
+      start: [left, y],
+      end: [left + width, y],
+      color: '#dbeafe',
+      width: 2,
+    }),
+  ];
+
+  steps.forEach((step, index) => {
+    const x = left + index * segment;
+    const active = index <= args.activeIndex;
+    elements.push(
+      createCircleShape({
+        left: x - 10,
+        top: y - 10,
+        size: 20,
+        fill: active ? args.tokens.titleAccent : '#dbeafe',
+      }),
+      createTextElement({
+        left: x - 58,
+        top: y + 14,
+        width: 116,
+        height: 28,
+        html: `<p style="font-size:12px;color:${active ? args.tokens.titleAccent : '#64748b'};text-align:center;font-weight:720;">${escapeHtml(step)}</p>`,
+        color: active ? args.tokens.titleAccent : '#64748b',
+        textType: 'notes',
+      }),
+    );
+  });
+
+  return elements;
+}
+
+function renderProblemStatementTemplate(args: {
+  title: string;
+  blocks: NotebookContentBlock[];
+  language: 'zh-CN' | 'en-US';
+  tokens: ReturnType<typeof getProfileTokens>;
+  cardPalettes: readonly ContentCardTone[];
+  bodyTop: number;
+  bodyHeight: number;
+  continuation?: NotebookContentDocument['continuation'];
+}): PPTElement[] {
+  const parts = collectProblemStatementParts({
+    title: args.title,
+    language: args.language,
+    blocks: args.blocks,
+  });
+  const allText = [
+    args.title,
+    parts.problem,
+    ...parts.givens,
+    ...parts.goals,
+    ...parts.supportLines,
+  ].join('\n');
+  const elements: PPTElement[] = [];
+  const activeIndex = args.continuation
+    ? Math.min(2, Math.max(0, args.continuation.partNumber - 1))
+    : 0;
+  const railHeight = 58;
+  const railTop = args.bodyTop + args.bodyHeight - railHeight;
+
+  if (parts.hasExplicitProblem) {
+    const problemFontSize =
+      parts.problem.length > 980
+        ? 14
+        : parts.problem.length > 700
+          ? 15
+          : parts.problem.length > 460
+            ? 16
+            : 18;
+    const problemHeight = parts.problem.length > 760 ? 192 : parts.problem.length > 420 ? 166 : 142;
+    const lowerTop = args.bodyTop + problemHeight + 18;
+    const lowerHeight = Math.max(132, railTop - lowerTop - 14);
+    const infoWidth = 510;
+    const visualLeft = CONTENT_LEFT + infoWidth + 24;
+    const infoItems = uniqueProblemLines([...parts.givens, ...parts.goals], 5);
+
+    elements.push(
+      createTextElement({
+        left: CONTENT_LEFT,
+        top: args.bodyTop,
+        width: CONTENT_WIDTH,
+        height: problemHeight,
+        html: `<p style="font-size:15px;line-height:22px;color:${args.tokens.titleAccent};font-weight:780;">${escapeHtml(
+          args.language === 'en-US' ? 'Problem' : '题目',
+        )}</p><p style="font-size:${problemFontSize}px;line-height:${Math.round(problemFontSize * 1.5)}px;color:#334155;">${renderInlineLatexToHtml(parts.problem)}</p>`,
+        color: '#334155',
+        fill: '#ffffff',
+        outlineColor: '#bfdbfe',
+        textType: 'content',
+      }),
+      ...renderProblemInfoRows({
+        title: args.language === 'en-US' ? 'Known / Goal' : '已知与目标',
+        items: infoItems,
+        left: CONTENT_LEFT,
+        top: lowerTop,
+        width: infoWidth,
+        height: lowerHeight,
+        tokens: args.tokens,
+        language: args.language,
+        tone: args.cardPalettes[0],
+        maxItems: 4,
+      }),
+      ...renderProblemMappingVisual({
+        left: visualLeft,
+        top: lowerTop,
+        width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+        height: lowerHeight,
+        text: allText,
+        tokens: args.tokens,
+        language: args.language,
+      }),
+      ...renderProblemReasoningRail({
+        top: railTop,
+        tokens: args.tokens,
+        language: args.language,
+        activeIndex,
+      }),
+    );
+    return elements;
+  }
+
+  const continuationLines = uniqueProblemLines(
+    [...parts.goals, ...parts.givens, ...parts.supportLines],
+    5,
+  );
+  const roleText = continuationLines.join('\n');
+  const isConclusion = /结论|Conclusion|得到|therefore/i.test(roleText);
+  const hasGoal = parts.goals.length > 0 || /目标|Goal|证明|Prove/i.test(roleText);
+  const headerTitle =
+    args.language === 'en-US'
+      ? isConclusion
+        ? 'Conclusion'
+        : hasGoal
+          ? 'Proof Target'
+          : 'Known Conditions'
+      : isConclusion
+        ? '结论收束'
+        : hasGoal
+          ? '证明目标'
+          : '已知条件';
+  const headerSubtitle =
+    continuationLines[0] ||
+    (args.language === 'en-US' ? 'Continue the worked-example reasoning.' : '继续推进例题讲解。');
+  const panelTop = args.bodyTop + 92;
+  const panelHeight = Math.max(162, railTop - panelTop - 16);
+  const infoWidth = 532;
+  const visualLeft = CONTENT_LEFT + infoWidth + 24;
+
+  elements.push(
+    createTextElement({
+      left: CONTENT_LEFT,
+      top: args.bodyTop,
+      width: CONTENT_WIDTH,
+      height: 72,
+      html: `<p style="font-size:17px;line-height:24px;color:${args.tokens.titleText};font-weight:780;">${escapeHtml(headerTitle)}</p><p style="font-size:15px;line-height:22px;color:#334155;">${renderInlineLatexToHtml(headerSubtitle)}</p>`,
+      color: '#334155',
+      fill: '#ffffff',
+      outlineColor: '#bfdbfe',
+      textType: 'content',
+    }),
+    ...renderProblemInfoRows({
+      title: args.language === 'en-US' ? 'Use These Facts' : '本页要用的信息',
+      items: continuationLines,
+      left: CONTENT_LEFT,
+      top: panelTop,
+      width: infoWidth,
+      height: panelHeight,
+      tokens: args.tokens,
+      language: args.language,
+      tone: isConclusion ? args.cardPalettes[2] : args.cardPalettes[0],
+      maxItems: 4,
+    }),
+    ...renderProblemMappingVisual({
+      left: visualLeft,
+      top: panelTop,
+      width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+      height: panelHeight,
+      text: allText,
+      tokens: args.tokens,
+      language: args.language,
+    }),
+    ...renderProblemReasoningRail({
+      top: railTop,
+      tokens: args.tokens,
+      language: args.language,
+      activeIndex,
+    }),
+  );
+
+  return elements;
+}
+
+function getCoverTitleSize(title: string): number {
+  const normalizedLength = title.replace(/\s+/g, '').length;
+  if (normalizedLength > 34) return 34;
+  if (normalizedLength > 24) return 38;
+  if (normalizedLength > 16) return 42;
+  return 48;
+}
+
+function collectCoverLines(language: 'zh-CN' | 'en-US', blocks: NotebookContentBlock[]): string[] {
+  return blocks
+    .flatMap((block) => blockSummaryLines(language, block))
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function renderCoverFunctionVisual(args: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  tokens: ReturnType<typeof getProfileTokens>;
+  language: 'zh-CN' | 'en-US';
+}): PPTElement[] {
+  const groupId = createCardGroupId('cover_function_visual');
+  const circleSize = 112;
+  const aLeft = args.left + 18;
+  const bLeft = args.left + args.width - circleSize - 18;
+  const circleTop = args.top + 98;
+  const aCenterX = aLeft + circleSize / 2;
+  const bCenterX = bLeft + circleSize / 2;
+  const centerY = circleTop + circleSize / 2;
+  const nodePairs = [
+    { fromY: centerY - 28, toY: centerY - 18 },
+    { fromY: centerY, toY: centerY + 2 },
+    { fromY: centerY + 28, toY: centerY + 24 },
+  ];
+
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: args.left,
+      top: args.top,
+      width: args.width,
+      height: args.height,
+      fill: 'rgba(255,255,255,0.62)',
+      outlineColor: '#dbeafe',
+      groupId,
+      shadow: {
+        h: 0,
+        v: 12,
+        blur: 30,
+        color: 'rgba(15,23,42,0.08)',
+      },
+    }),
+    createTextElement({
+      left: args.left + 24,
+      top: args.top + 22,
+      width: args.width - 48,
+      height: 36,
+      groupId,
+      html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+        args.language === 'en-US' ? 'Function View' : '函数视角',
+      )}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'content',
+    }),
+    createLatexElement({
+      latex: 'f: A \\to B',
+      left: args.left + 54,
+      top: args.top + 54,
+      width: args.width - 108,
+      height: 46,
+      align: 'center',
+      color: args.tokens.titleText,
+      groupId,
+    }),
+    createCircleShape({
+      left: aLeft,
+      top: circleTop,
+      size: circleSize,
+      fill: '#eef2ff',
+      groupId,
+    }),
+    createCircleShape({
+      left: bLeft,
+      top: circleTop,
+      size: circleSize,
+      fill: '#ecfdf5',
+      groupId,
+    }),
+    createTextElement({
+      left: aLeft + 38,
+      top: circleTop + 36,
+      width: 38,
+      height: 36,
+      groupId,
+      html: `<p style="font-size:24px;color:${args.tokens.titleText};font-weight:760;text-align:center;">A</p>`,
+      color: args.tokens.titleText,
+      textType: 'content',
+    }),
+    createTextElement({
+      left: bLeft + 38,
+      top: circleTop + 36,
+      width: 38,
+      height: 36,
+      groupId,
+      html: `<p style="font-size:24px;color:${args.tokens.titleText};font-weight:760;text-align:center;">B</p>`,
+      color: args.tokens.titleText,
+      textType: 'content',
+    }),
+  ];
+
+  nodePairs.forEach((pair, index) => {
+    const accent = index === 0 ? '#2f6bff' : index === 1 ? '#7a5af8' : '#12b76a';
+    elements.push(
+      createCircleShape({
+        left: aCenterX - 4,
+        top: pair.fromY - 4,
+        size: 8,
+        fill: accent,
+        groupId,
+      }),
+      createCircleShape({
+        left: bCenterX - 4,
+        top: pair.toY - 4,
+        size: 8,
+        fill: accent,
+        groupId,
+      }),
+      createLineElement({
+        start: [aCenterX + 16, pair.fromY],
+        end: [bCenterX - 16, pair.toY],
+        color: accent,
+        width: 2,
+        groupId,
+      }),
+    );
+  });
+
+  elements.push(
+    createTextElement({
+      left: args.left + 26,
+      top: args.top + args.height - 54,
+      width: args.width - 52,
+      height: 36,
+      groupId,
+      html: `<p style="font-size:13px;line-height:18px;color:#475569;text-align:center;">${escapeHtml(
+        args.language === 'en-US'
+          ? 'Each input maps to exactly one output'
+          : '每个输入对应唯一输出',
+      )}</p>`,
+      color: '#475569',
+      textType: 'notes',
+    }),
+  );
+
+  return elements;
+}
+
+function renderCoverRouteStrip(args: {
+  items: string[];
+  language: 'zh-CN' | 'en-US';
+  tokens: ReturnType<typeof getProfileTokens>;
+}): PPTElement[] {
+  const normalizedItems =
+    args.items.length > 0
+      ? args.items.slice(0, 3)
+      : args.language === 'en-US'
+        ? ['Define precisely', 'Compute image/preimage', 'Classify mappings']
+        : ['严格定义', '像与原像', '单射满射双射'];
+  const top = 462;
+  const left = CONTENT_LEFT + 6;
+  const width = CONTENT_WIDTH - 12;
+  const gap = 18;
+  const segmentWidth = (width - gap * (normalizedItems.length - 1)) / normalizedItems.length;
+
+  const elements: PPTElement[] = [
+    createLineElement({
+      start: [left, top + 12],
+      end: [left + width, top + 12],
+      color: '#dbeafe',
+      width: 2,
+    }),
+  ];
+
+  normalizedItems.forEach((item, index) => {
+    const x = left + index * (segmentWidth + gap);
+    const accent = args.tokens.cardPalettes[index % args.tokens.cardPalettes.length].accent;
+    elements.push(
+      createCircleShape({
+        left: x,
+        top: top + 3,
+        size: 18,
+        fill: accent,
+      }),
+      createTextElement({
+        left: x + 28,
+        top,
+        width: segmentWidth - 28,
+        height: 48,
+        html: `<p style="font-size:13px;line-height:18px;color:#334155;"><strong style="color:${accent};">${index + 1}</strong> ${renderInlineLatexToHtml(item)}</p>`,
+        color: '#334155',
+        textType: 'content',
+      }),
+    );
+  });
+
+  return elements;
+}
+
+function renderCoverHeroSlide(args: {
+  document: NotebookContentDocument;
+  fallbackTitle: string;
+  language: 'zh-CN' | 'en-US';
+  tokens: ReturnType<typeof getProfileTokens>;
+  blocks: NotebookContentBlock[];
+}): Slide {
+  const title = args.document.title || args.fallbackTitle;
+  const titleSize = getCoverTitleSize(title);
+  const lines = collectCoverLines(args.language, args.blocks);
+  const lead = lines[0] || args.document.title || args.fallbackTitle;
+  const routeItems = lines
+    .slice(1)
+    .map((line) =>
+      line.replace(
+        /^(明确课程主题|学习主线|强调证明意识|主题范围|核心要点|课堂推进顺序)[：:]\s*/,
+        '',
+      ),
+    )
+    .filter(Boolean);
+  const elements: PPTElement[] = [
+    createTextElement({
+      left: CONTENT_LEFT,
+      top: 72,
+      width: CONTENT_WIDTH,
+      height: 118,
+      html: `<p style="font-size:${titleSize}px;line-height:${Math.round(titleSize * 1.12)}px;color:${args.tokens.titleText};font-weight:840;">${renderInlineLatexToHtml(title)}</p>`,
+      color: args.tokens.titleText,
+      textType: 'title',
+    }),
+    createRectShape({
+      left: CONTENT_LEFT,
+      top: 198,
+      width: 120,
+      height: 5,
+      fill: args.tokens.titleAccent,
+    }),
+    createTextElement({
+      left: CONTENT_LEFT,
+      top: 232,
+      width: 510,
+      height: 112,
+      html: `<p style="font-size:17px;line-height:26px;color:#334155;">${renderInlineLatexToHtml(lead)}</p>`,
+      color: '#334155',
+      textType: 'subtitle',
+    }),
+    ...renderCoverFunctionVisual({
+      left: 626,
+      top: 218,
+      width: 288,
+      height: 212,
+      tokens: args.tokens,
+      language: args.language,
+    }),
+    ...renderCoverRouteStrip({
+      items: routeItems,
+      language: args.language,
+      tokens: args.tokens,
+    }),
+  ];
+
+  return createSlideFromFamilyElements({ elements, tokens: args.tokens, backgroundIndex: 0 });
+}
+
 function renderStructuredLayoutFamilySlide(args: {
   document: NotebookContentDocument;
   fallbackTitle: string;
@@ -1579,6 +2763,17 @@ function renderStructuredLayoutFamilySlide(args: {
     blocks: args.blocks,
     visual: args.visual,
   });
+  const contentBlocks = args.blocks.length > 0 ? args.blocks : [];
+  if (args.family === 'cover') {
+    return renderCoverHeroSlide({
+      document: args.document,
+      fallbackTitle: args.fallbackTitle,
+      language: args.language,
+      tokens: args.tokens,
+      blocks: contentBlocks,
+    });
+  }
+
   const elements: PPTElement[] = [];
   const titleElements = createFamilyTitleElements({
     title,
@@ -1589,14 +2784,13 @@ function renderStructuredLayoutFamilySlide(args: {
   });
   elements.push(...titleElements);
 
-  const contentBlocks = args.blocks.length > 0 ? args.blocks : [];
   const cardPalettes = args.tokens.cardPalettes;
 
-  if (args.family === 'cover' || args.family === 'section') {
+  if (args.family === 'section') {
     const bodyText = contentBlocks
       .flatMap((block) => blockSummaryLines(args.language, block))
       .slice(0, 4);
-    const top = args.family === 'cover' ? 260 : 230;
+    const top = 230;
     elements.push(
       createTextElement({
         left: CONTENT_LEFT,
@@ -1634,9 +2828,44 @@ function renderStructuredLayoutFamilySlide(args: {
 
   const bodyTop = 112;
   const bodyHeight = CONTENT_BOTTOM - bodyTop;
+  const shouldUseDefinitionFocus = shouldUseDefinitionFocusTemplate({
+    document: args.document,
+    family: args.family,
+    blocks: contentBlocks,
+  });
 
   if (args.family === 'concept_cards') {
-    if (template === 'title_content') {
+    if (shouldUseDefinitionFocus || isDefinitionBoardTemplate(template)) {
+      elements.push(
+        ...renderDefinitionFocusTemplate({
+          title,
+          blocks: contentBlocks,
+          language: args.language,
+          tokens: args.tokens,
+          cardPalettes,
+          bodyTop,
+          bodyHeight,
+        }),
+      );
+    } else if (
+      isHumanitiesAnalysisTemplate(template) ||
+      (isHumanitiesDiscipline(args.document.disciplineStyle) &&
+        isHumanitiesTeachingFlow(args.document.teachingFlow))
+    ) {
+      elements.push(
+        ...renderHumanitiesAnalysisTemplate({
+          title,
+          blocks: contentBlocks,
+          language: args.language,
+          tokens: args.tokens,
+          template,
+          teachingFlow: args.document.teachingFlow,
+          cardPalettes,
+          bodyTop,
+          bodyHeight,
+        }),
+      );
+    } else if (template === 'title_content' || template === 'two_column_explain') {
       elements.push(
         ...renderTitleContentTemplate({
           title,
@@ -1669,6 +2898,43 @@ function renderStructuredLayoutFamilySlide(args: {
   }
 
   if (args.family === 'visual_split') {
+    if (!args.visual?.source) {
+      elements.push(
+        ...(isHumanitiesAnalysisTemplate(template)
+          ? renderHumanitiesAnalysisTemplate({
+              title,
+              blocks: contentBlocks,
+              language: args.language,
+              tokens: args.tokens,
+              template,
+              teachingFlow: args.document.teachingFlow,
+              cardPalettes,
+              bodyTop,
+              bodyHeight,
+            })
+          : shouldUseDefinitionFocus || isDefinitionBoardTemplate(template)
+            ? renderDefinitionFocusTemplate({
+                title,
+                blocks: contentBlocks,
+                language: args.language,
+                tokens: args.tokens,
+                cardPalettes,
+                bodyTop,
+                bodyHeight,
+              })
+            : renderTitleContentTemplate({
+                title,
+                blocks: contentBlocks,
+                language: args.language,
+                tokens: args.tokens,
+                cardPalettes,
+                bodyTop,
+                bodyHeight,
+              })),
+      );
+      return createSlideFromFamilyElements({ elements, tokens: args.tokens, backgroundIndex: 0 });
+    }
+
     const visualWidth = 360;
     const textWidth = CONTENT_WIDTH - visualWidth - 26;
     const visualOnLeft = template === 'visual_left';
@@ -1708,7 +2974,26 @@ function renderStructuredLayoutFamilySlide(args: {
 
   if (args.family === 'comparison') {
     const tableBlock = findFirstBlock(contentBlocks, 'table');
-    if (tableBlock) {
+    if (
+      !tableBlock &&
+      (isHumanitiesAnalysisTemplate(template) ||
+        (isHumanitiesDiscipline(args.document.disciplineStyle) &&
+          isHumanitiesTeachingFlow(args.document.teachingFlow)))
+    ) {
+      elements.push(
+        ...renderHumanitiesAnalysisTemplate({
+          title,
+          blocks: contentBlocks,
+          language: args.language,
+          tokens: args.tokens,
+          template,
+          teachingFlow: args.document.teachingFlow,
+          cardPalettes,
+          bodyTop,
+          bodyHeight,
+        }),
+      );
+    } else if (tableBlock) {
       elements.push(
         ...createTableCards({
           block: tableBlock,
@@ -1816,74 +3101,18 @@ function renderStructuredLayoutFamilySlide(args: {
   }
 
   if (args.family === 'problem_statement') {
-    const example = findFirstBlock(contentBlocks, 'example');
-    const summaryLines = contentBlocks.flatMap((block) => blockSummaryLines(args.language, block));
-    const problemParagraph = contentBlocks.find(
-      (block): block is Extract<NotebookContentBlock, { type: 'paragraph' }> =>
-        block.type === 'paragraph' && /^(题目|Problem)\s*[：:]/i.test(block.text.trim()),
-    );
-    const problem =
-      example?.problem ||
-      problemParagraph?.text.replace(/^(题目|Problem)\s*[：:]\s*/i, '') ||
-      summaryLines.find((line) => !/^(例题讲解|Worked Example)$/i.test(line.trim())) ||
-      title;
-    const hasExplicitProblem = Boolean(example?.problem || problemParagraph);
-    const givens = example
-      ? [...example.givens, ...(example.goal ? [example.goal] : [])]
-      : contentBlocks
-          .filter(
-            (block): block is Extract<NotebookContentBlock, { type: 'bullet_list' }> =>
-              block.type === 'bullet_list',
-          )
-          .flatMap((block) => block.items)
-          .slice(0, 4);
-    const problemFontSize =
-      problem.length > 980 ? 14 : problem.length > 700 ? 15 : problem.length > 460 ? 16 : 18;
-    const problemLineHeight = Math.round(problemFontSize * 1.52);
-    const includeGivens = givens.length > 0 && problem.length <= 760;
-    const problemHeight = includeGivens ? bodyHeight * 0.72 : bodyHeight;
     elements.push(
-      createTextElement({
-        left: CONTENT_LEFT,
-        top: bodyTop,
-        width: CONTENT_WIDTH,
-        height: problemHeight,
-        html: `<p style="font-size:20px;line-height:29px;color:#0f172a;"><strong>${escapeHtml(
-          hasExplicitProblem
-            ? args.language === 'en-US'
-              ? 'Problem'
-              : '题目'
-            : args.language === 'en-US'
-              ? 'Given'
-              : '已知条件',
-        )}</strong></p><p style="font-size:${problemFontSize}px;line-height:${problemLineHeight}px;color:#334155;">${renderInlineLatexToHtml(problem)}</p>`,
-        color: '#334155',
-        fill: '#ffffff',
-        outlineColor: '#bfdbfe',
-        textType: 'content',
+      ...renderProblemStatementTemplate({
+        title,
+        blocks: contentBlocks,
+        language: args.language,
+        tokens: args.tokens,
+        cardPalettes,
+        bodyTop,
+        bodyHeight,
+        continuation: args.document.continuation,
       }),
     );
-    if (includeGivens) {
-      elements.push(
-        createTextElement({
-          left: CONTENT_LEFT,
-          top: bodyTop + problemHeight + 14,
-          width: CONTENT_WIDTH,
-          height: bodyHeight - problemHeight - 14,
-          html: givens
-            .slice(0, 4)
-            .map(
-              (item) =>
-                `<p style="font-size:14px;line-height:20px;color:#334155;"><span style="color:${args.tokens.titleAccent};font-weight:700;">•</span> ${renderInlineLatexToHtml(item)}</p>`,
-            )
-            .join(''),
-          color: '#334155',
-          fill: '#f8fafc',
-          outlineColor: '#e2e8f0',
-          textType: 'content',
-        }),
-      );
-    }
     return createSlideFromFamilyElements({ elements, tokens: args.tokens, backgroundIndex: 0 });
   }
 

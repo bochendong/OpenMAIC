@@ -181,6 +181,8 @@ function buildFallbackDocumentFromSlideContent(args: {
     version: 1,
     language: args.language,
     profile: 'math',
+    disciplineStyle: 'math',
+    teachingFlow: 'definition_to_example',
     layout: { mode: 'stack' },
     layoutFamily: 'formula_focus',
     density: 'standard',

@@ -112,6 +112,8 @@ function buildFallbackDocumentFromSlideContent(args: {
     version: 1,
     language: args.language,
     profile: 'code',
+    disciplineStyle: 'code',
+    teachingFlow: 'code_walkthrough',
     layout: { mode: 'stack' },
     layoutFamily: 'code_walkthrough',
     density: 'standard',

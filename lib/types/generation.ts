@@ -9,10 +9,12 @@ import type { ActionType } from './action';
 import type { MediaGenerationRequest } from '@/lib/media/types';
 import type {
   NotebookContentDensity,
+  NotebookContentDisciplineStyle,
   NotebookContentLayoutFamily,
   NotebookContentLayoutTemplate,
   NotebookContentOverflowPolicy,
   NotebookContentProfile,
+  NotebookContentTeachingFlow,
   NotebookContentVisualRole,
 } from '@/lib/notebook-content';
 
@@ -21,6 +23,8 @@ export type SceneArchetype = 'intro' | 'concept' | 'definition' | 'example' | 'b
 export interface SceneLayoutIntent {
   layoutFamily: NotebookContentLayoutFamily;
   layoutTemplate?: NotebookContentLayoutTemplate;
+  disciplineStyle?: NotebookContentDisciplineStyle;
+  teachingFlow?: NotebookContentTeachingFlow;
   density?: NotebookContentDensity;
   visualRole?: NotebookContentVisualRole;
   overflowPolicy?: NotebookContentOverflowPolicy;

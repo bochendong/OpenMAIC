@@ -111,6 +111,8 @@ function buildFallbackDocumentFromSlideContent(args: {
     version: 1,
     language: args.language,
     profile: 'general',
+    disciplineStyle: 'general',
+    teachingFlow: 'concept_explain',
     layout: { mode: 'stack' },
     layoutFamily: 'concept_cards',
     density: 'standard',
