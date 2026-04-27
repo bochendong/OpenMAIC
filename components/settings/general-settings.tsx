@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -32,10 +32,7 @@ export function GeneralSettings() {
   const { t, locale, setLocale } = useI18n();
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const signOutAndRedirect = useAuthSignOut();
-  const [applyNotebookWrites, setApplyNotebookWrites] = useState(true);
-  useEffect(() => {
-    setApplyNotebookWrites(getStoredApplyNotebookWrites());
-  }, []);
+  const [applyNotebookWrites, setApplyNotebookWrites] = useState(getStoredApplyNotebookWrites);
 
   // Clear cache state
   const [showClearDialog, setShowClearDialog] = useState(false);

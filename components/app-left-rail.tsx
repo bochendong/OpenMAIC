@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import {
-  ArrowRightLeft,
   Bell,
   Bug,
   ChevronLeft,
@@ -46,7 +45,7 @@ import { isDashboardRoute } from '@/lib/utils/dashboard-routes';
 import { ProfileAvatarPicker } from '@/components/user-profile/profile-avatar-picker';
 import { UserAvatarWithFrame } from '@/components/user-profile/user-avatar-with-frame';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NotificationBarStageBackground } from '@/lib/notifications/notification-bar-stage-background';
+import { NotificationBarStageBackground } from '@/components/notifications/notification-bar-stage-background';
 import { isSolidColorBarStageId } from '@/lib/notifications/notification-bar-stage-ids';
 import { CONTACT_SUPPORT_NAV_URL, REPORT_ISSUE_NAV_URL } from '@/lib/constants/support-nav';
 
@@ -233,9 +232,12 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
 
   useEffect(() => {
     let active = true;
-    void loadRailAccountState(() => active);
+    const timeoutId = window.setTimeout(() => {
+      void loadRailAccountState(() => active);
+    }, 0);
     return () => {
       active = false;
+      window.clearTimeout(timeoutId);
     };
   }, [loadRailAccountState]);
 

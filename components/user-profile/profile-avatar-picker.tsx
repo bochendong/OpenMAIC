@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
@@ -28,12 +28,10 @@ export function ProfileAvatarPicker({ size = 'md', className }: ProfileAvatarPic
   const { summary } = useGamificationSummary(true);
   const [page, setPage] = useState(0);
   /** lg：与网格选择同步，点「应用」后再写入 store */
-  const [draft, setDraft] = useState(avatar);
+  const [draftState, setDraftState] = useState(() => ({ avatar, draft: avatar }));
 
   const isLg = size === 'lg';
-  useEffect(() => {
-    if (isLg) setDraft(avatar);
-  }, [avatar, isLg]);
+  const draft = draftState.avatar === avatar ? draftState.draft : avatar;
 
   const ring = size === 'lg' ? 'size-20' : 'size-11';
   /** lg：格内不固定 px，避免 10 列+窄容器时比列宽大导致重叠；最大 4.5rem */
@@ -95,7 +93,7 @@ export function ProfileAvatarPicker({ size = 'md', className }: ProfileAvatarPic
           <button
             key={url}
             type="button"
-            onClick={() => (isLg ? setDraft(url) : setAvatar(url))}
+            onClick={() => (isLg ? setDraftState({ avatar, draft: url }) : setAvatar(url))}
             className={cn(
               'rounded-full overflow-hidden bg-gray-50 dark:bg-gray-800 cursor-pointer transition-all duration-150',
               size === 'lg' ? ['justify-self-center', chipLg, 'active:brightness-95'] : [chipMd, 'hover:scale-110 active:scale-95'],

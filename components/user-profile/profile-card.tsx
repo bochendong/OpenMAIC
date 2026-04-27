@@ -17,12 +17,7 @@ export function UserProfileCard({ showAvatar = true }: { showAvatar?: boolean })
 
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
-  const [hydrated, setHydrated] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
 
   useEffect(() => {
     if (editingName) nameInputRef.current?.focus();
@@ -39,20 +34,6 @@ export function UserProfileCard({ showAvatar = true }: { showAvatar?: boolean })
     setNickname(nameDraft.trim());
     setEditingName(false);
   };
-
-  if (!hydrated) {
-    return (
-      <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80">
-        <div className={showAvatar ? 'flex items-center gap-3' : ''}>
-          {showAvatar ? <div className="size-11 shrink-0 rounded-full bg-muted animate-pulse" /> : null}
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="h-3 w-16 rounded bg-muted animate-pulse" />
-            <div className="h-4 w-24 rounded bg-muted animate-pulse" />
-          </div>
-        </div>
-      </Card>
-    );
-  }
 
   return (
     <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80">

@@ -8,9 +8,7 @@ import { PENDING_SCENE_ID } from '@/lib/store/stage';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { backendFetch } from '@/lib/utils/backend-api';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
-import { resolveNotebookContentProfile, type NotebookContentProfile } from '@/lib/notebook-content';
 import { renderSemanticSlideContent } from '@/lib/notebook-content/semantic-slide-render';
 import { Header } from './header';
 import { ProblemBankView } from '@/components/problem-bank/problem-bank-view';
@@ -21,9 +19,8 @@ import type { EngineMode, TriggerEvent, Effect } from '@/lib/playback';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import type { Action, MouthShape, SpeechAction } from '@/lib/types/action';
-import type { Scene, SceneType, SlideContent } from '@/lib/types/stage';
+import type { SceneType } from '@/lib/types/stage';
 import type { SceneOutline } from '@/lib/types/generation';
-import { inferSceneContentProfile } from '@/lib/generation/content-profile';
 import {
   normalizeAzureVisemesToMouthCues,
   resolveCurrentMouthCueFrame,
@@ -37,35 +34,41 @@ import { getActionsForRole } from '@/lib/orchestration/registry/types';
 import { ensureMissingSpeechAudioForScene } from '@/lib/hooks/use-scene-generator';
 import { hydrateSpeechAudioFromTtsCache } from '@/lib/utils/tts-audio-cache';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
-import type { SlideRepairChatMessage } from '@/lib/types/slide-repair';
 import { buildSceneSidebarAskThreadFromMessages } from '@/lib/utils/scene-sidebar-ask-thread';
 import { runCourseSideChatLoop } from '@/lib/chat/run-course-side-chat-loop';
 import type { ChatMessageMetadata } from '@/lib/types/chat';
-import {
-  AlertDialog,
-  AlertDialogDescription,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogFooter,
-  AlertDialogAction,
-  AlertDialogCancel,
-} from '@/components/ui/alert-dialog';
-import { AlertTriangle, RefreshCcw, Sparkles, SquarePen } from 'lucide-react';
-import { VisuallyHidden } from 'radix-ui';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import { ClassroomFooter } from '@/components/stage/classroom-footer';
 import { ClassroomFooterVoiceChip } from '@/components/stage/classroom-footer-voice-chip';
 import { SpeechGenerationIndicator } from '@/components/audio/speech-generation-indicator';
 import { SlideNarrationEditor } from '@/components/stage/slide-narration-editor';
 import { ClassroomSlideCanvasEditor } from '@/components/stage/classroom-slide-canvas-editor';
 import { LIVE2D_PRESENTER_MODELS } from '@/lib/live2d/presenter-models';
+import { sceneTypeTabLabel } from '@/components/stage/stage-helpers';
+import {
+  buildRawTypePayloadJson,
+  canReflowGridScene,
+  canReflowLayoutCardsScene,
+  getRawCurrentOutline,
+  getRawCurrentScene,
+  getRawDataTabTypes,
+  renderReflowedGridScene,
+  renderReflowedLayoutCardsScene,
+  type RawSlideDataView,
+} from '@/components/stage/raw-view-helpers';
+import {
+  EditorStatusChip,
+  StageTitleActions,
+  StageViewToggle,
+  type MainClassroomView,
+  type SlideEditorSidebarTab,
+  type SlideEditTab,
+} from '@/components/stage/stage-toolbar-controls';
+import { RawDataPanel } from '@/components/stage/raw-data-panel';
+import { StageConfirmationDialogs } from '@/components/stage/stage-confirmation-dialogs';
+import { useSlideRepair } from '@/components/stage/use-slide-repair';
 
-const RAW_DATA_BASE_TYPES: SceneType[] = ['slide', 'quiz', 'interactive'];
 type SpeechCadence = 'idle' | 'active' | 'pause' | 'fallback';
-type SlideEditTab = 'canvas' | 'narration';
-type SlideEditorSidebarTab = 'ai' | 'manual';
 const LIVE2D_PRESENTER_AVATAR_BY_ID = {
   haru: '/liv2d_poster/haru-avator.png',
   hiyori: '/liv2d_poster/hiyori-avator.png',
@@ -89,340 +92,6 @@ const SIDEBAR_VOICE_REPLY_PREFERRED_VOICE: Partial<Record<TTSProviderId, string>
   'openai-tts': 'nova',
   'elevenlabs-tts': 'EXAVITQu4vr4xnSDxMaL',
 };
-
-function createRepairMessageId(role: 'user' | 'assistant') {
-  return `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function getDefaultRepairRequest(
-  language: 'zh-CN' | 'en-US' | undefined,
-  profile: NotebookContentProfile,
-) {
-  if (profile === 'code') {
-    return language === 'en-US'
-      ? 'Repair this slide with the default code-slide repair flow.'
-      : '按默认代码页修复链路优化当前页。';
-  }
-  if (profile === 'math') {
-    return language === 'en-US'
-      ? 'Repair this slide with the default math-slide repair flow.'
-      : '按默认数学页修复链路优化当前页。';
-  }
-  return language === 'en-US'
-    ? 'Repair this slide with the default general-slide repair flow.'
-    : '按默认通用页修复链路优化当前页。';
-}
-
-function stripHtmlToText(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>\s*<p[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function collectFallbackKeyPointsFromSlide(content: SlideContent): string[] {
-  const semanticBlocks = content.semanticDocument?.blocks ?? [];
-  const semanticPoints = semanticBlocks
-    .flatMap((block) => {
-      switch (block.type) {
-        case 'heading':
-          return [block.text];
-        case 'paragraph':
-          return [block.text];
-        case 'bullet_list':
-          return block.items;
-        case 'equation':
-          return [block.latex];
-        case 'matrix':
-          return [block.label || '', block.caption || '', ...block.rows.flat()];
-        case 'derivation_steps':
-          return block.steps.map((step) => step.expression);
-        case 'code_block':
-          return [block.caption || '', block.code];
-        case 'code_walkthrough':
-          return [
-            block.title || '',
-            block.caption || '',
-            ...block.steps.map((step) => step.title || step.focus || step.explanation),
-          ];
-        case 'callout':
-          return [block.title || '', block.text];
-        case 'example':
-          return [
-            block.problem,
-            ...block.givens,
-            ...(block.goal ? [block.goal] : []),
-            ...block.steps,
-          ];
-        case 'process_flow':
-          return [
-            block.title || '',
-            ...block.context.flatMap((item) => [item.label, item.text]),
-            ...block.steps.flatMap((step) => [step.title, step.detail, step.note || '']),
-            ...(block.summary ? [block.summary] : []),
-          ];
-        default:
-          return [];
-      }
-    })
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  if (semanticPoints.length > 0) return semanticPoints.slice(0, 5);
-
-  const canvasPoints = content.canvas.elements
-    .flatMap((element) => {
-      if (element.type === 'text') return [stripHtmlToText(element.content)];
-      if (element.type === 'latex') return [element.latex];
-      if (element.type === 'shape' && element.text?.content) {
-        return [stripHtmlToText(element.text.content)];
-      }
-      if (element.type === 'table') {
-        const rows = element.data ?? [];
-        return rows.flat().map((cell) => cell.text);
-      }
-      return [];
-    })
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return canvasPoints.slice(0, 5);
-}
-
-function buildFallbackRewriteOutline(scene: Scene, language: 'zh-CN' | 'en-US'): SceneOutline {
-  const keyPoints =
-    scene.type === 'slide' && scene.content.type === 'slide'
-      ? collectFallbackKeyPointsFromSlide(scene.content)
-      : [scene.title];
-  const contentProfile =
-    scene.type === 'slide' && scene.content.type === 'slide' && scene.content.semanticDocument
-      ? resolveNotebookContentProfile(scene.content.semanticDocument)
-      : undefined;
-
-  return {
-    id: `rewrite_${scene.id}`,
-    type: scene.type === 'slide' ? 'slide' : 'slide',
-    contentProfile,
-    title: scene.title,
-    description:
-      language === 'en-US'
-        ? `Rewrite this slide while keeping the same topic and teaching goal as "${scene.title}".`
-        : `围绕“${scene.title}”这个主题，重写这一页，但保持原有教学目标。`,
-    keyPoints: keyPoints.length > 0 ? keyPoints : [scene.title],
-    order: scene.order,
-    language,
-  };
-}
-
-function normalizeOutlineTitle(title: string): string {
-  return title.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function resolveRewriteOutline(
-  scene: Scene,
-  outlines: SceneOutline[],
-  language: 'zh-CN' | 'en-US',
-): SceneOutline {
-  const byOrder = outlines.find((outline) => outline.order === scene.order);
-  if (byOrder) return byOrder;
-
-  const sceneTitle = normalizeOutlineTitle(scene.title);
-  const byTitle = outlines.find((outline) => normalizeOutlineTitle(outline.title) === sceneTitle);
-  if (byTitle) return byTitle;
-
-  return buildFallbackRewriteOutline(scene, language);
-}
-
-function resolveSlideRepairProfile(scene: Scene, outline?: SceneOutline): NotebookContentProfile {
-  if (scene.type === 'slide' && scene.content.type === 'slide' && scene.content.semanticDocument) {
-    return resolveNotebookContentProfile(scene.content.semanticDocument);
-  }
-  if (outline?.contentProfile) return outline.contentProfile;
-  return outline ? inferSceneContentProfile(outline) : 'general';
-}
-
-function repairRequestLooksMathFocused(text: string): boolean {
-  const normalized = text.trim().toLowerCase();
-  if (!normalized) return false;
-  return /公式|公式显示|数学公式|latex|tex|mathjax|katex|渲染公式|修公式|更正公式|符号|下标|上标|矩阵|推导|证明|同余|映射|核|像|math|formula|formulas|notation|equation|equations|render the formula|fix the formula|latex rendering|derivation|proof|matrix|subscript|superscript|kernel|image/i.test(
-    normalized,
-  );
-}
-
-function inferRepairTargetLanguage(args: {
-  repairInstructions: string;
-  fallbackLanguage: 'zh-CN' | 'en-US';
-}): 'zh-CN' | 'en-US' {
-  const raw = args.repairInstructions.trim();
-  if (!raw) return args.fallbackLanguage;
-
-  const normalized = raw.toLowerCase();
-  const hasAny = (patterns: RegExp[]) => patterns.some((pattern) => pattern.test(raw));
-  const hasAnyNormalized = (patterns: RegExp[]) =>
-    patterns.some((pattern) => pattern.test(normalized));
-
-  const rejectChinese =
-    hasAny([/不要.{0,6}(中文|汉语|汉字|简体中文)/i, /别.{0,6}(中文|汉语|汉字|简体中文)/i]) ||
-    hasAnyNormalized([/\bdo not\b.{0,12}\bchinese\b/i, /\bdon't\b.{0,12}\bchinese\b/i]);
-  const rejectEnglish =
-    hasAny([/不要.{0,6}(英文|英语)/i, /别.{0,6}(英文|英语)/i]) ||
-    hasAnyNormalized([/\bdo not\b.{0,12}\benglish\b/i, /\bdon't\b.{0,12}\benglish\b/i]);
-
-  const wantsChinese =
-    !rejectChinese &&
-    (hasAny([
-      /改成中文/i,
-      /改为中文/i,
-      /换成中文/i,
-      /翻成中文/i,
-      /翻译成中文/i,
-      /用中文/i,
-      /中文表达/i,
-      /中文讲解/i,
-      /简体中文/i,
-      /汉语/i,
-      /汉字/i,
-    ]) ||
-      hasAnyNormalized([
-        /\btranslate\b.{0,12}\b(?:into|to)?\s*chinese\b/i,
-        /\brewrite\b.{0,12}\bin\s+chinese\b/i,
-        /\b(?:change|convert|make)\b.{0,12}\b(?:it\s+)?chinese\b/i,
-        /\bin\s+chinese\b/i,
-        /\bzh-cn\b/i,
-        /\bchinese\b/i,
-      ]));
-
-  if (wantsChinese) return 'zh-CN';
-
-  const wantsEnglish =
-    !rejectEnglish &&
-    (hasAny([
-      /改成英文/i,
-      /改为英文/i,
-      /换成英文/i,
-      /翻成英文/i,
-      /翻译成英文/i,
-      /用英文/i,
-      /英文表达/i,
-      /英文讲解/i,
-      /英语/i,
-    ]) ||
-      hasAnyNormalized([
-        /\btranslate\b.{0,12}\b(?:into|to)?\s*english\b/i,
-        /\brewrite\b.{0,12}\bin\s+english\b/i,
-        /\b(?:change|convert|make)\b.{0,12}\b(?:it\s+)?english\b/i,
-        /\bin\s+english\b/i,
-        /\ben-us\b/i,
-        /\benglish\b/i,
-      ]));
-
-  if (wantsEnglish) return 'en-US';
-
-  return args.fallbackLanguage;
-}
-
-function buildRepairPendingMessage(args: {
-  language: 'zh-CN' | 'en-US';
-  profile: NotebookContentProfile;
-}): string {
-  if (args.profile === 'code') {
-    return args.language === 'en-US'
-      ? "I'm repairing this slide through the code-specific repair flow now."
-      : '收到，我现在按代码讲解修复链路重写当前页。';
-  }
-  if (args.profile === 'math') {
-    return args.language === 'en-US'
-      ? "I'm repairing this slide through the math-specific repair flow now."
-      : '收到，我现在按数学修复链路重写当前页。';
-  }
-  return args.language === 'en-US'
-    ? "I'm repairing this slide through the general slide-repair flow now."
-    : '收到，我现在按通用页修复链路重写当前页。';
-}
-
-function buildRepairAssistantReply(args: {
-  language: 'zh-CN' | 'en-US';
-  profile: NotebookContentProfile;
-  rewriteReason: string;
-  outlineTitle: string;
-}): string {
-  const flowLabel =
-    args.profile === 'code'
-      ? args.language === 'en-US'
-        ? 'the code-specific repair flow'
-        : '代码页修复链路'
-      : args.profile === 'math'
-        ? args.language === 'en-US'
-          ? 'the math-specific repair flow'
-          : '数学页修复链路'
-        : args.language === 'en-US'
-          ? 'the general slide-repair flow'
-          : '通用页修复链路';
-
-  if (args.language === 'en-US') {
-    return args.rewriteReason.trim()
-      ? `I repaired this slide through ${flowLabel} and used your instruction to steer the new structure and emphasis around "${args.outlineTitle}".`
-      : `I repaired this slide through ${flowLabel} and regenerated a clearer version around "${args.outlineTitle}".`;
-  }
-
-  return args.rewriteReason.trim()
-    ? `我已经按${flowLabel}修了这一页，并把你给的要求真正带进了“${args.outlineTitle}”这一页的新结构和重点里。`
-    : `我已经按${flowLabel}修了这一页，重新整理出了一版围绕“${args.outlineTitle}”的更清楚页面。`;
-}
-
-function sceneTypeTabLabel(tr: (key: string) => string, type: SceneType): string {
-  const key = `stage.sceneType.${type}`;
-  const label = tr(key);
-  return label === key ? type : label;
-}
-
-/** 原始数据里默认折叠 slide 画布；当前页可选择展开查看完整 canvas */
-function serializeSceneForRawView(
-  scene: Scene,
-  options?: { expandSlideCanvas?: boolean },
-): unknown {
-  if (scene.content.type === 'slide' && !options?.expandSlideCanvas) {
-    const canvas = scene.content.canvas;
-    const elements = canvas.elements ?? [];
-    const elementTypeCounts: Record<string, number> = {};
-    for (const el of elements) {
-      const k = el.type;
-      elementTypeCounts[k] = (elementTypeCounts[k] || 0) + 1;
-    }
-    return {
-      id: scene.id,
-      stageId: scene.stageId,
-      type: scene.type,
-      title: scene.title,
-      order: scene.order,
-      actions: scene.actions,
-      whiteboards: scene.whiteboards,
-      multiAgent: scene.multiAgent,
-      createdAt: scene.createdAt,
-      updatedAt: scene.updatedAt,
-      content: {
-        type: 'slide' as const,
-        canvas: {
-          _collapsed: true,
-          _note:
-            'Canvas omitted for size; summary below. Full slide data remains in classroom storage.',
-          id: canvas.id,
-          viewportSize: canvas.viewportSize,
-          viewportRatio: canvas.viewportRatio,
-          elementCount: elements.length,
-          elementTypeCounts,
-        },
-      },
-    };
-  }
-  return scene;
-}
 
 /**
  * Stage Component
@@ -503,7 +172,7 @@ export function Stage({
   const requestedInitialClassroomView = searchParams.get('view');
 
   /** 主内容区：幻灯片画布 vs 原始 JSON */
-  const [mainClassroomView, setMainClassroomView] = useState<'ppt' | 'quiz' | 'raw'>(
+  const [mainClassroomView, setMainClassroomView] = useState<MainClassroomView>(
     requestedInitialClassroomView === 'quiz' ||
       requestedInitialClassroomView === 'raw' ||
       requestedInitialClassroomView === 'ppt'
@@ -513,33 +182,39 @@ export function Stage({
   /** 原始数据下的子 Tab：按场景类型（slide / quiz / interactive / …） */
   const [rawDataSubTab, setRawDataSubTab] = useState<SceneType>('slide');
   /** 幻灯片原始数据细分：生成结果 / 大纲 / 讲解动作 / UI衍生数据 */
-  const [rawSlideDataView, setRawSlideDataView] = useState<
-    'generated' | 'outline' | 'narration' | 'ui'
-  >('generated');
+  const [rawSlideDataView, setRawSlideDataView] = useState<RawSlideDataView>('generated');
   /** 课堂内当前页编辑模式：页面布局 / 讲解稿 */
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
   const [slideEditorSidebarTab, setSlideEditorSidebarTab] =
     useState<SlideEditorSidebarTab>('manual');
   const [editEntryConfirmOpen, setEditEntryConfirmOpen] = useState(false);
-  const [repairDraftByScene, setRepairDraftByScene] = useState<Record<string, string>>({});
-  const [repairConversationByScene, setRepairConversationByScene] = useState<
-    Record<string, SlideRepairChatMessage[]>
-  >({});
-  const [pendingRepairSidebarFocus, setPendingRepairSidebarFocus] = useState(false);
-  const [repairSidebarFocusNonce, setRepairSidebarFocusNonce] = useState(0);
-  const [slideRepairPending, setSlideRepairPending] = useState(false);
   const [speechAudioPreparing, setSpeechAudioPreparing] = useState(false);
   const [gridReflowPending, setGridReflowPending] = useState(false);
   const currentSlideSceneId = currentScene?.type === 'slide' ? currentScene.id : null;
-  const repairInstructions = useMemo(
-    () => (currentSlideSceneId ? (repairDraftByScene[currentSlideSceneId] ?? '') : ''),
-    [currentSlideSceneId, repairDraftByScene],
-  );
-  const repairConversation = useMemo(
-    () => (currentSlideSceneId ? (repairConversationByScene[currentSlideSceneId] ?? []) : []),
-    [currentSlideSceneId, repairConversationByScene],
-  );
+  const {
+    focusRepairSidebar,
+    handleRepairCurrentSlide,
+    handleRestorePreRepairSlide,
+    repairConversation,
+    repairInstructions,
+    repairSidebarFocusNonce,
+    requestRepairSidebarFocus,
+    saveCurrentSceneActions,
+    setCurrentSlideRepairDraft,
+    slideRepairPending,
+  } = useSlideRepair({
+    currentScene: currentScene ?? undefined,
+    currentSlideSceneId,
+    stage,
+    stageLanguage,
+    outlines,
+    setOutlines,
+    updateScene,
+    slideEditorOpen,
+    slideEditTab,
+    setSlideEditorSidebarTab,
+  });
 
   // Whiteboard state (from canvas store so AI tools can open it)
   const whiteboardOpen = useCanvasStore.use.whiteboardOpen();
@@ -1715,246 +1390,6 @@ export function Stage({
     setWhiteboardOpen(false);
   }, [setWhiteboardOpen]);
 
-  const setCurrentSlideRepairDraft = useCallback(
-    (value: string) => {
-      if (!currentSlideSceneId) return;
-      setRepairDraftByScene((prev) => {
-        if ((prev[currentSlideSceneId] ?? '') === value) return prev;
-        return {
-          ...prev,
-          [currentSlideSceneId]: value,
-        };
-      });
-    },
-    [currentSlideSceneId],
-  );
-
-  const saveCurrentSceneActions = useCallback(
-    (nextActions: Action[]) => {
-      if (!currentScene || currentScene.type !== 'slide') return;
-      updateScene(currentScene.id, {
-        actions: nextActions,
-      });
-    },
-    [currentScene, updateScene],
-  );
-
-  const handleRepairCurrentSlide = useCallback(async () => {
-    if (
-      slideRepairPending ||
-      !currentScene ||
-      currentScene.type !== 'slide' ||
-      currentScene.content.type !== 'slide' ||
-      !stage
-    ) {
-      return;
-    }
-
-    const sceneId = currentScene.id;
-    const trimmedDraft = repairInstructions.trim();
-    const rewriteLanguage = inferRepairTargetLanguage({
-      repairInstructions: trimmedDraft,
-      fallbackLanguage: (stageLanguage as 'zh-CN' | 'en-US' | undefined) || 'zh-CN',
-    });
-    const matchedOutline = resolveRewriteOutline(currentScene, outlines, rewriteLanguage);
-    const baseRepairProfile = resolveSlideRepairProfile(currentScene, matchedOutline);
-    const repairProfile = repairRequestLooksMathFocused(trimmedDraft) ? 'math' : baseRepairProfile;
-    const userMessageContent =
-      trimmedDraft || getDefaultRepairRequest(rewriteLanguage, repairProfile);
-    const outlineExists = outlines.some((outline) => outline.id === matchedOutline.id);
-    const outlineCollection = (outlineExists ? outlines : [...outlines, matchedOutline])
-      .slice()
-      .sort((a, b) => a.order - b.order);
-    const userMessage: SlideRepairChatMessage = {
-      id: createRepairMessageId('user'),
-      role: 'user',
-      content: userMessageContent,
-      createdAt: Date.now(),
-      status: 'ready',
-    };
-    const pendingAssistantMessage: SlideRepairChatMessage = {
-      id: createRepairMessageId('assistant'),
-      role: 'assistant',
-      content: buildRepairPendingMessage({
-        language: rewriteLanguage,
-        profile: repairProfile,
-      }),
-      createdAt: Date.now() + 1,
-      status: 'pending',
-    };
-    setRepairConversationByScene((prev) => ({
-      ...prev,
-      [sceneId]: [...(prev[sceneId] ?? []), userMessage, pendingAssistantMessage],
-    }));
-    setRepairDraftByScene((prev) => ({
-      ...prev,
-      [sceneId]: '',
-    }));
-    setSlideRepairPending(true);
-    try {
-      const modelConfig = getCurrentModelConfig();
-      const repairSnapshot =
-        currentScene.repairSnapshot ||
-        ({
-          title: currentScene.title,
-          content: JSON.parse(JSON.stringify(currentScene.content)) as SlideContent,
-          savedAt: Date.now(),
-        } satisfies NonNullable<Scene['repairSnapshot']>);
-      const repairRoute =
-        repairProfile === 'code'
-          ? '/api/classroom/repair-slide-code'
-          : repairProfile === 'math'
-            ? '/api/classroom/repair-slide-math'
-            : '/api/classroom/repair-slide-general';
-      const repairResp = await backendFetch(repairRoute, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-model': modelConfig.modelString,
-          'x-provider-type': modelConfig.providerType,
-          'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
-        },
-        body: JSON.stringify({
-          notebookId: stage.id,
-          notebookName: stage.name,
-          sceneId: currentScene.id,
-          sceneOrder: currentScene.order + 1,
-          sceneTitle: currentScene.title,
-          language: rewriteLanguage,
-          content: currentScene.content,
-          repairInstructions: userMessageContent,
-          repairConversation: [
-            ...repairConversation,
-            { role: 'user' as const, content: userMessageContent },
-          ],
-        }),
-      });
-
-      const repairData = (await repairResp.json().catch(() => ({}))) as {
-        success?: boolean;
-        error?: string;
-        sceneTitle?: string;
-        assistantReply?: string;
-        content?: SlideContent;
-      };
-
-      if (!repairResp.ok || !repairData.success || !repairData.content) {
-        throw new Error(repairData.error?.trim() || 'AI 重写失败');
-      }
-
-      const nextTitle = repairData.sceneTitle?.trim() || currentScene.title;
-      const nextOutline: SceneOutline = {
-        ...matchedOutline,
-        id: matchedOutline.id,
-        order: currentScene.order,
-        type: 'slide',
-        language: rewriteLanguage,
-        contentProfile: repairProfile,
-        title: nextTitle,
-      };
-      const nextOutlines = (() => {
-        if (outlineCollection.length === 0) return [nextOutline];
-        let found = false;
-        const updated = outlineCollection.map((outline) => {
-          if (outline.id === matchedOutline.id || outline.order === currentScene.order) {
-            found = true;
-            return nextOutline;
-          }
-          return outline;
-        });
-        if (!found) updated.push(nextOutline);
-        return updated.slice().sort((a, b) => a.order - b.order);
-      })();
-
-      updateScene(currentScene.id, {
-        title: nextTitle,
-        content: repairData.content,
-        repairSnapshot,
-        updatedAt: Date.now(),
-      });
-      setOutlines(nextOutlines);
-      setRepairConversationByScene((prev) => ({
-        ...prev,
-        [sceneId]: (prev[sceneId] ?? []).map((message) =>
-          message.id === pendingAssistantMessage.id
-            ? {
-                ...message,
-                content:
-                  repairData.assistantReply?.trim() ||
-                  buildRepairAssistantReply({
-                    language: rewriteLanguage,
-                    profile: repairProfile,
-                    rewriteReason: userMessageContent,
-                    outlineTitle: nextTitle,
-                  }),
-                status: 'ready',
-              }
-            : message,
-        ),
-      }));
-      toast.success(
-        repairProfile === 'code'
-          ? '当前页已完成代码讲解修复'
-          : repairProfile === 'math'
-            ? '当前页已完成数学内容修复'
-            : '当前页已完成通用讲解修复',
-      );
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'AI 重写失败';
-      setRepairConversationByScene((prev) => ({
-        ...prev,
-        [sceneId]: (prev[sceneId] ?? []).map((message) =>
-          message.id === pendingAssistantMessage.id
-            ? {
-                ...message,
-                content: errorMessage,
-                status: 'error',
-              }
-            : message,
-        ),
-      }));
-      toast.error(errorMessage);
-    } finally {
-      setSlideRepairPending(false);
-    }
-  }, [
-    currentScene,
-    outlines,
-    repairConversation,
-    repairInstructions,
-    setOutlines,
-    slideRepairPending,
-    stage,
-    stageLanguage,
-    updateScene,
-  ]);
-
-  useEffect(() => {
-    if (!pendingRepairSidebarFocus || !slideEditorOpen || slideEditTab !== 'canvas') return;
-    setSlideEditorSidebarTab('ai');
-    setRepairSidebarFocusNonce((current) => current + 1);
-    setPendingRepairSidebarFocus(false);
-  }, [pendingRepairSidebarFocus, slideEditTab, slideEditorOpen]);
-
-  const handleRestorePreRepairSlide = useCallback(() => {
-    if (
-      !currentScene ||
-      currentScene.type !== 'slide' ||
-      currentScene.content.type !== 'slide' ||
-      !currentScene.repairSnapshot
-    ) {
-      return;
-    }
-
-    updateScene(currentScene.id, {
-      title: currentScene.repairSnapshot.title,
-      content: currentScene.repairSnapshot.content,
-      repairSnapshot: undefined,
-      updatedAt: Date.now(),
-    });
-    toast.success('已恢复到重写前的版本');
-  }, [currentScene, updateScene]);
-
   // Map engine mode to the CanvasArea's expected engine state
   const canvasEngineState = (() => {
     switch (engineMode) {
@@ -2010,82 +1445,40 @@ export function Stage({
   }, [outlines, generatingOutlines]);
 
   /** 子 Tab 顺序：固定 slide / quiz / interactive，再按字母序追加大纲或场景中出现的其它类型（如 pbl） */
-  const rawDataTabTypes = useMemo((): SceneType[] => {
-    const present = new Set<SceneType>();
-    for (const o of mergedOutlines) present.add(o.type);
-    for (const s of scenes) present.add(s.type);
-    const extras = [...present].filter((t) => !RAW_DATA_BASE_TYPES.includes(t)).sort();
-    return [...RAW_DATA_BASE_TYPES, ...extras];
-  }, [mergedOutlines, scenes]);
+  const rawDataTabTypes = useMemo(
+    () => getRawDataTabTypes(mergedOutlines, scenes),
+    [mergedOutlines, scenes],
+  );
 
-  const rawCurrentScene = useMemo(() => {
-    if (currentScene && currentScene.type === rawDataSubTab) {
-      return currentScene;
-    }
-    return null;
-  }, [currentScene, rawDataSubTab]);
+  const rawCurrentScene = useMemo(
+    () => getRawCurrentScene(currentScene, rawDataSubTab),
+    [currentScene, rawDataSubTab],
+  );
 
-  const rawCurrentOutline = useMemo(() => {
-    if (!rawCurrentScene) return null;
-    const byOrder = mergedOutlines.find(
-      (outline) => outline.type === rawDataSubTab && outline.order === rawCurrentScene.order,
-    );
-    if (byOrder) return byOrder;
-    return (
-      mergedOutlines.find(
-        (outline) =>
-          outline.type === rawDataSubTab &&
-          outline.title.trim().toLowerCase() === rawCurrentScene.title.trim().toLowerCase(),
-      ) || null
-    );
-  }, [mergedOutlines, rawCurrentScene, rawDataSubTab]);
+  const rawCurrentOutline = useMemo(
+    () => getRawCurrentOutline(mergedOutlines, rawCurrentScene, rawDataSubTab),
+    [mergedOutlines, rawCurrentScene, rawDataSubTab],
+  );
 
-  const canReflowCurrentGridScene = useMemo(() => {
-    if (
-      !rawCurrentScene ||
-      rawCurrentScene.type !== 'slide' ||
-      rawCurrentScene.content.type !== 'slide'
-    ) {
-      return false;
-    }
-    return rawCurrentScene.content.semanticDocument?.layout?.mode === 'grid';
-  }, [rawCurrentScene]);
+  const canReflowCurrentGridScene = useMemo(
+    () => canReflowGridScene(rawCurrentScene),
+    [rawCurrentScene],
+  );
 
-  const canReflowCurrentLayoutCardsScene = useMemo(() => {
-    if (
-      !rawCurrentScene ||
-      rawCurrentScene.type !== 'slide' ||
-      rawCurrentScene.content.type !== 'slide'
-    ) {
-      return false;
-    }
-    return Boolean(
-      rawCurrentScene.content.semanticDocument?.blocks.some(
-        (block) => block.type === 'layout_cards',
-      ),
-    );
-  }, [rawCurrentScene]);
+  const canReflowCurrentLayoutCardsScene = useMemo(
+    () => canReflowLayoutCardsScene(rawCurrentScene),
+    [rawCurrentScene],
+  );
 
   const handleReflowCurrentGridScene = useCallback(() => {
-    if (
-      !rawCurrentScene ||
-      rawCurrentScene.type !== 'slide' ||
-      rawCurrentScene.content.type !== 'slide'
-    ) {
-      return;
-    }
-    const semanticDocument = rawCurrentScene.content.semanticDocument;
-    if (!semanticDocument || semanticDocument.layout.mode !== 'grid') {
+    if (!rawCurrentScene) return;
+    const reRendered = renderReflowedGridScene(rawCurrentScene);
+    if (!reRendered) {
       toast.info('当前页不是 Grid 布局，无需重排。');
       return;
     }
     try {
       setGridReflowPending(true);
-      const reRendered = renderSemanticSlideContent({
-        document: semanticDocument,
-        fallbackTitle: semanticDocument.title || rawCurrentScene.title,
-        preserveCanvasId: rawCurrentScene.content.canvas.id,
-      });
       updateScene(rawCurrentScene.id, {
         content: reRendered,
         updatedAt: Date.now(),
@@ -2100,28 +1493,14 @@ export function Stage({
   }, [rawCurrentScene, updateScene]);
 
   const handleReflowCurrentLayoutCardsScene = useCallback(() => {
-    if (
-      !rawCurrentScene ||
-      rawCurrentScene.type !== 'slide' ||
-      rawCurrentScene.content.type !== 'slide'
-    ) {
-      return;
-    }
-    const semanticDocument = rawCurrentScene.content.semanticDocument;
-    if (
-      !semanticDocument ||
-      !semanticDocument.blocks.some((block) => block.type === 'layout_cards')
-    ) {
+    if (!rawCurrentScene) return;
+    const reRendered = renderReflowedLayoutCardsScene(rawCurrentScene);
+    if (!reRendered) {
       toast.info('当前页没有 Layout Cards 块，无需重排。');
       return;
     }
     try {
       setGridReflowPending(true);
-      const reRendered = renderSemanticSlideContent({
-        document: semanticDocument,
-        fallbackTitle: semanticDocument.title || rawCurrentScene.title,
-        preserveCanvasId: rawCurrentScene.content.canvas.id,
-      });
       updateScene(rawCurrentScene.id, {
         content: reRendered,
         updatedAt: Date.now(),
@@ -2135,77 +1514,17 @@ export function Stage({
     }
   }, [rawCurrentScene, updateScene]);
 
-  const rawTypePayloadJson = useMemo(() => {
-    try {
-      const type = rawDataSubTab;
-      const scene = rawCurrentScene;
-      const scenePayload = !scene
-        ? null
-        : type === 'slide'
-          ? (() => {
-              if (rawSlideDataView === 'generated') {
-                return {
-                  id: scene.id,
-                  type: scene.type,
-                  title: scene.title,
-                  order: scene.order,
-                  content: scene.content,
-                };
-              }
-
-              if (rawSlideDataView === 'outline') {
-                return {
-                  id: scene.id,
-                  type: scene.type,
-                  title: scene.title,
-                  order: scene.order,
-                  outline: rawCurrentOutline,
-                };
-              }
-
-              if (rawSlideDataView === 'narration') {
-                return {
-                  id: scene.id,
-                  type: scene.type,
-                  title: scene.title,
-                  order: scene.order,
-                  actions: scene.actions || [],
-                };
-              }
-
-              const serialized = serializeSceneForRawView(scene, {
-                expandSlideCanvas: scene.id === currentSceneId && scene.content.type === 'slide',
-              }) as Record<string, unknown>;
-              return {
-                ...serialized,
-                actionsSummary: Array.isArray(scene.actions)
-                  ? {
-                      total: scene.actions.length,
-                      speech: scene.actions.filter((action) => action.type === 'speech').length,
-                      spotlight: scene.actions.filter((action) => action.type === 'spotlight')
-                        .length,
-                      laser: scene.actions.filter((action) => action.type === 'laser').length,
-                    }
-                  : { total: 0, speech: 0, spotlight: 0, laser: 0 },
-              };
-            })()
-          : serializeSceneForRawView(scene);
-
-      return JSON.stringify(
-        {
-          type,
-          view: type === 'slide' ? rawSlideDataView : 'default',
-          sceneId: scene?.id ?? null,
-          outline: rawCurrentOutline,
-          scene: scenePayload,
-        },
-        null,
-        2,
-      );
-    } catch {
-      return '{"error":"serialize_failed"}';
-    }
-  }, [currentSceneId, rawDataSubTab, rawSlideDataView, rawCurrentOutline, rawCurrentScene]);
+  const rawTypePayloadJson = useMemo(
+    () =>
+      buildRawTypePayloadJson({
+        currentSceneId,
+        rawDataSubTab,
+        rawSlideDataView,
+        rawCurrentOutline,
+        rawCurrentScene,
+      }),
+    [currentSceneId, rawDataSubTab, rawSlideDataView, rawCurrentOutline, rawCurrentScene],
+  );
 
   useEffect(() => {
     if (!rawDataTabTypes.includes(rawDataSubTab)) {
@@ -2213,129 +1532,31 @@ export function Stage({
     }
   }, [rawDataTabTypes, rawDataSubTab]);
 
-  const viewToggle = slideEditorOpen ? (
-    <div
-      className={cn(
-        'apple-glass flex items-center gap-0.5 rounded-[14px] p-0.5',
-        'shadow-[0_2px_16px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_20px_rgba(0,0,0,0.25)]',
-      )}
-      role="tablist"
-      aria-label="编辑模式切换"
-    >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={slideEditTab === 'canvas'}
-        onClick={() => setSlideEditTab('canvas')}
-        className={cn(
-          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-          slideEditTab === 'canvas'
-            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
-            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
-        )}
-      >
-        页面
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={slideEditTab === 'narration'}
-        onClick={() => setSlideEditTab('narration')}
-        className={cn(
-          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-          slideEditTab === 'narration'
-            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
-            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
-        )}
-      >
-        讲解
-      </button>
-    </div>
-  ) : (
-    <div
-      className={cn(
-        'apple-glass flex items-center gap-0.5 rounded-[14px] p-0.5',
-        'shadow-[0_2px_16px_rgba(0,0,0,0.04)] dark:shadow-[0_2px_20px_rgba(0,0,0,0.25)]',
-      )}
-      role="tablist"
-      aria-label={`${t('stage.viewPpt')} / ${t('stage.viewQuiz')} / ${t('stage.viewRawData')}`}
-    >
-      <button
-        type="button"
-        role="tab"
-        aria-selected={mainClassroomView === 'ppt'}
-        onClick={() => setMainClassroomView('ppt')}
-        className={cn(
-          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-          mainClassroomView === 'ppt'
-            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
-            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
-        )}
-      >
-        {t('stage.viewPpt')}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={mainClassroomView === 'quiz'}
-        onClick={() => setMainClassroomView('quiz')}
-        className={cn(
-          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-          mainClassroomView === 'quiz'
-            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
-            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
-        )}
-      >
-        {t('stage.viewQuiz')}
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={mainClassroomView === 'raw'}
-        onClick={() => {
-          setMainClassroomView('raw');
-          if (currentScene?.type) setRawDataSubTab(currentScene.type);
-        }}
-        className={cn(
-          'rounded-[10px] px-3 py-1.5 text-xs font-semibold transition-all duration-[250ms] ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
-          mainClassroomView === 'raw'
-            ? 'bg-[rgba(0,122,255,0.12)] text-[#007AFF] shadow-sm dark:bg-[rgba(10,132,255,0.18)] dark:text-[#0A84FF]'
-            : 'text-[#1d1d1f]/65 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-white/70 dark:hover:bg-white/[0.06] dark:hover:text-white',
-        )}
-      >
-        {t('stage.viewRawData')}
-      </button>
-    </div>
+  const viewToggle = (
+    <StageViewToggle
+      slideEditorOpen={slideEditorOpen}
+      slideEditTab={slideEditTab}
+      onSlideEditTabChange={setSlideEditTab}
+      mainClassroomView={mainClassroomView}
+      onMainClassroomViewChange={setMainClassroomView}
+      currentSceneType={currentScene?.type}
+      onRawDataSubTabChange={setRawDataSubTab}
+      labels={{
+        ppt: t('stage.viewPpt'),
+        quiz: t('stage.viewQuiz'),
+        raw: t('stage.viewRawData'),
+      }}
+    />
   );
 
   const editorStatusSlot = slideEditorOpen ? (
-    <div className="apple-glass inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs text-slate-700 dark:text-slate-200">
-      <span
-        className={cn(
-          'inline-flex size-2 rounded-full',
-          storageSaveState === 'saving'
-            ? 'bg-amber-500 dark:bg-amber-400'
-            : storageSaveState === 'error'
-              ? 'bg-rose-500 dark:bg-rose-400'
-              : 'bg-emerald-500 dark:bg-emerald-400',
-        )}
-      />
-      <span>
-        {storageSaveState === 'saving'
-          ? slideEditTab === 'canvas'
-            ? '页面改动正在保存…'
-            : '讲解改动正在保存…'
-          : storageSaveState === 'error'
-            ? `保存失败${storageSaveError ? `：${storageSaveError}` : ''}`
-            : storageSaveState === 'saved'
-              ? storageSaveScope === 'draft'
-                ? `已保存草稿${storageSavedAt ? '，刷新不会丢' : ''}`
-                : '已保存'
-              : slideEditTab === 'canvas'
-                ? '编辑模式：页面改动会自动保存'
-                : '编辑模式：讲解修改需要手动保存'}
-      </span>
-    </div>
+    <EditorStatusChip
+      storageSaveState={storageSaveState}
+      storageSaveScope={storageSaveScope}
+      storageSavedAt={storageSavedAt}
+      storageSaveError={storageSaveError}
+      slideEditTab={slideEditTab}
+    />
   ) : undefined;
 
   const canRepairCurrentSlide =
@@ -2381,108 +1602,49 @@ export function Stage({
 
     if (slideEditorOpen) {
       setSlideEditTab('canvas');
-      setSlideEditorSidebarTab('ai');
-      setRepairSidebarFocusNonce((current) => current + 1);
+      focusRepairSidebar();
       return;
     }
 
-    setPendingRepairSidebarFocus(true);
+    requestRepairSidebarFocus();
     handleOpenSlideEditor();
-  }, [canRepairCurrentSlide, handleOpenSlideEditor, slideEditorOpen]);
+  }, [
+    canRepairCurrentSlide,
+    focusRepairSidebar,
+    handleOpenSlideEditor,
+    requestRepairSidebarFocus,
+    slideEditorOpen,
+  ]);
 
-  const builtInTitleActions =
-    canEditCurrentSlide ||
-    slideEditorOpen ||
-    canRepairCurrentSlide ||
-    canRestoreCurrentSlide ||
-    canRerenderCurrentSlide ? (
-      <>
-        {canRerenderCurrentSlide ? (
-          <button
-            type="button"
-            onClick={handleRerenderCurrentSlide}
-            disabled={gridReflowPending}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-              gridReflowPending
-                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400 dark:border-white/[0.08] dark:bg-white/[0.04] dark:text-white/35'
-                : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-500/30 dark:bg-violet-950/35 dark:text-violet-200 dark:hover:bg-violet-950/55',
-            )}
-            title="按 semanticDocument 重新生成当前页布局"
-          >
-            <RefreshCcw className="size-3.5" />
-            {gridReflowPending ? '重新渲染中…' : '重新渲染'}
-          </button>
-        ) : null}
+  const handleManualEditToggle = useCallback(() => {
+    if (!slideEditorOpen) {
+      setSlideEditorSidebarTab('manual');
+      handleOpenSlideEditor();
+      return;
+    }
+    if (slideEditorSidebarTab === 'manual') {
+      handleCloseSlideEditor();
+    } else {
+      setSlideEditorSidebarTab('manual');
+    }
+  }, [handleCloseSlideEditor, handleOpenSlideEditor, slideEditorOpen, slideEditorSidebarTab]);
 
-        {canRestoreCurrentSlide ? (
-          <button
-            type="button"
-            onClick={handleRestorePreRepairSlide}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-              'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-950/35 dark:text-amber-100 dark:hover:bg-amber-950/55',
-            )}
-            title="恢复到 AI 重写前的版本"
-          >
-            <AlertTriangle className="size-3.5" />
-            恢复重写前
-          </button>
-        ) : null}
-
-        {canRepairCurrentSlide ? (
-          <button
-            type="button"
-            onClick={openRepairSidebar}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-              slideEditorOpen && slideEditorSidebarTab === 'ai'
-                ? 'border-sky-400 bg-sky-100 text-sky-900 shadow-sm dark:border-sky-400/45 dark:bg-sky-950/55 dark:text-sky-50'
-                : 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/30 dark:bg-sky-950/35 dark:text-sky-200 dark:hover:bg-sky-950/55',
-            )}
-            title="打开 AI 重写侧栏；与「编辑当前页」互斥，可在顶栏切换"
-          >
-            <Sparkles className="size-3.5" />
-            AI 重写
-          </button>
-        ) : null}
-
-        {canEditCurrentSlide || slideEditorOpen ? (
-          <button
-            type="button"
-            onClick={() => {
-              if (!slideEditorOpen) {
-                setSlideEditorSidebarTab('manual');
-                handleOpenSlideEditor();
-                return;
-              }
-              if (slideEditorSidebarTab === 'manual') {
-                handleCloseSlideEditor();
-              } else {
-                setSlideEditorSidebarTab('manual');
-              }
-            }}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-all',
-              slideEditorOpen && slideEditorSidebarTab === 'manual'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:bg-emerald-950/35 dark:text-emerald-200 dark:hover:bg-emerald-950/55'
-                : 'border-slate-200 bg-white/80 text-slate-700 hover:bg-slate-50 dark:border-white/[0.1] dark:bg-white/[0.05] dark:text-slate-200 dark:hover:bg-white/[0.08]',
-            )}
-          >
-            <SquarePen className="size-3.5" />
-            {slideEditorOpen && slideEditorSidebarTab === 'manual' ? '完成编辑' : '编辑当前页'}
-          </button>
-        ) : null}
-      </>
-    ) : null;
-
-  const titleActions =
-    headerActions || builtInTitleActions ? (
-      <div className="flex items-center gap-2">
-        {headerActions}
-        {builtInTitleActions}
-      </div>
-    ) : null;
+  const titleActions = (
+    <StageTitleActions
+      headerActions={headerActions}
+      canEditCurrentSlide={canEditCurrentSlide}
+      canRepairCurrentSlide={canRepairCurrentSlide}
+      canRestoreCurrentSlide={canRestoreCurrentSlide}
+      canRerenderCurrentSlide={canRerenderCurrentSlide}
+      gridReflowPending={gridReflowPending}
+      slideEditorOpen={slideEditorOpen}
+      slideEditorSidebarTab={slideEditorSidebarTab}
+      onRerender={handleRerenderCurrentSlide}
+      onRestore={handleRestorePreRepairSlide}
+      onOpenRepairSidebar={openRepairSidebar}
+      onManualEditToggle={handleManualEditToggle}
+    />
+  );
 
   const footerCenterSlot = slideEditorOpen ? (
     editorStatusSlot
@@ -2517,129 +1679,21 @@ export function Stage({
         {/* Canvas Area — PPT 视图 / 原始数据 */}
         <div className="overflow-hidden relative flex-1 min-h-0 isolate" suppressHydrationWarning>
           {mainClassroomView === 'raw' ? (
-            <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
-              <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2">
-                <div
-                  className="flex flex-wrap gap-0.5 rounded-lg bg-white/5 p-0.5"
-                  role="tablist"
-                  aria-label={t('stage.rawDataCaption')}
-                >
-                  {rawDataTabTypes.map((tabType) => (
-                    <button
-                      key={tabType}
-                      type="button"
-                      role="tab"
-                      aria-selected={rawDataSubTab === tabType}
-                      onClick={() => setRawDataSubTab(tabType)}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        rawDataSubTab === tabType
-                          ? 'bg-white/15 text-white'
-                          : 'text-slate-400 hover:text-slate-200',
-                      )}
-                    >
-                      {sceneTypeTabLabel(t, tabType)}
-                    </button>
-                  ))}
-                </div>
-                {rawDataSubTab === 'slide' ? (
-                  <div
-                    className="flex flex-wrap gap-0.5 rounded-lg bg-white/5 p-0.5"
-                    role="tablist"
-                    aria-label="幻灯片原始数据视图"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={rawSlideDataView === 'generated'}
-                      onClick={() => setRawSlideDataView('generated')}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        rawSlideDataView === 'generated'
-                          ? 'bg-white/15 text-white'
-                          : 'text-slate-400 hover:text-slate-200',
-                      )}
-                    >
-                      生成数据
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={rawSlideDataView === 'outline'}
-                      onClick={() => setRawSlideDataView('outline')}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        rawSlideDataView === 'outline'
-                          ? 'bg-white/15 text-white'
-                          : 'text-slate-400 hover:text-slate-200',
-                      )}
-                    >
-                      大纲
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={rawSlideDataView === 'narration'}
-                      onClick={() => setRawSlideDataView('narration')}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        rawSlideDataView === 'narration'
-                          ? 'bg-white/15 text-white'
-                          : 'text-slate-400 hover:text-slate-200',
-                      )}
-                    >
-                      讲解数据
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={rawSlideDataView === 'ui'}
-                      onClick={() => setRawSlideDataView('ui')}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        rawSlideDataView === 'ui'
-                          ? 'bg-white/15 text-white'
-                          : 'text-slate-400 hover:text-slate-200',
-                      )}
-                    >
-                      UI计算
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleReflowCurrentGridScene}
-                      disabled={!canReflowCurrentGridScene || gridReflowPending}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        canReflowCurrentGridScene && !gridReflowPending
-                          ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/30'
-                          : 'cursor-not-allowed text-slate-500',
-                      )}
-                    >
-                      {gridReflowPending ? '重排中…' : '仅重排 Grid'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleReflowCurrentLayoutCardsScene}
-                      disabled={!canReflowCurrentLayoutCardsScene || gridReflowPending}
-                      className={cn(
-                        'rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
-                        canReflowCurrentLayoutCardsScene && !gridReflowPending
-                          ? 'bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/30'
-                          : 'cursor-not-allowed text-slate-500',
-                      )}
-                    >
-                      {gridReflowPending ? '重排中…' : '仅重排 Layout Cards'}
-                    </button>
-                  </div>
-                ) : null}
-                <p className="ml-auto min-w-0 text-[10px] text-slate-500">
-                  {t('stage.rawDataCaption')}
-                </p>
-              </div>
-              <pre className="min-h-0 flex-1 overflow-auto p-4 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono">
-                {rawTypePayloadJson}
-              </pre>
-            </div>
+            <RawDataPanel
+              rawDataTabTypes={rawDataTabTypes}
+              rawDataSubTab={rawDataSubTab}
+              onRawDataSubTabChange={setRawDataSubTab}
+              rawSlideDataView={rawSlideDataView}
+              onRawSlideDataViewChange={setRawSlideDataView}
+              rawDataCaption={t('stage.rawDataCaption')}
+              sceneTypeLabel={(tabType) => sceneTypeTabLabel(t, tabType)}
+              canReflowCurrentGridScene={canReflowCurrentGridScene}
+              canReflowCurrentLayoutCardsScene={canReflowCurrentLayoutCardsScene}
+              gridReflowPending={gridReflowPending}
+              onReflowCurrentGridScene={handleReflowCurrentGridScene}
+              onReflowCurrentLayoutCardsScene={handleReflowCurrentLayoutCardsScene}
+              rawTypePayloadJson={rawTypePayloadJson}
+            />
           ) : mainClassroomView === 'quiz' ? (
             <ProblemBankView notebookId={stage?.id || ''} />
           ) : slideEditorOpen && slideEditTab === 'narration' && currentScene?.type === 'slide' ? (
@@ -2727,65 +1781,20 @@ export function Stage({
         />
       </div>
 
-      {/* Scene switch confirmation dialog */}
-      <AlertDialog
-        open={!!pendingSceneId}
-        onOpenChange={(open) => {
-          if (!open) cancelSceneSwitch();
+      <StageConfirmationDialogs
+        pendingSceneId={pendingSceneId}
+        onCancelSceneSwitch={cancelSceneSwitch}
+        onConfirmSceneSwitch={confirmSceneSwitch}
+        editEntryConfirmOpen={editEntryConfirmOpen}
+        onEditEntryConfirmOpenChange={setEditEntryConfirmOpen}
+        onForceEnterSlideEditor={() => void forceEnterSlideEditor()}
+        labels={{
+          confirmSwitchTitle: t('stage.confirmSwitchTitle'),
+          confirmSwitchMessage: t('stage.confirmSwitchMessage'),
+          cancel: t('common.cancel'),
+          confirm: t('common.confirm'),
         }}
-      >
-        <AlertDialogContent className="max-w-sm rounded-2xl p-0 overflow-hidden border-0 shadow-[0_25px_60px_-12px_rgba(0,0,0,0.15)] dark:shadow-[0_25px_60px_-12px_rgba(0,0,0,0.5)]">
-          <VisuallyHidden.Root>
-            <AlertDialogTitle>{t('stage.confirmSwitchTitle')}</AlertDialogTitle>
-          </VisuallyHidden.Root>
-          {/* Top accent bar */}
-          <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-red-400" />
-
-          <div className="px-6 pt-5 pb-2 flex flex-col items-center text-center">
-            {/* Icon */}
-            <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center mb-4 ring-1 ring-amber-200/50 dark:ring-amber-700/30">
-              <AlertTriangle className="w-6 h-6 text-amber-500 dark:text-amber-400" />
-            </div>
-            {/* Title */}
-            <h3 className="text-base font-bold text-gray-900 dark:text-gray-100 mb-1.5">
-              {t('stage.confirmSwitchTitle')}
-            </h3>
-            {/* Description */}
-            <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-              {t('stage.confirmSwitchMessage')}
-            </p>
-          </div>
-
-          <AlertDialogFooter className="px-6 pb-5 pt-3 flex-row gap-3">
-            <AlertDialogCancel onClick={cancelSceneSwitch} className="flex-1 rounded-xl">
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmSceneSwitch}
-              className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white border-0 shadow-md shadow-amber-200/50 dark:shadow-amber-900/30"
-            >
-              {t('common.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={editEntryConfirmOpen} onOpenChange={setEditEntryConfirmOpen}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>进入编辑模式？</AlertDialogTitle>
-            <AlertDialogDescription>
-              进入编辑会暂停当前讲解，并结束这页正在进行的互动或讨论。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void forceEnterSlideEditor()}>
-              继续编辑
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
     </div>
   );
 }

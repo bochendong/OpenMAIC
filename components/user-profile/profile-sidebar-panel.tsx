@@ -6,7 +6,7 @@ import { LayoutGrid, Lock, MessageCircle, Settings, Sparkles, UserRound } from '
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { LEFT_RAIL_BAR_STAGE_OPTIONS } from '@/lib/notifications/notification-bar-stage-ids';
-import { NotificationBarStageBackground } from '@/lib/notifications/notification-bar-stage-background';
+import { NotificationBarStageBackground } from '@/components/notifications/notification-bar-stage-background';
 import { useUserProfileStore, type LeftRailBarStageChoice } from '@/lib/store/user-profile';
 import { useGamificationSummary } from '@/lib/hooks/use-gamification-summary';
 import {

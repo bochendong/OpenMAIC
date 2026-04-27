@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Suspense, useState, useEffect, useLayoutEffect } from 'react';
+import { Suspense, useState, useLayoutEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { AppLeftRail } from '@/components/app-left-rail';
 import { ChatRightRail } from '@/components/chat-right-rail';
@@ -20,6 +20,24 @@ function railOuterPaddingPx(collapsed: boolean, expandedWidth: number): number {
   const maxW = typeof window !== 'undefined' ? Math.max(0, window.innerWidth - 32) : expandedWidth;
   const w = collapsed ? RAIL_COLLAPSED_WIDTH : Math.min(expandedWidth, maxW);
   return 16 + w + SIDEBAR_GAP;
+}
+
+function getInitialSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function getInitialChatRightCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(CHAT_RIGHT_RAIL_COLLAPSED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
 }
 
 function MainShellNoRail({
@@ -57,20 +75,8 @@ export function AppLayoutChrome({ children }: { children: ReactNode }) {
   const isAdmin = pathname?.startsWith('/admin');
   const isReviewImmersive =
     pathname != null && /^\/review\/[^/]+\/(?:loading|map)(?:\/|$)/.test(pathname);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [chatRightCollapsed, setChatRightCollapsed] = useState(false);
-
-  useEffect(() => {
-    try {
-      const left = localStorage.getItem(LEFT_RAIL_COLLAPSED_STORAGE_KEY);
-      if (left === '1') setSidebarCollapsed(true);
-      if (left === '0') setSidebarCollapsed(false);
-      const v = localStorage.getItem(CHAT_RIGHT_RAIL_COLLAPSED_STORAGE_KEY);
-      if (v === '1') setChatRightCollapsed(true);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(getInitialSidebarCollapsed);
+  const [chatRightCollapsed, setChatRightCollapsed] = useState(getInitialChatRightCollapsed);
 
   const persistSidebarCollapsed = (collapsed: boolean) => {
     setSidebarCollapsed(collapsed);

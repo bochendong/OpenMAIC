@@ -20,7 +20,7 @@ import {
   summarizeElements,
   type RepairRequestBody,
   type SlideRepairLanguage,
-} from '../repair-slide-shared';
+} from '@/lib/server/slide-repair/shared';
 
 const log = createLogger('Classroom Repair Slide General API');
 

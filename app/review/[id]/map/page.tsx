@@ -50,6 +50,16 @@ const REVIEW_MAP_BACKGROUNDS = [
   '/review-map/background-4.png',
   '/review-map/background-5.png',
 ] as const;
+
+function getRouteMapBackground(routeId: string): string {
+  if (!routeId) return REVIEW_MAP_BACKGROUNDS[0];
+  let hash = 0;
+  for (let index = 0; index < routeId.length; index += 1) {
+    hash = (hash * 31 + routeId.charCodeAt(index)) >>> 0;
+  }
+  return REVIEW_MAP_BACKGROUNDS[hash % REVIEW_MAP_BACKGROUNDS.length] ?? REVIEW_MAP_BACKGROUNDS[0];
+}
+
 const REVIEW_MAP_NODE_ARTWORK: Record<ReviewRouteNode['kind'] | 'start', string> = {
   normal: '/review-map/nodes/normal.png',
   elite: '/review-map/nodes/elite.png',
@@ -769,8 +779,12 @@ export default function ReviewRouteMapPage() {
   const [activeChallenge, setActiveChallenge] = useState<ReviewChallenge | null>(null);
   const [challengeResult, setChallengeResult] = useState<ChallengeResult | null>(null);
   const [selectedEventOptionIndex, setSelectedEventOptionIndex] = useState(0);
-  const [mapBackground, setMapBackground] = useState<string>(REVIEW_MAP_BACKGROUNDS[0]);
-  const [stageData, setStageData] = useState<StageStoreData | null>(null);
+  const mapBackground = useMemo(() => getRouteMapBackground(routeId), [routeId]);
+  const [stageDataState, setStageDataState] = useState<{
+    notebookId: string;
+    data: StageStoreData | null;
+  }>(() => ({ notebookId: '', data: null }));
+  const stageData = stageDataState.notebookId === notebookId ? stageDataState.data : null;
   const completedNodeSet = useMemo(() => new Set(completedNodeIds), [completedNodeIds]);
   const displayRouteLayers = useMemo(() => (route ? buildDisplayLayers(route) : []), [route]);
   const quizQuestionSources = useMemo(() => flattenStageQuizQuestions(stageData), [stageData]);
@@ -817,22 +831,14 @@ export default function ReviewRouteMapPage() {
   const rewardWithdrawn = Boolean(withdrawnReward.withdrawnAt);
 
   useEffect(() => {
-    const nextBackground =
-      REVIEW_MAP_BACKGROUNDS[Math.floor(Math.random() * REVIEW_MAP_BACKGROUNDS.length)] ??
-      REVIEW_MAP_BACKGROUNDS[0];
-    setMapBackground(nextBackground);
-  }, [routeId]);
-
-  useEffect(() => {
     let cancelled = false;
-    setStageData(null);
     if (!notebookId) return undefined;
     void loadStageData(notebookId)
       .then((nextStageData) => {
-        if (!cancelled) setStageData(nextStageData);
+        if (!cancelled) setStageDataState({ notebookId, data: nextStageData });
       })
       .catch(() => {
-        if (!cancelled) setStageData(null);
+        if (!cancelled) setStageDataState({ notebookId, data: null });
       });
     return () => {
       cancelled = true;
@@ -1454,7 +1460,6 @@ export default function ReviewRouteMapPage() {
             </span>
           </div>
           {positions.map((position) => {
-            const theme = nodeMapTheme(position.node.kind);
             const status = getNodeStatus({
               displayLayers,
               position,

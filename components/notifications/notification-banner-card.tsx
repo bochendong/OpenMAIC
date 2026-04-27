@@ -7,7 +7,7 @@ import { TalkingAvatarOverlay } from '@/components/canvas/talking-avatar-overlay
 import type { AppNotification } from '@/lib/notifications/types';
 import { buildNotificationCompanionCopy } from '@/lib/notifications/companion-copy';
 import { getNotificationCardTheme } from '@/lib/notifications/card-theme';
-import { NotificationBarStageBackground } from '@/lib/notifications/notification-bar-stage-background';
+import { NotificationBarStageBackground } from '@/components/notifications/notification-bar-stage-background';
 import {
   isSolidColorBarStageId,
   type NotificationBarStageId,
@@ -82,7 +82,13 @@ export function NotificationBannerCard({
     checkInCompanionId,
   );
   const showCompanion = shouldShowCompanion(item);
-  const [companionSpeaking, setCompanionSpeaking] = useState(showCompanion);
+  const [companionSpeakingState, setCompanionSpeakingState] = useState(() => ({
+    itemId: item.id,
+    speaking: showCompanion,
+  }));
+  const companionSpeaking =
+    showCompanion &&
+    (companionSpeakingState.itemId === item.id ? companionSpeakingState.speaking : true);
   const stageId = previewStageId ?? notificationBarStageId;
   const usesSolidBackground = isSolidColorBarStageId(stageId);
   const usesLightSolidBackground = usesSolidBackground && stageId !== 'solid-black';
@@ -107,10 +113,9 @@ export function NotificationBannerCard({
 
   useEffect(() => {
     if (!showCompanion) return;
-    setCompanionSpeaking(true);
     const timer = window.setTimeout(
       () => {
-        setCompanionSpeaking(false);
+        setCompanionSpeakingState({ itemId: item.id, speaking: false });
       },
       item.tone === 'positive' ? 2200 : 1600,
     );

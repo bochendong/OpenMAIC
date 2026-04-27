@@ -37,6 +37,23 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    files: ['lib/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@/components/**'],
+              message:
+                'Keep lib free of React UI dependencies. Move UI helpers to components, or expose pure data/functions from lib.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
