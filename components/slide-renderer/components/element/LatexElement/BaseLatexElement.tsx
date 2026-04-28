@@ -13,11 +13,11 @@ export interface BaseLatexElementProps {
  * Renders KaTeX HTML if available, falls back to legacy SVG path.
  */
 export function BaseLatexElement({ elementInfo }: BaseLatexElementProps) {
-  const resolvedFill = elementInfo.fill ?? '#f8fafc';
+  const resolvedFill = elementInfo.fill ?? 'rgba(248,251,255,0.74)';
   const resolvedOutline =
     elementInfo.outline ??
     ({
-      color: '#cbd5e1',
+      color: 'rgba(119,148,191,0.34)',
       width: 1,
       style: 'solid',
     } as const);
@@ -38,14 +38,18 @@ export function BaseLatexElement({ elementInfo }: BaseLatexElementProps) {
         <div
           className="element-content subpixel-antialiased relative w-full h-full overflow-hidden"
           style={{
+            background: 'linear-gradient(135deg, rgba(248,251,255,0.86), rgba(244,247,252,0.72))',
             backgroundColor: resolvedFill,
             color: elementInfo.color,
+            borderRadius: 14,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.72)',
           }}
         >
           <ElementOutline
             width={elementInfo.width}
             height={elementInfo.height}
             outline={resolvedOutline}
+            cornerRadius={14}
           />
           {elementInfo.html ? (
             <KatexContent
@@ -89,7 +93,6 @@ function KatexContent({
   html,
   width,
   height,
-  align = 'center',
 }: {
   html: string;
   width: number;

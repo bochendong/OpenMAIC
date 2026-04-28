@@ -28,6 +28,11 @@ const DIRECT_UNICODE_MATH_SYMBOLS: Record<string, string> = {
   '\\varnothing': '∅',
 };
 
+const SINGLE_LETTER_ARGUMENT_COMMANDS =
+  /\\(mathbb|mathcal|mathfrak|mathscr|mathbf|mathrm|mathit|mathsf|mathtt)\s+([A-Za-z])/g;
+const BARE_OPERATOR_COMMANDS =
+  /(?<!\\)\b(gcd|lcm|ker|dim|rank|sin|cos|tan|log|ln|max|min)\s*(?=[({])/g;
+
 /**
  * Normalize model-escaped LaTeX while preserving matrix / array row separators.
  *
@@ -43,6 +48,11 @@ export function normalizeLatexSource(text: string): string {
     previous = normalized;
     normalized = normalized.replace(/\\\\(?=[^\s\\[])/g, '\\');
   }
+
+  normalized = normalized.replace(SINGLE_LETTER_ARGUMENT_COMMANDS, '\\$1{$2}');
+  normalized = normalized
+    .replace(BARE_OPERATOR_COMMANDS, '\\$1')
+    .replace(/(?<!\\)\bmid\b/g, '\\mid');
 
   return normalized;
 }
@@ -64,6 +74,32 @@ export function wrapBareLatexEnvironments(text: string): string {
 }
 
 const RAW_LATEX_TEXT_REPLACEMENTS = Object.entries({
+  '\\mathbb{A}': '𝔸',
+  '\\mathbb{B}': '𝔹',
+  '\\mathbb{C}': 'ℂ',
+  '\\mathbb{D}': '𝔻',
+  '\\mathbb{E}': '𝔼',
+  '\\mathbb{F}': '𝔽',
+  '\\mathbb{G}': '𝔾',
+  '\\mathbb{H}': 'ℍ',
+  '\\mathbb{I}': '𝕀',
+  '\\mathbb{J}': '𝕁',
+  '\\mathbb{K}': '𝕂',
+  '\\mathbb{L}': '𝕃',
+  '\\mathbb{M}': '𝕄',
+  '\\mathbb{N}': 'ℕ',
+  '\\mathbb{O}': '𝕆',
+  '\\mathbb{P}': 'ℙ',
+  '\\mathbb{Q}': 'ℚ',
+  '\\mathbb{R}': 'ℝ',
+  '\\mathbb{S}': '𝕊',
+  '\\mathbb{T}': '𝕋',
+  '\\mathbb{U}': '𝕌',
+  '\\mathbb{V}': '𝕍',
+  '\\mathbb{W}': '𝕎',
+  '\\mathbb{X}': '𝕏',
+  '\\mathbb{Y}': '𝕐',
+  '\\mathbb{Z}': 'ℤ',
   '\\Leftrightarrow': '⇔',
   '\\Longleftrightarrow': '⇔',
   '\\Rightarrow': '⇒',
@@ -83,18 +119,21 @@ const RAW_LATEX_TEXT_REPLACEMENTS = Object.entries({
   '\\cdot': '·',
   '\\infty': '∞',
   '\\geq': '≥',
+  '\\gcd': 'gcd',
   '\\leq': '≤',
   '\\neq': '≠',
   '\\cap': '∩',
   '\\cup': '∪',
   '\\div': '÷',
   '\\in': '∈',
+  '\\mid': '∣',
   '\\setminus': '∖',
   '\\smallsetminus': '∖',
   '\\vee': '∨',
   '\\wedge': '∧',
   '\\pm': '±',
   '\\to': '→',
+  '\\,': ' ',
   '\\{': '{',
   '\\}': '}',
 })
@@ -110,6 +149,11 @@ export function replaceCommonRawLatexText(text: string): string {
 
   let normalized = normalizeLatexSource(text);
   normalized = normalized.replace(/\\text\{([^{}]*)\}/g, '$1');
+  normalized = normalized.replace(/\\text\{([^{}]*)$/g, '$1');
+  normalized = normalized.replace(/\{([^{}]*[\u3400-\u9fff][^{}]*)\}/g, '$1');
+  normalized = normalized.replace(/\s+([^\\{}\s][^\\{}]*?)\}/g, ' $1');
+  normalized = normalized.replace(/\\\s+/g, ' ');
+  normalized = normalized.replace(/\\qquad|\\quad/g, ' ');
   for (const replacement of RAW_LATEX_TEXT_REPLACEMENTS) {
     normalized = normalized.replace(replacement.pattern, replacement.symbol);
   }

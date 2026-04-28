@@ -12,6 +12,7 @@ import {
   readPersistedStageOutlinesAsync,
   writePersistedStageOutlines,
 } from '@/lib/utils/stage-outline-storage';
+import { normalizeOutlineStructure } from '@/lib/generation/outline-structure';
 
 const log = createLogger('StageStore');
 
@@ -57,6 +58,221 @@ function writeDraftSnapshotForState(
     },
     false,
   );
+}
+
+function orderScenes(scenes: Scene[]): Scene[] {
+  return scenes
+    .map((scene, index) => ({ scene, index }))
+    .sort((a, b) => {
+      const orderDelta = (a.scene.order || 0) - (b.scene.order || 0);
+      if (orderDelta !== 0) return orderDelta;
+
+      const createdDelta = (a.scene.createdAt || 0) - (b.scene.createdAt || 0);
+      if (createdDelta !== 0) return createdDelta;
+
+      return a.index - b.index;
+    })
+    .map(({ scene }) => scene);
+}
+
+const WORKED_EXAMPLE_LABEL_PATTERN =
+  /(例题|例|题目|问题|problem|example|exercise)\s*[\d一二三四五六七八九十]+/i;
+
+const WORKED_EXAMPLE_PART_PATTERN =
+  /\s*[\(（\[]\s*(?:第\s*)?(?:part\s*)?[\d一二三四五六七八九十]+\s*(?:\/\s*[\d一二三四五六七八九十]+)?\s*(?:部分|页|段|part)?\s*[\)）\]]\s*/i;
+
+const SUMMARY_SCENE_PATTERN =
+  /(总结|小结|回顾|收束|复盘|复习要点|结论|summary|recap|wrap[-\s]?up|takeaways?)/i;
+
+function stripWorkedExamplePartTitle(title: string): string {
+  return title.replace(WORKED_EXAMPLE_PART_PATTERN, '').trim();
+}
+
+function stripWorkedExamplePartMarkers<T>(value: T): T {
+  if (typeof value === 'string') {
+    return value
+      .replace(WORKED_EXAMPLE_PART_PATTERN, '')
+      .replace(/\\\\(?=[a-zA-Z()[\]])/g, '\\')
+      .replace(/\\{1,2}[;,!]/g, ' ') as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => stripWorkedExamplePartMarkers(item)) as T;
+  }
+  if (!value || typeof value !== 'object') return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [
+      key,
+      stripWorkedExamplePartMarkers(entryValue),
+    ]),
+  ) as T;
+}
+
+function getWorkedExampleSceneSignature(scene: Scene): string | null {
+  if (scene.type !== 'slide') return null;
+  if (scene.content.type !== 'slide') return null;
+  if (!WORKED_EXAMPLE_PART_PATTERN.test(scene.title)) return null;
+
+  const title = stripWorkedExamplePartTitle(scene.title);
+  const label = title.match(WORKED_EXAMPLE_LABEL_PATTERN)?.[0]?.trim();
+  if (!label) return null;
+  return label.normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+}
+
+function mergeSplitWorkedExampleScenes(scenes: Scene[]): Scene[] {
+  const merged: Scene[] = [];
+  let activeGroup: Scene[] = [];
+  let activeSignature: string | null = null;
+
+  const flushActiveGroup = () => {
+    if (activeGroup.length === 0) return;
+    if (activeGroup.length === 1) {
+      merged.push(activeGroup[0]);
+    } else {
+      merged.push(mergeWorkedExampleSceneGroup(activeGroup));
+    }
+    activeGroup = [];
+    activeSignature = null;
+  };
+
+  for (const scene of scenes) {
+    const signature = getWorkedExampleSceneSignature(scene);
+    if (!signature) {
+      flushActiveGroup();
+      merged.push(scene);
+      continue;
+    }
+
+    if (activeSignature === signature) {
+      activeGroup.push(scene);
+      continue;
+    }
+
+    flushActiveGroup();
+    activeSignature = signature;
+    activeGroup = [scene];
+  }
+
+  flushActiveGroup();
+  return merged.map((scene, index) => ({ ...scene, order: index + 1 }));
+}
+
+function isSummaryScene(scene: Scene): boolean {
+  if (scene.type !== 'slide' || scene.content.type !== 'slide') return false;
+  if (scene.content.semanticDocument?.archetype === 'summary') return true;
+  if (scene.content.semanticDocument?.layoutFamily === 'summary') return true;
+  return SUMMARY_SCENE_PATTERN.test(scene.title);
+}
+
+function sceneRichnessScore(scene: Scene): number {
+  return scene.title.length * 2 + JSON.stringify(scene.content).length;
+}
+
+function chooseRicherScene(current: Scene, candidate: Scene): Scene {
+  return sceneRichnessScore(candidate) > sceneRichnessScore(current) ? candidate : current;
+}
+
+function compactDuplicateSummaryScenes(scenes: Scene[]): Scene[] {
+  const summaries = scenes.filter(isSummaryScene);
+  if (summaries.length <= 1) return scenes;
+
+  const finalSummary = summaries.reduce(chooseRicherScene, summaries[0]);
+  const mainScenes = scenes.filter((scene) => !isSummaryScene(scene));
+  return [...mainScenes, finalSummary].map((scene, index) => ({ ...scene, order: index + 1 }));
+}
+
+function cleanSceneResidualMarkup(scene: Scene): Scene {
+  if (scene.type !== 'slide' || scene.content.type !== 'slide') return scene;
+  return {
+    ...scene,
+    title: stripWorkedExamplePartMarkers(scene.title),
+    content: {
+      ...scene.content,
+      canvas: stripWorkedExamplePartMarkers(scene.content.canvas),
+      syntaraMarkup: stripWorkedExamplePartMarkers(scene.content.syntaraMarkup),
+      semanticDocument: stripWorkedExamplePartMarkers(scene.content.semanticDocument),
+    },
+  };
+}
+
+function normalizeSceneStructure(scenes: Scene[]): Scene[] {
+  return compactDuplicateSummaryScenes(mergeSplitWorkedExampleScenes(orderScenes(scenes))).map(
+    (scene, index) => ({
+      ...cleanSceneResidualMarkup(scene),
+      order: index + 1,
+    }),
+  );
+}
+
+function mergeWorkedExampleSceneGroup(group: Scene[]): Scene {
+  const first = group[0];
+  if (first.type !== 'slide' || first.content.type !== 'slide') return first;
+
+  const documents = group
+    .map((scene) =>
+      scene.type === 'slide' && scene.content.type === 'slide'
+        ? stripWorkedExamplePartMarkers(scene.content.semanticDocument)
+        : undefined,
+    )
+    .filter(Boolean);
+  const title = stripWorkedExamplePartTitle(first.title) || first.title;
+  const baseDocument = documents[0];
+  const slots = documents.flatMap((document, documentIndex) => {
+    if (!document) return [];
+    if (document.slots?.length) {
+      return document.slots.map((slot, slotIndex) => ({
+        ...slot,
+        slotId: `part_${documentIndex + 1}_${slotIndex + 1}_${slot.slotId}`.slice(0, 80),
+      }));
+    }
+    return [
+      {
+        slotId: `part_${documentIndex + 1}`,
+        role: document.title || title,
+        priority: documentIndex + 1,
+        preserve: true,
+        blocks: document.blocks,
+      },
+    ];
+  });
+
+  return {
+    ...first,
+    title,
+    content: {
+      ...first.content,
+      canvas: stripWorkedExamplePartMarkers(first.content.canvas),
+      syntaraMarkup: group
+        .map((scene) =>
+          scene.type === 'slide' && scene.content.type === 'slide'
+            ? stripWorkedExamplePartMarkers(scene.content.syntaraMarkup)
+            : undefined,
+        )
+        .filter(Boolean)
+        .join('\n\n'),
+      semanticDocument: baseDocument
+        ? {
+            ...baseDocument,
+            title,
+            blocks: documents.flatMap((document) => document?.blocks || []),
+            slots: slots.length > 0 ? slots : undefined,
+            continuation: undefined,
+          }
+        : first.content.semanticDocument,
+      webRenderMode: 'scroll',
+    },
+    updatedAt: Date.now(),
+  };
+}
+
+function orderOutlines(outlines: SceneOutline[]): SceneOutline[] {
+  return outlines
+    .map((outline, index) => ({ outline, index }))
+    .sort((a, b) => {
+      const orderDelta = (a.outline.order || 0) - (b.outline.order || 0);
+      return orderDelta !== 0 ? orderDelta : a.index - b.index;
+    })
+    .map(({ outline }) => outline);
 }
 
 type ToolbarState = 'design' | 'ai';
@@ -168,14 +384,18 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   },
 
   setScenes: (scenes) => {
-    set({ scenes, storageSaveState: 'saving', storageSaveError: null });
+    const orderedScenes = normalizeSceneStructure(scenes);
+    set({ scenes: orderedScenes, storageSaveState: 'saving', storageSaveError: null });
     // Auto-select first scene if no current scene
+    const currentSceneId = get().currentSceneId;
     const nextCurrentSceneId =
-      !get().currentSceneId && scenes.length > 0 ? scenes[0].id : get().currentSceneId;
-    if (nextCurrentSceneId !== get().currentSceneId) {
+      currentSceneId && orderedScenes.some((scene) => scene.id === currentSceneId)
+        ? currentSceneId
+        : orderedScenes[0]?.id || null;
+    if (nextCurrentSceneId !== currentSceneId) {
       set({ currentSceneId: nextCurrentSceneId });
     }
-    writeDraftSnapshotForState(get().stage, scenes, nextCurrentSceneId);
+    writeDraftSnapshotForState(get().stage, orderedScenes, nextCurrentSceneId);
     debouncedSave();
   },
 
@@ -188,7 +408,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       );
       return;
     }
-    const scenes = [...get().scenes, scene];
+    const scenes = orderScenes([...get().scenes, scene]);
     // Remove the matching outline from generatingOutlines (match by order)
     const generatingOutlines = get().generatingOutlines.filter((o) => o.order !== scene.order);
     // Auto-switch from pending page to the newly generated scene
@@ -209,8 +429,10 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   },
 
   updateScene: (sceneId, updates) => {
-    const scenes = get().scenes.map((scene) =>
-      scene.id === sceneId ? applySceneUpdatesWithSpeechTtsInvalidation(scene, updates) : scene,
+    const scenes = orderScenes(
+      get().scenes.map((scene) =>
+        scene.id === sceneId ? applySceneUpdatesWithSpeechTtsInvalidation(scene, updates) : scene,
+      ),
     );
     set({ scenes, storageSaveState: 'saving', storageSaveError: null });
     writeDraftSnapshotForState(get().stage, scenes, get().currentSceneId);
@@ -219,7 +441,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
 
   touchScenes: () => {
     set((s) => ({
-      scenes: [...s.scenes],
+      scenes: orderScenes(s.scenes),
       storageSaveState: 'saving',
       storageSaveError: null,
     }));
@@ -229,7 +451,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   },
 
   deleteScene: (sceneId) => {
-    const scenes = get().scenes.filter((scene) => scene.id !== sceneId);
+    const scenes = orderScenes(get().scenes.filter((scene) => scene.id !== sceneId));
     const currentSceneId = get().currentSceneId;
 
     // If deleted scene was current, select next or previous
@@ -264,12 +486,14 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
 
   setToolbarState: (toolbarState) => set({ toolbarState }),
 
-  setGeneratingOutlines: (generatingOutlines) => set({ generatingOutlines }),
+  setGeneratingOutlines: (generatingOutlines) =>
+    set({ generatingOutlines: orderOutlines(generatingOutlines) }),
 
   setOutlines: (outlines) => {
-    set({ outlines });
+    const orderedOutlines = orderOutlines(outlines);
+    set({ outlines: orderedOutlines });
     const stageId = get().stage?.id;
-    if (stageId) writePersistedStageOutlines(stageId, outlines);
+    if (stageId) writePersistedStageOutlines(stageId, orderedOutlines);
   },
 
   setGenerationStatus: (generationStatus) => set({ generationStatus }),
@@ -451,10 +675,13 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       const { loadStageData } = await import('@/lib/utils/stage-storage');
       const data = await loadStageData(stageId);
 
-      const outlines = await readPersistedStageOutlinesAsync(stageId);
+      const rawOutlines = await readPersistedStageOutlinesAsync(stageId);
+      const outlines = orderOutlines(
+        rawOutlines.length > 1 ? normalizeOutlineStructure(rawOutlines) : rawOutlines,
+      );
 
       if (data) {
-        const loadedScenes = Array.isArray(data.scenes) ? data.scenes : [];
+        const loadedScenes = Array.isArray(data.scenes) ? normalizeSceneStructure(data.scenes) : [];
         const loadedChats = Array.isArray(data.chats) ? data.chats : [];
         const pendingOutlines = outlines.filter(
           (o) => !loadedScenes.some((s) => s.order === o.order),

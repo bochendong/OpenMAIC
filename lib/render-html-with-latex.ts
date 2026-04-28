@@ -1,5 +1,5 @@
 import { replaceCommonRawLatexText, wrapBareLatexEnvironments } from '@/lib/latex-utils';
-import { containsMathSyntax, renderTextWithMathToHtml } from '@/lib/math-engine';
+import { containsMathSyntax, renderInlineMathAwareHtml } from '@/lib/math-engine';
 
 export function escapeHtml(text: string): string {
   return text
@@ -71,15 +71,17 @@ function repairSplitMathAcrossParagraphs(html: string): string {
  */
 export function renderPlainTitleWithOptionalLatex(title: string): string {
   if (!title) return '';
-  const html = renderTextWithMathToHtml(title);
-  if (html !== null) return html;
-  return escapeHtml(replaceCommonRawLatexText(title));
+  return renderInlineMathAwareHtml(title);
 }
 
 export function renderHtmlWithLatex(html: string): string {
   if (!html) return html;
   const wrappedHtml = wrapBareLatexEnvironments(html);
-  if (!containsMathSyntax(wrappedHtml) || typeof document === 'undefined') {
+  const hasBareLatexCommand = /\\(?!text\b)[a-zA-Z]+/.test(wrappedHtml);
+  if (
+    (!containsMathSyntax(wrappedHtml) && !hasBareLatexCommand) ||
+    typeof document === 'undefined'
+  ) {
     return replaceCommonRawLatexText(wrappedHtml);
   }
 
@@ -92,13 +94,17 @@ export function renderHtmlWithLatex(html: string): string {
 
   while (walker.nextNode()) {
     const node = walker.currentNode as Text;
-    if (node.nodeValue && containsMathSyntax(node.nodeValue)) {
+    if (
+      node.nodeValue &&
+      (containsMathSyntax(node.nodeValue) || /\\(?!text\b)[a-zA-Z]+/.test(node.nodeValue))
+    ) {
       textNodes.push(node);
     }
   }
 
   for (const node of textNodes) {
-    const rendered = renderTextWithMathToHtml(node.nodeValue || '');
+    const nodeText = node.nodeValue || '';
+    const rendered = renderInlineMathAwareHtml(nodeText);
     if (!rendered) continue;
 
     const temp = document.createElement('span');

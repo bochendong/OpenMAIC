@@ -16,6 +16,7 @@ import { normalizeSceneOutlineContentProfile } from './content-profile';
 import { formatImageDescription, formatImagePlaceholder } from './prompt-formatters';
 import { parseJsonResponse } from './json-repair';
 import { uniquifyMediaElementIds } from './scene-builder';
+import { normalizeOutlineStructure } from './outline-structure';
 import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline-types';
 import { createLogger } from '@/lib/logger';
 const log = createLogger('Generation');
@@ -264,7 +265,9 @@ export async function generateSceneOutlinesFromRequirements(
     }));
 
     // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-    const result = uniquifyMediaElementIds(normalizeSlideLayoutRhythm(enriched));
+    const result = uniquifyMediaElementIds(
+      normalizeOutlineStructure(normalizeSlideLayoutRhythm(enriched)),
+    );
 
     callbacks?.onProgress?.({
       currentStage: 1,

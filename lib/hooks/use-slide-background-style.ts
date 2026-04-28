@@ -1,14 +1,19 @@
 import { useMemo } from 'react';
+import { resolveEffectiveSlideBackground } from '@/lib/constants/slide-backgrounds';
+import { useUserProfileStore } from '@/lib/store/user-profile';
 import type { SlideBackground } from '@/lib/types/slides';
 
 /**
  * Convert slide background data to CSS styles
  */
 export function useSlideBackgroundStyle(background: SlideBackground | undefined) {
-  const backgroundStyle = useMemo<React.CSSProperties>(() => {
-    if (!background) return { backgroundColor: '#fff' };
+  const slideBackgroundStyleId = useUserProfileStore((s) => s.slideBackgroundStyleId);
 
-    const { type, color, image, gradient } = background;
+  const backgroundStyle = useMemo<React.CSSProperties>(() => {
+    const effectiveBackground = resolveEffectiveSlideBackground(background, slideBackgroundStyleId);
+    if (!effectiveBackground) return { backgroundColor: '#fff' };
+
+    const { type, color, image, gradient } = effectiveBackground;
 
     // Solid color background
     if (type === 'solid') return { backgroundColor: color };
@@ -46,7 +51,7 @@ export function useSlideBackgroundStyle(background: SlideBackground | undefined)
     }
 
     return { backgroundColor: '#fff' };
-  }, [background]);
+  }, [background, slideBackgroundStyleId]);
 
   return {
     backgroundStyle,

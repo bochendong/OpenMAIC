@@ -205,6 +205,7 @@ export interface GeneratedSlidePageContent {
   background?: SlideBackground;
   theme?: SlideTheme;
   remark?: string;
+  syntaraMarkup?: string;
   contentDocument?: NotebookContentDocument;
 }
 

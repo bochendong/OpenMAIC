@@ -7,9 +7,11 @@ import { ProfileAvatarPicker } from './profile-avatar-picker';
 import { ProfileAvatarFramePicker } from './profile-avatar-frame-picker';
 import { ProfileNotificationStylePicker } from './profile-notification-style-picker';
 import { ProfileSidebarPanel } from './profile-sidebar-panel';
+import { ProfileSlideBackgroundPicker } from './profile-slide-background-picker';
 
 /**
- * 个人中心：通知样式、头像、头像框、侧边栏（Credits / Token 在下方独立卡片 `NotificationCenterUsageCard`）
+ * 个人中心：通知样式、头像、头像框、幻灯片背景、侧边栏
+ * （Credits / Token 在下方独立卡片 `NotificationCenterUsageCard`）
  */
 export function ProfileUsageCard() {
   const [activeTab, setActiveTab] = useState('notification');
@@ -43,6 +45,13 @@ export function ProfileUsageCard() {
         document
           .getElementById('profile-usage-card')
           ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      if (window.location.hash === '#profile-usage-card-slide-background') {
+        setActiveTab('slide-background');
+        document
+          .getElementById('profile-usage-card')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     };
     applyHash();
@@ -59,7 +68,7 @@ export function ProfileUsageCard() {
         <div className="border-b border-border/60 pb-4">
           <div className="mx-auto w-full max-w-4xl">
             <TabsList
-              className="grid h-auto w-full grid-cols-2 gap-0.5 p-1 sm:grid-cols-4"
+              className="grid h-auto w-full grid-cols-2 gap-0.5 p-1 sm:grid-cols-5"
               variant="default"
               aria-label="个人中心分栏"
             >
@@ -71,6 +80,9 @@ export function ProfileUsageCard() {
               </TabsTrigger>
               <TabsTrigger value="avatar-frame" className="px-1.5 text-xs sm:px-2 sm:text-sm">
                 头像框
+              </TabsTrigger>
+              <TabsTrigger value="slide-background" className="px-1.5 text-xs sm:px-2 sm:text-sm">
+                幻灯片背景
               </TabsTrigger>
               <TabsTrigger value="sidebar" className="px-1.5 text-xs sm:px-2 sm:text-sm">
                 侧边栏
@@ -103,6 +115,15 @@ export function ProfileUsageCard() {
         >
           <div className="mx-auto w-full max-w-xl sm:max-w-2xl">
             <ProfileAvatarFramePicker />
+          </div>
+        </TabsContent>
+        <TabsContent
+          value="slide-background"
+          id="profile-usage-card-slide-background"
+          className="mt-4 min-w-0 scroll-mt-4"
+        >
+          <div className="mx-auto w-full max-w-6xl">
+            <ProfileSlideBackgroundPicker />
           </div>
         </TabsContent>
         <TabsContent

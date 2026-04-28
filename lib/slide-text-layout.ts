@@ -13,6 +13,8 @@ const REPAIR_GAP_PX = 12;
 const DEFAULT_CONTAINER_INSET_PX = 10;
 const MAX_CONTAINER_INSET_PX = 24;
 const DETACHED_CONTAINER_MAX_GAP_PX = 28;
+const OVERLAP_REPAIR_GAP_PX = 10;
+const MAX_OVERLAP_REPAIR_PASSES = 6;
 export const MIN_TEXT_LINE_HEIGHT_RATIO = 1.1;
 export const MAX_TEXT_LINE_HEIGHT_RATIO = 2.2;
 
@@ -79,6 +81,12 @@ type ContainedShapePair = {
     top: number;
     bottom: number;
   };
+};
+
+type RepairGroup = {
+  key: string;
+  indexes: number[];
+  range: ReturnType<typeof getElementRange>;
 };
 
 function decodeHtmlEntities(input: string): string {
@@ -540,7 +548,13 @@ function findContainingShapePair(
     if (!candidate || candidate.type !== 'shape' || hasShapeTextContent(candidate)) continue;
 
     const shapeRange = getElementRange(candidate);
-    if (!isRangeWithin(contentRange, shapeRange, 6)) continue;
+    const fullyWithinShape = isRangeWithin(contentRange, shapeRange, 6);
+    const visuallyAttachedToShape =
+      contentRange.minX >= shapeRange.minX - 6 &&
+      contentRange.maxX <= shapeRange.maxX + 6 &&
+      contentRange.minY >= shapeRange.minY - 6 &&
+      contentRange.minY <= shapeRange.maxY + DETACHED_CONTAINER_MAX_GAP_PX;
+    if (!fullyWithinShape && !visuallyAttachedToShape) continue;
 
     const insets = {
       left: Math.round(content.left - candidate.left),
@@ -766,22 +780,158 @@ function normalizeExplicitContainerContent(elements: PPTElement[]): PPTElement[]
   return normalized;
 }
 
+function getRepairGroupKey(elements: PPTElement[], index: number): string | null {
+  const element = elements[index];
+  if (!element || element.type === 'line') return null;
+
+  if (isLayoutContentElement(element)) {
+    const pair = findContainingShapePair(elements, index);
+    if (pair) {
+      const shape = elements[pair.shapeIndex];
+      return shape?.groupId || shape?.id || element.groupId || element.id;
+    }
+  }
+
+  return element.groupId || element.id;
+}
+
+function getRepairGroups(elements: PPTElement[]): RepairGroup[] {
+  const grouped = new Map<string, number[]>();
+
+  elements.forEach((_, index) => {
+    const key = getRepairGroupKey(elements, index);
+    if (!key) return;
+    const indexes = grouped.get(key) ?? [];
+    indexes.push(index);
+    grouped.set(key, indexes);
+  });
+
+  return Array.from(grouped.entries())
+    .map(([key, indexes]) => {
+      const range = getElementListRange(indexes.map((index) => elements[index]));
+      return { key, indexes, range };
+    })
+    .sort((a, b) => a.range.minY - b.range.minY || a.range.minX - b.range.minX);
+}
+
+function groupsHaveIgnoredElementOverlap(
+  elements: PPTElement[],
+  first: RepairGroup,
+  second: RepairGroup,
+): boolean {
+  for (const firstIndex of first.indexes) {
+    const firstElement = elements[firstIndex];
+    if (!firstElement || firstElement.type === 'line') continue;
+    const firstRange = getElementRange(firstElement);
+    for (const secondIndex of second.indexes) {
+      const secondElement = elements[secondIndex];
+      if (!secondElement || secondElement.type === 'line') continue;
+      const secondRange = getElementRange(secondElement);
+      const overlapWidth = getHorizontalOverlapWidth(
+        [firstRange.minX, firstRange.maxX],
+        [secondRange.minX, secondRange.maxX],
+      );
+      const overlapHeight = getVerticalOverlapHeight(
+        [firstRange.minY, firstRange.maxY],
+        [secondRange.minY, secondRange.maxY],
+      );
+      if (overlapWidth <= 6 || overlapHeight <= 6) continue;
+      if (!shouldIgnoreOverlapPair(elements, firstIndex, secondIndex, firstRange, secondRange)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+function getGroupOverlap(first: RepairGroup, second: RepairGroup) {
+  const overlapWidth = getHorizontalOverlapWidth(
+    [first.range.minX, first.range.maxX],
+    [second.range.minX, second.range.maxX],
+  );
+  const overlapHeight = getVerticalOverlapHeight(
+    [first.range.minY, first.range.maxY],
+    [second.range.minY, second.range.maxY],
+  );
+  if (overlapWidth <= 6 || overlapHeight <= 6) return null;
+
+  const overlapArea = overlapWidth * overlapHeight;
+  const firstArea = Math.max(
+    1,
+    (first.range.maxX - first.range.minX) * (first.range.maxY - first.range.minY),
+  );
+  const secondArea = Math.max(
+    1,
+    (second.range.maxX - second.range.minX) * (second.range.maxY - second.range.minY),
+  );
+  const overlapRatio = overlapArea / Math.min(firstArea, secondArea);
+  if (overlapArea < 160 && overlapRatio < 0.04) return null;
+
+  return { overlapHeight };
+}
+
+function translateGroup(elements: PPTElement[], group: RepairGroup, deltaY: number): PPTElement[] {
+  return elements.map((element, index) =>
+    group.indexes.includes(index) ? translateElement(element, deltaY) : element,
+  );
+}
+
+function normalizeElementOverlaps(
+  elements: PPTElement[],
+  viewport: SlideViewport = DEFAULT_VIEWPORT,
+): PPTElement[] {
+  let normalized = elements.map((element) => cloneElement(element));
+
+  for (let pass = 0; pass < MAX_OVERLAP_REPAIR_PASSES; pass += 1) {
+    const groups = getRepairGroups(normalized);
+    let changed = false;
+
+    for (let firstIndex = 0; firstIndex < groups.length; firstIndex += 1) {
+      const first = groups[firstIndex];
+      for (let secondIndex = firstIndex + 1; secondIndex < groups.length; secondIndex += 1) {
+        const second = groups[secondIndex];
+        if (
+          !rangesOverlap(
+            [first.range.minX, first.range.maxX],
+            [second.range.minX, second.range.maxX],
+            6,
+          )
+        ) {
+          continue;
+        }
+        const overlap = getGroupOverlap(first, second);
+        if (!overlap) continue;
+        if (groupsHaveIgnoredElementOverlap(normalized, first, second)) continue;
+
+        const mover =
+          second.range.minY >= first.range.minY - 2 || second.range.maxY >= first.range.maxY
+            ? second
+            : first;
+        const blocker = mover === second ? first : second;
+        const targetTop = blocker.range.maxY + OVERLAP_REPAIR_GAP_PX;
+        const deltaY = Math.ceil(targetTop - mover.range.minY);
+        if (deltaY <= 0) continue;
+        if (mover.range.maxY + deltaY > viewport.height + 0.5) continue;
+
+        normalized = translateGroup(normalized, mover, deltaY);
+        changed = true;
+        break;
+      }
+      if (changed) break;
+    }
+
+    if (!changed) return normalized;
+  }
+
+  return normalized;
+}
+
 function normalizeStandaloneTextElement(elements: PPTElement[], textIndex: number): PPTElement[] {
   const nextElements = elements.map((element) => cloneElement(element));
   const text = nextElements[textIndex];
   if (!text || text.type !== 'text') return nextElements;
   if (findContainingShapePair(nextElements, textIndex)) return nextElements;
-  if (
-    typeof text.groupId === 'string' &&
-    (text.groupId.startsWith('layout_cards_') ||
-      text.groupId.startsWith('process_flow_') ||
-      text.groupId.startsWith('grid_cell_'))
-  ) {
-    // Semantic-layout cards already have deterministic geometry from slide-adapter.
-    // Do not run standalone text reflow here, or same-row cards can be pushed into
-    // a staircase when one card's measured text height grows post-layout.
-    return nextElements;
-  }
 
   const requiredHeight = estimateTextElementContentHeight(text);
   if (requiredHeight <= text.height + 1) return nextElements;
@@ -815,6 +965,7 @@ function validateDetachedContainerContent(elements: PPTElement[]): SlideLayoutVa
     for (let index = shapeIndex + 1; index < elements.length; index += 1) {
       const content = elements[index];
       if (!isLayoutContentElement(content)) continue;
+      if (content.type === 'text' && (content.fill || content.outline)) continue;
 
       const contentRange = getElementRange(content);
       const overlapWidth = getHorizontalOverlapWidth(
@@ -1001,6 +1152,8 @@ export function normalizeSlideTextLayout(
     if (normalized[index]?.type !== 'text') continue;
     normalized = normalizeStandaloneTextElement(normalized, index);
   }
+
+  normalized = normalizeElementOverlaps(normalized, viewport);
 
   const range = getElementListRange(normalized);
   if (range.maxY <= viewport.height + 0.5 && range.maxX <= viewport.width + 0.5) {

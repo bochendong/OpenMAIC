@@ -221,7 +221,9 @@ export async function saveStageData(
 
 /** 防止损坏的本地/服务端快照把 `scenes` 写成非数组，导致打开课堂页时 `scenes.map` 崩溃 */
 function normalizeStageStoreData(data: StageStoreData): StageStoreData {
-  const scenes = Array.isArray(data.scenes) ? data.scenes : [];
+  const scenes = Array.isArray(data.scenes)
+    ? data.scenes.map((scene) => refreshSemanticSlideScene(scene))
+    : [];
   const chats = Array.isArray(data.chats) ? data.chats : [];
   let currentSceneId = data.currentSceneId;
   if (currentSceneId && !scenes.some((s) => s.id === currentSceneId)) {

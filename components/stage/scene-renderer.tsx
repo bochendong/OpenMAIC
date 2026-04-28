@@ -6,6 +6,7 @@ import { SlideEditor as SlideRenderer } from '../slide-renderer/Editor';
 import { QuizView } from '../scene-renderers/quiz-view';
 import { InteractiveRenderer } from '../scene-renderers/interactive-renderer';
 import { PBLRenderer } from '../scene-renderers/pbl-renderer';
+import { SemanticScrollPage } from './semantic-scroll-page';
 
 interface SceneRendererProps {
   readonly scene: Scene;
@@ -17,6 +18,20 @@ export function SceneRenderer({ scene, mode }: SceneRendererProps) {
     switch (scene.type) {
       case 'slide':
         if (scene.content.type !== 'slide') return <div>Invalid slide content</div>;
+        if (
+          scene.content.semanticDocument &&
+          scene.content.semanticRenderMode !== 'manual' &&
+          scene.content.webRenderMode !== 'slide'
+        ) {
+          return (
+            <SemanticScrollPage
+              key={scene.id}
+              document={scene.content.semanticDocument}
+              sceneId={scene.id}
+              title={scene.title}
+            />
+          );
+        }
         return <SlideRenderer mode={mode} />;
       case 'quiz':
         if (scene.content.type !== 'quiz') return <div>Invalid quiz content</div>;

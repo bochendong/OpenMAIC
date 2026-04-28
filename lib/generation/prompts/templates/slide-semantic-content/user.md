@@ -34,5 +34,8 @@ Important:
 6. If the scene contains formulas, worked examples, matrix operations, code, or tables, use `\formula`, `derivation`, `\code`, or `\table` instead of plain paragraphs whenever possible
 7. Set slide `profile=math` for matrix / proof / derivation-heavy slides, `profile=code` for programming walkthroughs, otherwise `profile=general`
 8. If the layout intent supplies a template, use it as `template=...`; otherwise choose `rows`, `columns`, or `grid` naturally
-9. If the problem statement must remain complete, keep the key conditions, data, code, and asks readable
-10. Only output `\image[source=...]` when Available Images / Visual Slots provides an image ID
+9. `two_column` must use `columns` / `column` environments; do not use `block title=left/right` as fake columns
+10. Prefer `$f(x)=x^2$` for inline math inside prose; do not write `\\(f(x)=x^2\\)`, and do not put ordinary connecting words inside `\text{...}`
+11. Write LaTeX/Syntara commands with one backslash, for example `\forall`, not `\\forall`
+12. If the problem statement must remain complete, keep the key conditions, data, code, and asks readable
+13. Only output `\image[source=...]` when Available Images / Visual Slots provides an image ID

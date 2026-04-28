@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useEffect } from 'react';
 import type { PPTLineElement } from '@/lib/types/slides';
 import { getLineElementPath } from '@/lib/utils/element';
 import { useElementShadow } from '../hooks/useElementShadow';
+import { mixHexColor, normalizeAccentForAcademyPaper } from '../academyPaperTheme';
 import { LinePointMarker } from './LinePointMarker';
 
 export interface BaseLineElementProps {
@@ -20,6 +21,7 @@ const DRAW_ANIMATION_MS = 600;
  */
 export function BaseLineElement({ elementInfo, animate }: BaseLineElementProps) {
   const { shadowStyle } = useElementShadow(elementInfo.shadow);
+  const lineColor = normalizeAccentForAcademyPaper(elementInfo.color);
   const pathRef = useRef<SVGPathElement>(null);
   const [drawComplete, setDrawComplete] = useState(!animate);
 
@@ -107,7 +109,7 @@ export function BaseLineElement({ elementInfo, animate }: BaseLineElementProps) 
                 id={elementInfo.id}
                 position="start"
                 type={elementInfo.points[0]}
-                color={elementInfo.color}
+                color={lineColor}
                 baseSize={elementInfo.width}
               />
             )}
@@ -116,7 +118,7 @@ export function BaseLineElement({ elementInfo, animate }: BaseLineElementProps) 
                 id={elementInfo.id}
                 position="end"
                 type={elementInfo.points[1]}
-                color={elementInfo.color}
+                color={lineColor}
                 baseSize={elementInfo.width}
               />
             )}
@@ -124,10 +126,11 @@ export function BaseLineElement({ elementInfo, animate }: BaseLineElementProps) 
           <path
             ref={pathRef}
             d={path}
-            stroke={elementInfo.color}
+            stroke={lineColor}
             strokeWidth={elementInfo.width}
             strokeDasharray={lineDashArray}
             fill="none"
+            filter={`drop-shadow(0 2px 4px ${mixHexColor(lineColor, '#ffffff', 0.35)})`}
             markerStart={
               drawComplete && elementInfo.points[0]
                 ? `url(#${elementInfo.id}-${elementInfo.points[0]}-start)`

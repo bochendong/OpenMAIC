@@ -3,7 +3,7 @@
 import { memo } from 'react';
 import type { BundledLanguage } from 'shiki';
 import { cn } from '@/lib/utils';
-import { renderMathToHtml, renderTextWithMathToHtml } from '@/lib/math-engine';
+import { renderInlineMathAwareHtml, renderMathToHtml } from '@/lib/math-engine';
 import { CodeBlock, CodeBlockCopyButton } from '@/components/ai-elements/code-block';
 import type { NotebookContentDocument } from '@/lib/notebook-content';
 import { chemistryTextToHtml } from '@/lib/notebook-content';
@@ -23,13 +23,24 @@ function escapeHtml(text: string): string {
     .replaceAll('"', '&quot;');
 }
 
+function hasInlineMathDelimiter(text: string): boolean {
+  return /(?<!\\)\$[^$\n]+(?<!\\)\$|\\\(|\\\[/.test(text);
+}
+
+function shouldRenderAsMathAwareText(text: string): boolean {
+  if (!hasInlineMathDelimiter(text)) return false;
+  return /[\u3400-\u9fff]|[，。！？；]/.test(text);
+}
+
 function FormulaBlock({ latex, display = true }: { latex: string; display?: boolean }) {
-  const html = renderMathToHtml(latex, { displayMode: display });
+  const html = shouldRenderAsMathAwareText(latex)
+    ? renderInlineMathHtml(latex)
+    : renderMathToHtml(latex, { displayMode: display });
   return <div className="[&_.katex-display]:my-1" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function renderInlineMathHtml(text: string): string {
-  return renderTextWithMathToHtml(text, { forceInline: true, rawFallback: true }) || '';
+  return renderInlineMathAwareHtml(text);
 }
 
 function cardTitleToneClass(

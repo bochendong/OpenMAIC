@@ -26,6 +26,8 @@ import {
   parseNotebookContentDocument,
   compileSyntaraMarkupToNotebookDocument,
   extractSyntaraMarkup,
+  normalizeSyntaraMarkupLayout,
+  SEMANTIC_WEB_LONG_PAGE_MODE,
   measureNotebookSemanticLayout,
   paginateNotebookSemanticLayout,
   renderNotebookSemanticPages,
@@ -91,10 +93,15 @@ import {
   normalizeColumnLayoutBlocks,
   normalizeGridPlacementHints,
 } from './semantic-slide-templates';
+import { buildTitleCoverSlideContent, isTitleCoverOutline } from './title-cover';
 const log = createLogger('Generation');
 const SLIDE_LAYOUT_VIEWPORT = { width: 1000, height: 562.5 } as const;
 const MAX_SLIDE_LAYOUT_RETRIES = 2;
 const MAX_SEMANTIC_SLIDE_RETRIES = 2;
+
+function shouldSuppressContinuationPages(outline: SceneOutline): boolean {
+  return outline.type === 'slide' && outline.archetype === 'summary' && !outline.continuation;
+}
 
 export function materializeSemanticGeneratedSlidePageContent(
   content: GeneratedSlidePageContent,
@@ -201,13 +208,19 @@ function buildSemanticFallbackSlideContent(outline: SceneOutline): GeneratedSlid
   if (invalidPage) return null;
 
   const [primaryPage, ...continuationPages] = renderedPages;
+  const effectiveContinuationPages = shouldSuppressContinuationPages(outline)
+    ? []
+    : continuationPages;
+  if (continuationPages.length > 0 && effectiveContinuationPages.length === 0) {
+    log.info(`[Budget] suppress_summary_continuations for: ${outline.title}`);
+  }
   return {
     elements: primaryPage.elements,
     background: primaryPage.background,
     theme: primaryPage.theme,
     remark: outline.description,
     contentDocument: primaryPage.contentDocument,
-    continuationPages: continuationPages.map((page, index) => ({
+    continuationPages: effectiveContinuationPages.map((page, index) => ({
       outline: buildContinuationSceneOutline(outline, index + 2, renderedPages.length),
       content: {
         elements: page.elements,
@@ -337,6 +350,11 @@ export async function generateSceneContent(
   | GeneratedPBLContent
   | null
 > {
+  if (isTitleCoverOutline(outline)) {
+    if (diagnostics) diagnostics.pipeline = 'semantic';
+    return buildTitleCoverSlideContent(outline);
+  }
+
   // If outline is interactive but missing interactiveConfig, fall back to slide
   if (outline.type === 'interactive' && !outline.interactiveConfig) {
     log.warn(
@@ -672,6 +690,7 @@ async function generateSemanticSlideContent(
   });
   const rewriteContext = formatSlideRewriteContext(rewriteReason, lang);
   let normalizedDocument: NotebookContentDocument | null = templateDrivenDocument;
+  let sourceSyntaraMarkup: string | undefined;
   if (!normalizedDocument) {
     const prompts = buildPrompt(PROMPT_IDS.SLIDE_SEMANTIC_CONTENT, {
       language: lang,
@@ -689,6 +708,10 @@ async function generateSemanticSlideContent(
     });
     if (!prompts) return null;
     const response = await aiCall(prompts.system, prompts.user, mediaContext.visionImages);
+    const extractedMarkup = extractSyntaraMarkup(response);
+    sourceSyntaraMarkup = extractedMarkup
+      ? normalizeSyntaraMarkupLayout(extractedMarkup)
+      : undefined;
     const contentDocumentRaw = extractNotebookContentDocumentFromResponse(response, {
       language: lang,
       title: outline.title,
@@ -787,7 +810,7 @@ async function generateSemanticSlideContent(
   }
 
   const contentBudget = measureNotebookSemanticLayout(normalizedDocument);
-  if (!contentBudget.fits && !budgetRewriteAttempted) {
+  if (!SEMANTIC_WEB_LONG_PAGE_MODE && !contentBudget.fits && !budgetRewriteAttempted) {
     log.info(`[Budget] budget_rewrite_once for: ${outline.title}`);
     if (diagnostics) {
       diagnostics.semanticRetryCount = Math.max(
@@ -813,8 +836,11 @@ async function generateSemanticSlideContent(
       diagnostics,
     );
   }
+  if (SEMANTIC_WEB_LONG_PAGE_MODE && !contentBudget.fits) {
+    log.info(`[Budget] long_page_budget_bypass for: ${outline.title}`);
+  }
   log.info(
-    `[Budget] ${contentBudget.fits ? 'budget_check_pass' : 'budget_fallback_paginate'} for: ${outline.title}`,
+    `[Budget] ${contentBudget.fits ? 'budget_check_pass' : SEMANTIC_WEB_LONG_PAGE_MODE ? 'budget_long_page' : 'budget_fallback_paginate'} for: ${outline.title}`,
   );
   const paginationResult = paginateNotebookSemanticLayout({
     document: normalizedDocument,
@@ -888,19 +914,27 @@ async function generateSemanticSlideContent(
   }
 
   const [primaryPage, ...continuationPages] = renderedPages;
+  const effectiveContinuationPages = shouldSuppressContinuationPages(outline)
+    ? []
+    : continuationPages;
+  if (continuationPages.length > 0 && effectiveContinuationPages.length === 0) {
+    log.info(`[Budget] suppress_summary_continuations for: ${outline.title}`);
+  }
   return {
     elements: primaryPage.elements,
     background: primaryPage.background,
     theme: primaryPage.theme,
     remark: outline.description,
+    syntaraMarkup: sourceSyntaraMarkup,
     contentDocument: primaryPage.contentDocument,
-    continuationPages: continuationPages.map((page, index) => ({
+    continuationPages: effectiveContinuationPages.map((page, index) => ({
       outline: buildContinuationSceneOutline(outline, index + 2, renderedPages.length),
       content: {
         elements: page.elements,
         background: page.background,
         theme: page.theme,
         remark: outline.description,
+        syntaraMarkup: sourceSyntaraMarkup,
         contentDocument: page.contentDocument,
       },
     })),

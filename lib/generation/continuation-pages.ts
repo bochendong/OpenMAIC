@@ -7,6 +7,8 @@ import type {
 } from '@/lib/types/generation';
 import { normalizeSceneOutlineContentProfile } from './content-profile';
 
+export const WEB_CONTINUATION_PAGES_ENABLED = false;
+
 function stripContinuationPages(content: GeneratedSlideContent): GeneratedSlidePageContent {
   return {
     elements: content.elements,
@@ -44,7 +46,7 @@ export function flattenGeneratedSlideContentPages(args: {
 } {
   const basePage = stripContinuationPages(args.content);
   const continuationPages = args.content.continuationPages || [];
-  if (continuationPages.length === 0) {
+  if (!WEB_CONTINUATION_PAGES_ENABLED || continuationPages.length === 0) {
     return {
       contents: [basePage],
       effectiveOutlines: [args.effectiveOutline],

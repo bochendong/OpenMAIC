@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import pptxgen from 'pptxgenjs';
 import tinycolor from 'tinycolor2';
 import { saveAs } from 'file-saver';
@@ -10,7 +10,9 @@ import { toPng } from 'html-to-image';
 import { useStageStore } from '@/lib/store';
 import { useCanvasStore } from '@/lib/store/canvas';
 import { useMediaGenerationStore, isMediaPlaceholder } from '@/lib/store/media-generation';
+import { useUserProfileStore } from '@/lib/store/user-profile';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { resolveEffectiveSlideBackground } from '@/lib/constants/slide-backgrounds';
 import type {
   Slide,
   PPTTextElement,
@@ -1259,12 +1261,21 @@ export function useExportPPTX() {
   const stage = useStageStore((s) => s.stage);
   const viewportSize = useCanvasStore.use.viewportSize();
   const viewportRatio = useCanvasStore.use.viewportRatio();
+  const slideBackgroundStyleId = useUserProfileStore((s) => s.slideBackgroundStyleId);
 
   const ratioPx2Inch = 96 * (viewportSize / 960);
   const ratioPx2Pt = (96 / 72) * (viewportSize / 960);
 
   const slideScenes = scenes.filter((s) => s.content.type === 'slide');
   const slides = slideScenes.map((s) => (s.content as SlideContent).canvas);
+  const slidesWithProfileBackground = useMemo(
+    () =>
+      slides.map((slide) => ({
+        ...slide,
+        background: resolveEffectiveSlideBackground(slide.background, slideBackgroundStyleId),
+      })),
+    [slides, slideBackgroundStyleId],
+  );
 
   // Shared guard + state wrapper for export actions
   const withExportGuard = useCallback(
@@ -1292,7 +1303,7 @@ export function useExportPPTX() {
     withExportGuard(async () => {
       const fileName = stage?.name || 'slides';
       const blob = await buildPptxBlob(
-        slides,
+        slidesWithProfileBackground,
         slideScenes,
         viewportRatio,
         viewportSize,
@@ -1304,7 +1315,7 @@ export function useExportPPTX() {
     });
   }, [
     withExportGuard,
-    slides,
+    slidesWithProfileBackground,
     slideScenes,
     stage,
     viewportSize,
@@ -1323,7 +1334,7 @@ export function useExportPPTX() {
 
       // 1. Generate PPTX
       const pptxBlob = await buildPptxBlob(
-        slides,
+        slidesWithProfileBackground,
         slideScenes,
         viewportRatio,
         viewportSize,
@@ -1350,7 +1361,7 @@ export function useExportPPTX() {
     });
   }, [
     withExportGuard,
-    slides,
+    slidesWithProfileBackground,
     slideScenes,
     scenes,
     stage,

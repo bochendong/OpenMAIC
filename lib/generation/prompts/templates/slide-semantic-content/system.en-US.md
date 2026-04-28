@@ -28,6 +28,12 @@ Respect the slide's declared archetype:
 - `bridge`: comparison / relationship / transition pages rendered with stable structures
 - `summary`: recap, takeaways, next-step prompts
 
+Intro / cover pages:
+- If `archetype=intro` or the template is `cover_hero`, output one concise overview unit plus one clear roadmap structure.
+- Prefer a `process` environment for the roadmap, usually with 3-4 `\step` entries that cover the full teaching path from opening to synthesis.
+- Do not output only 1-2 roadmap steps unless the outline is explicitly a tiny micro-lesson with one very narrow goal.
+- Do not put long formal definitions, full proofs, or large worked examples on intro pages; those belong on later definition / example slides.
+
 Use:
 - `\definition` or `block[type=definition]` for formal definitions or precise concept statements
 - `\theorem` or `block[type=theorem]` for named or theorem-like claims, propositions, lemmas, or proof targets
@@ -124,7 +130,7 @@ Use a LaTeX-like page structure. The outer document must be one `slide` environm
 
 Allowed slide attributes:
 - `title={...}`
-- `template=two_column | three_cards | four_grid | title_content | process_steps | derivation_ladder | formula_focus | problem_walkthrough | code_split`
+- `template=cover_hero | section_divider | title_content | two_column | three_cards | four_grid | visual_left | visual_right | comparison_matrix | timeline_road | problem_focus | steps_sidebar | code_split | formula_focus | summary_board | definition_board | concept_map | two_column_explain | process_steps | problem_walkthrough | derivation_ladder | graph_explain | data_insight | thesis_evidence | quote_analysis | source_close_reading | case_analysis | argument_map | compare_perspectives`
 - `density=light | standard | dense`
 - `profile=general | math | code`
 - `language={{language}}`
@@ -157,12 +163,23 @@ Content commands/environments:
 Rules:
 - Do not output markdown fences.
 - Do not output JSON, HTML, coordinates, PPT elements, or JSON fields such as `slots` / `blocks`.
+- Syntara Markup is not a JSON string: write every LaTeX/Syntara command with exactly one backslash. For example, write `\begin{slide}` and `\formula{\forall x\in A}`; do not write `\\begin` or `\\forall`.
+- For math inside prose, prefer normal LaTeX/Markdown inline math with `$...$`, for example `the function $f(x)=x^2$ is quadratic`. `\(...\)` is accepted for compatibility, but it is not the preferred style.
+- Do not use `\qquad`, `\quad`, `\hspace`, or `\text{and}` as layout glue. Put connecting words in normal text, and express multiple conditions with `aligned` / `cases` / multiple `\formula` commands or bullets.
 - Keep content compact: usually 2-5 content units total.
 - For side-by-side structures, use `columns`; for three/four peer cards, use `grid`.
 - For three horizontal bands, use `rows` with three `row` environments.
+- When using `template=two_column`, write `\begin{columns}` and exactly two `\begin{column}` environments; do not fake columns with `\begin{block}[title={left}]` / `right`.
+- Each column should usually contain 1-2 content units; if one side needs more than 2 units, use `rows`, `grid`, or compress the content.
 - Only use `\image` when Available Images / Visual Slots provides an image ID.
-- Use `\formula` for standalone math and wrap math in text with `$...$` or `\(...\)`.
+- Use `\formula` for standalone math and prefer `$...$` for math inside text.
 - Never leave raw math commands mixed directly into prose.
+- Good inline math in bullets: `\bullet{If $f:A\to B$ and $g:B\to C$, then $g\circ f$ is defined}`.
+- Good comparison: `\bullet{Usually $g\circ f \ne f\circ g$}`.
+- Bad: `\bullet{If f: A→B and g: B→C, then g∘f is defined}`.
+- Bad: `g∘f \neq f∘g` outside `$...$`.
+- Do not use Unicode arrows/composition symbols in prose. Inside `$...$`, prefer LaTeX commands such as `\to`, `\circ`, and `\ne`.
+- For graph / vertical-line-test slides, do not define "is a function" circularly as `y=f(x)` before functionhood is established. Use a relation/graph statement such as `\formula{\forall x\in X,\ \exists!\,y\in Y:\ (x,y)\in G}`.
 
 ## Additional Constraints
 
@@ -177,6 +194,7 @@ Rules:
 - Do not mention teacher identity inside the content
 - You may use `\image` to reference available/generated image IDs, but do not output coordinates and do not turn the whole slide into a screenshot.
 - When mathematical expressions appear inside text-oriented commands (`\text`, `\bullet`, `\callout`, `\example`, etc.), wrap them with KaTeX delimiters:
-  - Inline math: `\\(...\\)` or `$...$`
+  - Inline math: prefer `$...$`, for example `let $f:A\to B$`
   - Display math: `$$...$$` (or use a dedicated `\formula` command)
-- Never output raw, unwrapped math fragments such as `x^2+1`, `\\frac{a}{b}`, or `\\approx` mixed directly into plain prose
+- Never output raw, unwrapped math fragments such as `x^2+1`, `\frac{a}{b}`, or `\approx` mixed directly into plain prose
+- Keep connector words outside math: write `if $x\in A$ and $f(x)=y$`, not `$x\in A \qquad\text{and}\qquad f(x)=y$`.

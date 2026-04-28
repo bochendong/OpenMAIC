@@ -212,6 +212,7 @@ export function buildCompleteScene(
       content: markSemanticSlideContent({
         type: 'slide',
         canvas: slide,
+        syntaraMarkup: content.syntaraMarkup,
         semanticDocument: content.contentDocument,
       }),
       actions,

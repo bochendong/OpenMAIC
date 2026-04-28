@@ -8,6 +8,8 @@ import type { UserRequirements, GenerationSession } from '@/lib/types/generation
 import type { StageStore } from '@/lib/api/stage-api';
 import { generateSceneOutlinesFromRequirements } from './outline-generator';
 import { generateFullScenes } from './scene-generator';
+import { normalizeOutlineStructure } from './outline-structure';
+import { ensureTitleCoverOutline } from './title-cover';
 import type { AICallFn, GenerationResult, GenerationCallbacks } from './pipeline-types';
 
 export function createGenerationSession(requirements: UserRequirements): GenerationSession {
@@ -52,7 +54,11 @@ export async function runGenerationPipeline(
     if (!outlinesResult.success || !outlinesResult.data) {
       throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
     }
-    session.sceneOutlines = outlinesResult.data;
+    session.sceneOutlines = normalizeOutlineStructure(
+      ensureTitleCoverOutline(outlinesResult.data, {
+        language: session.requirements.language,
+      }),
+    );
     callbacks?.onStageComplete?.(1, session.sceneOutlines);
 
     // Stage 2: Generate Full Scenes

@@ -97,6 +97,8 @@ export interface SlideContent {
   type: 'slide';
   // PPTist slide data structure
   canvas: Slide;
+  // Original Syntara Markup source used to generate the semantic document, when available.
+  syntaraMarkup?: string;
   // Optional semantic source document used to render the slide
   semanticDocument?: NotebookContentDocument;
   /**
@@ -105,6 +107,11 @@ export interface SlideContent {
    */
   semanticRenderVersion?: number;
   semanticRenderMode?: 'auto' | 'manual';
+  /**
+   * Web classroom rendering mode. `scroll` keeps the semantic document as a
+   * long reading page; `slide` uses the legacy fixed canvas.
+   */
+  webRenderMode?: 'slide' | 'scroll';
 }
 
 /**

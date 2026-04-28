@@ -94,6 +94,21 @@ type ContentCardTone = {
 type ProcessFlowBlock = Extract<NotebookContentBlock, { type: 'process_flow' }>;
 type LayoutCardsBlock = Extract<NotebookContentBlock, { type: 'layout_cards' }>;
 
+const ACADEMY_PAPER = {
+  titleText: '#182033',
+  bodyText: '#3f4b63',
+  primary: '#4b72e8',
+  purple: '#8a6fe8',
+  green: '#27b889',
+  gold: '#d6a84f',
+  cardFill: 'rgba(255,253,248,0.86)',
+  cardFillSoft: 'rgba(255,253,248,0.76)',
+  formulaFill: 'rgba(248,251,255,0.74)',
+  border: 'rgba(188,169,133,0.3)',
+  blueBorder: 'rgba(119,148,191,0.34)',
+  shadow: 'rgba(106,84,45,0.11)',
+} as const;
+
 export type NotebookSlotLayoutIssue = {
   code:
     | 'unknown_template'
@@ -178,15 +193,35 @@ function resolveBlockTemplateTone(
   if (!templateId) return fallbackTone;
   switch (templateId) {
     case 'plain':
-      return { fill: '#ffffff', border: '#cbd5e1', accent: fallbackTone.accent };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: ACADEMY_PAPER.border,
+        accent: fallbackTone.accent,
+      };
     case 'infoCard':
-      return { fill: '#f5f9ff', border: '#d9e6ff', accent: '#2f6bff' };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: ACADEMY_PAPER.blueBorder,
+        accent: ACADEMY_PAPER.primary,
+      };
     case 'successCard':
-      return { fill: '#f4fbf7', border: '#d3f0df', accent: '#12b76a' };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: 'rgba(79,174,132,0.26)',
+        accent: ACADEMY_PAPER.green,
+      };
     case 'warningCard':
-      return { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' };
+      return {
+        fill: ACADEMY_PAPER.cardFillSoft,
+        border: 'rgba(214,168,79,0.34)',
+        accent: '#d69a45',
+      };
     case 'accentCard':
-      return { fill: '#f7f5ff', border: '#e5defe', accent: '#7a5af8' };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: 'rgba(150,126,210,0.28)',
+        accent: ACADEMY_PAPER.purple,
+      };
     default:
       return fallbackTone;
   }
@@ -215,10 +250,26 @@ function getProfileTokens(profile: NotebookContentProfile) {
       themeColors: ['#0f766e', '#0f172a', '#155e75', '#334155'],
       backgroundColors: ['#f7fffd', '#f8fafc', '#ecfeff'],
       cardPalettes: [
-        { fill: '#f5f9ff', border: '#d9e6ff', accent: '#2f6bff' },
-        { fill: '#f7f5ff', border: '#e5defe', accent: '#7a5af8' },
-        { fill: '#f4fbf7', border: '#d3f0df', accent: '#12b76a' },
-        { fill: '#f8fafc', border: '#e2e8f0', accent: '#475569' },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: ACADEMY_PAPER.blueBorder,
+          accent: ACADEMY_PAPER.primary,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: 'rgba(150,126,210,0.28)',
+          accent: ACADEMY_PAPER.purple,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: 'rgba(79,174,132,0.26)',
+          accent: ACADEMY_PAPER.green,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFillSoft,
+          border: ACADEMY_PAPER.border,
+          accent: ACADEMY_PAPER.bodyText,
+        },
       ] as const,
       codeSurface: {
         fill: '#0f172a',
@@ -231,15 +282,36 @@ function getProfileTokens(profile: NotebookContentProfile) {
 
   if (profile === 'math') {
     return {
-      titleAccent: '#2563eb',
-      titleText: '#0f172a',
-      themeColors: ['#2563eb', '#0f172a', '#1d4ed8', '#475569'],
-      backgroundColors: ['#f8fbff', '#fdfdff', '#eef4ff'],
+      titleAccent: ACADEMY_PAPER.primary,
+      titleText: ACADEMY_PAPER.titleText,
+      themeColors: [
+        ACADEMY_PAPER.primary,
+        ACADEMY_PAPER.titleText,
+        ACADEMY_PAPER.purple,
+        ACADEMY_PAPER.bodyText,
+      ],
+      backgroundColors: ['#fffdf8', '#fdf9f1', '#f4f7ff'],
       cardPalettes: [
-        { fill: '#f5f9ff', border: '#d9e6ff', accent: '#2f6bff' },
-        { fill: '#f7f5ff', border: '#e5defe', accent: '#7a5af8' },
-        { fill: '#f4fbf7', border: '#d3f0df', accent: '#12b76a' },
-        { fill: '#f8fafc', border: '#e2e8f0', accent: '#475569' },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: ACADEMY_PAPER.blueBorder,
+          accent: ACADEMY_PAPER.primary,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: 'rgba(150,126,210,0.28)',
+          accent: ACADEMY_PAPER.purple,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFill,
+          border: 'rgba(79,174,132,0.26)',
+          accent: ACADEMY_PAPER.green,
+        },
+        {
+          fill: ACADEMY_PAPER.cardFillSoft,
+          border: ACADEMY_PAPER.border,
+          accent: ACADEMY_PAPER.bodyText,
+        },
       ] as const,
       codeSurface: {
         fill: '#0f172a',
@@ -251,15 +323,36 @@ function getProfileTokens(profile: NotebookContentProfile) {
   }
 
   return {
-    titleAccent: '#4f46e5',
-    titleText: '#0f172a',
-    themeColors: ['#4f46e5', '#0f172a', '#334155', '#64748b'],
-    backgroundColors: ['#f8fbff', '#fdfdff', '#eef4ff'],
+    titleAccent: ACADEMY_PAPER.primary,
+    titleText: ACADEMY_PAPER.titleText,
+    themeColors: [
+      ACADEMY_PAPER.primary,
+      ACADEMY_PAPER.titleText,
+      ACADEMY_PAPER.purple,
+      ACADEMY_PAPER.bodyText,
+    ],
+    backgroundColors: ['#fffdf8', '#fdf9f1', '#f4f7ff'],
     cardPalettes: [
-      { fill: '#f5f9ff', border: '#d9e6ff', accent: '#2f6bff' },
-      { fill: '#f7f5ff', border: '#e5defe', accent: '#7a5af8' },
-      { fill: '#f4fbf7', border: '#d3f0df', accent: '#12b76a' },
-      { fill: '#f8fafc', border: '#e2e8f0', accent: '#475569' },
+      {
+        fill: ACADEMY_PAPER.cardFill,
+        border: ACADEMY_PAPER.blueBorder,
+        accent: ACADEMY_PAPER.primary,
+      },
+      {
+        fill: ACADEMY_PAPER.cardFill,
+        border: 'rgba(150,126,210,0.28)',
+        accent: ACADEMY_PAPER.purple,
+      },
+      {
+        fill: ACADEMY_PAPER.cardFill,
+        border: 'rgba(79,174,132,0.26)',
+        accent: ACADEMY_PAPER.green,
+      },
+      {
+        fill: ACADEMY_PAPER.cardFillSoft,
+        border: ACADEMY_PAPER.border,
+        accent: ACADEMY_PAPER.bodyText,
+      },
     ] as const,
     codeSurface: {
       fill: '#0f172a',
@@ -296,7 +389,7 @@ function createBoundContentCard(args: {
       h: 0,
       v: 8,
       blur: 24,
-      color: 'rgba(15,23,42,0.08)',
+      color: ACADEMY_PAPER.shadow,
     },
     html: args.html,
     color: args.color,
@@ -349,14 +442,26 @@ function getLayoutCardsItemTone(
 ): ContentCardTone {
   switch (tone) {
     case 'info':
-      return { fill: '#eff6ff', border: '#bfdbfe', accent: '#2563eb' };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: ACADEMY_PAPER.blueBorder,
+        accent: ACADEMY_PAPER.primary,
+      };
     case 'warning':
-      return { fill: '#fff7ed', border: '#fdba74', accent: '#ea580c' };
+      return {
+        fill: ACADEMY_PAPER.cardFillSoft,
+        border: 'rgba(214,168,79,0.34)',
+        accent: '#d69a45',
+      };
     case 'success':
-      return { fill: '#ecfdf5', border: '#a7f3d0', accent: '#16a34a' };
+      return {
+        fill: ACADEMY_PAPER.cardFill,
+        border: 'rgba(79,174,132,0.26)',
+        accent: ACADEMY_PAPER.green,
+      };
     case 'neutral':
     default:
-      return { fill: '#ffffff', border: '#cbd5e1', accent: fallbackAccent };
+      return { fill: ACADEMY_PAPER.cardFill, border: ACADEMY_PAPER.border, accent: fallbackAccent };
   }
 }
 
@@ -378,8 +483,8 @@ function renderLayoutCardsBlock(args: {
         width: CONTENT_WIDTH,
         height: 28,
         groupId,
-        html: `<p style="font-size:18px;color:#2563eb;"><strong>${renderInlineLatexToHtml(args.block.title)}</strong></p>`,
-        color: '#2563eb',
+        html: `<p style="font-size:18px;color:${ACADEMY_PAPER.primary};"><strong>${renderInlineLatexToHtml(args.block.title)}</strong></p>`,
+        color: ACADEMY_PAPER.primary,
         textType: 'itemTitle',
       }),
     );
@@ -461,7 +566,7 @@ function renderLayoutCardsBlock(args: {
       fontSizePx: 14,
       lineHeightPx: 18,
       maxHeightPx: rowHeight,
-      color: '#334155',
+      color: ACADEMY_PAPER.bodyText,
     });
     elements.push(
       createRectShape({
@@ -477,7 +582,7 @@ function renderLayoutCardsBlock(args: {
             `<p style="font-size:13px;color:${tone.accent};"><strong>${renderInlineLatexToHtml(item.title)}</strong></p>`,
             body.html,
           ].join(''),
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           lineHeight: 1.32,
           paragraphSpace: 4,
@@ -522,7 +627,7 @@ function fitProcessFlowSummaryCard(args: {
     fontSizePx: 14,
     lineHeightPx: 20,
     maxHeightPx: Math.max(28, args.maxHeightPx - 28),
-    color: '#334155',
+    color: ACADEMY_PAPER.bodyText,
   });
 
   return {
@@ -550,7 +655,7 @@ function fitProcessFlowStepCard(args: {
     text: args.step.title,
     widthPx: args.widthPx,
     maxHeightPx: 48,
-    color: '#0f172a',
+    color: ACADEMY_PAPER.titleText,
   });
   const showStepLabel = args.showStepLabel ?? true;
   const labelHtml = showStepLabel
@@ -565,7 +670,7 @@ function fitProcessFlowStepCard(args: {
     fontSizePx: args.orientation === 'horizontal' ? 13 : 14,
     lineHeightPx: args.orientation === 'horizontal' ? 18 : 20,
     maxHeightPx: Math.max(28, args.maxHeightPx - titleFit.height - noteReserve - 24),
-    color: '#334155',
+    color: ACADEMY_PAPER.bodyText,
   });
   const noteHtml = args.step.note
     ? fitParagraphBlockToHeight({
@@ -574,7 +679,7 @@ function fitProcessFlowStepCard(args: {
         fontSizePx: 12,
         lineHeightPx: 16,
         maxHeightPx: 56,
-        color: '#475569',
+        color: ACADEMY_PAPER.bodyText,
       }).html
     : '';
 
@@ -666,7 +771,7 @@ function renderProcessFlowBlock(args: {
           createLineElement({
             start: [left + stepWidth, connectorY],
             end: [nextLeft - 3, connectorY],
-            color: '#94a3b8',
+            color: ACADEMY_PAPER.primary,
             width: 2,
             points: ['', 'arrow'],
             groupId,
@@ -682,7 +787,7 @@ function renderProcessFlowBlock(args: {
           height: stepHeight,
           groupId,
           html: fitted.html,
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           fill: tone.fill,
           outlineColor: tone.border,
@@ -735,7 +840,7 @@ function renderProcessFlowBlock(args: {
           left: timelineX - dotSize / 2,
           top: markerCenterY - dotSize / 2,
           size: dotSize,
-          fill: '#94a3b8',
+          fill: tone.accent,
           groupId,
         }),
         createRectShape({
@@ -749,12 +854,12 @@ function renderProcessFlowBlock(args: {
             h: 0,
             v: 6,
             blur: 18,
-            color: 'rgba(15,23,42,0.08)',
+            color: ACADEMY_PAPER.shadow,
           },
           groupId,
           text: createShapeText({
             html: fitted.html,
-            color: '#334155',
+            color: ACADEMY_PAPER.bodyText,
             textType: 'content',
             lineHeight: 1.32,
             paragraphSpace: 4,
@@ -783,12 +888,12 @@ function renderProcessFlowBlock(args: {
         top: cursorTop,
         width: CONTENT_WIDTH,
         height: fittedSummary.height,
-        fill: '#f8fafc',
-        outlineColor: '#cbd5e1',
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.border,
         groupId,
         text: createShapeText({
           html: fittedSummary.html,
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           lineHeight: 1.32,
           paragraphSpace: 4,
@@ -1128,6 +1233,9 @@ function inferLayoutFamilyFromDocument(args: {
   archetype: ReturnType<typeof resolveDocumentArchetype>;
   blocks: NotebookContentBlock[];
 }): NotebookContentLayoutFamily {
+  if (args.document.layoutTemplate && isDefinitionBoardTemplate(args.document.layoutTemplate)) {
+    return 'concept_cards';
+  }
   if (args.document.layoutFamily) return args.document.layoutFamily;
   if (args.archetype === 'intro') return 'cover';
   if (args.archetype === 'summary') return 'summary';
@@ -1259,8 +1367,8 @@ function createFamilyTitleElements(args: {
         height: 26,
         html: `<p style="font-size:12px;color:${args.tokens.titleAccent};text-align:center;"><strong>${escapeHtml(chipLabel)}</strong></p>`,
         color: args.tokens.titleAccent,
-        fill: '#ffffff',
-        outlineColor: '#dbeafe',
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.blueBorder,
         textType: 'notes',
       }),
     );
@@ -1277,6 +1385,10 @@ function blockSummaryLines(language: 'zh-CN' | 'en-US', block: NotebookContentBl
     return [block.text, ...(block.type === 'theorem' && block.proofIdea ? [block.proofIdea] : [])];
   }
   return blockToGridBody(language, block);
+}
+
+function shouldUseBlockAsDefinitionPoint(block: NotebookContentBlock): boolean {
+  return !['equation', 'matrix', 'derivation_steps', 'process_flow'].includes(block.type);
 }
 
 function estimateSlotBlockWeight(language: 'zh-CN' | 'en-US', block: NotebookContentBlock): number {
@@ -1455,7 +1567,7 @@ function createBlockCard(args: {
         lines.length > 1
           ? `<span style="color:${args.tone.accent};font-weight:700;">${index + 1}.</span> `
           : '';
-      return `<p style="font-size:${bodyFontSize}px;line-height:${Math.round(bodyFontSize * 1.42)}px;color:#334155;">${prefix}${renderInlineLatexToHtml(line)}</p>`;
+      return `<p style="font-size:${bodyFontSize}px;line-height:${Math.round(bodyFontSize * 1.42)}px;color:${ACADEMY_PAPER.bodyText};">${prefix}${renderInlineLatexToHtml(line)}</p>`;
     })
     .join('');
 
@@ -1465,14 +1577,14 @@ function createBlockCard(args: {
     width: args.width,
     height: args.height,
     html: `${titleFit.html}${bodyHtml}`,
-    color: '#334155',
+    color: ACADEMY_PAPER.bodyText,
     fill: args.block.backgroundColor || args.tone.fill,
     outlineColor: args.block.borderColor || args.tone.border,
     shadow: {
       h: 0,
       v: 8,
       blur: 24,
-      color: 'rgba(15,23,42,0.08)',
+      color: ACADEMY_PAPER.shadow,
     },
     textType: 'content',
   });
@@ -1499,12 +1611,12 @@ function renderVisualPanel(args: {
         width: args.width,
         height: imageHeight,
         groupId,
-        outlineColor: '#dbeafe',
+        outlineColor: ACADEMY_PAPER.blueBorder,
         shadow: {
           h: 0,
           v: 10,
           blur: 28,
-          color: 'rgba(15,23,42,0.13)',
+          color: ACADEMY_PAPER.shadow,
         },
       }),
     ];
@@ -1571,10 +1683,10 @@ function createTableCards(args: {
             top: args.top + rowIndex * (cellHeight + cellGap),
             width: cellWidth,
             height: cellHeight,
-            html: `<p style="font-size:${isHeader ? 13 : 12}px;line-height:17px;color:${isHeader ? args.tokens.titleAccent : '#334155'};"><strong>${isHeader ? renderInlineLatexToHtml(cell) : ''}</strong>${isHeader ? '' : renderInlineLatexToHtml(cell)}</p>`,
-            color: isHeader ? args.tokens.titleAccent : '#334155',
-            fill: isHeader ? '#eef2ff' : '#ffffff',
-            outlineColor: isHeader ? '#c7d2fe' : '#e2e8f0',
+            html: `<p style="font-size:${isHeader ? 13 : 12}px;line-height:17px;color:${isHeader ? args.tokens.titleAccent : ACADEMY_PAPER.bodyText};"><strong>${isHeader ? renderInlineLatexToHtml(cell) : ''}</strong>${isHeader ? '' : renderInlineLatexToHtml(cell)}</p>`,
+            color: isHeader ? args.tokens.titleAccent : ACADEMY_PAPER.bodyText,
+            fill: isHeader ? 'rgba(244,247,255,0.78)' : ACADEMY_PAPER.cardFill,
+            outlineColor: isHeader ? ACADEMY_PAPER.blueBorder : ACADEMY_PAPER.border,
             textType: 'content',
           }),
         );
@@ -1712,7 +1824,7 @@ function renderTitleContentTemplate(args: {
       top: args.bodyTop,
       width: CONTENT_WIDTH,
       height: support.length > 0 ? 192 : args.bodyHeight,
-      html: `<p style="font-size:25px;line-height:35px;color:#0f172a;font-weight:760;">${renderInlineLatexToHtml(lead)}</p>${
+      html: `<p style="font-size:25px;line-height:35px;color:${ACADEMY_PAPER.titleText};font-weight:760;">${renderInlineLatexToHtml(lead)}</p>${
         support.length > 0
           ? support
               .slice(0, 2)
@@ -1723,9 +1835,9 @@ function renderTitleContentTemplate(args: {
               .join('')
           : ''
       }`,
-      color: '#0f172a',
-      fill: '#ffffff',
-      outlineColor: '#bfdbfe',
+      color: ACADEMY_PAPER.titleText,
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: ACADEMY_PAPER.blueBorder,
       textType: 'content',
     }),
   ];
@@ -1854,14 +1966,14 @@ function renderHumanitiesAnalysisTemplate(args: {
       top: args.bodyTop,
       width: leftWidth,
       height: args.bodyHeight,
-      fill: '#ffffff',
-      outlineColor: '#dbeafe',
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: ACADEMY_PAPER.blueBorder,
       groupId,
       shadow: {
         h: 0,
         v: 8,
         blur: 22,
-        color: 'rgba(15,23,42,0.06)',
+        color: ACADEMY_PAPER.shadow,
       },
     }),
     createTextElement({
@@ -1880,8 +1992,8 @@ function renderHumanitiesAnalysisTemplate(args: {
       width: leftWidth - 56,
       height: args.bodyHeight - 104,
       groupId,
-      html: `<p style="font-size:${primaryFontSize}px;line-height:${Math.round(primaryFontSize * 1.45)}px;color:#0f172a;font-weight:720;">${renderInlineLatexToHtml(primary)}</p>`,
-      color: '#0f172a',
+      html: `<p style="font-size:${primaryFontSize}px;line-height:${Math.round(primaryFontSize * 1.45)}px;color:${ACADEMY_PAPER.titleText};font-weight:720;">${renderInlineLatexToHtml(primary)}</p>`,
+      color: ACADEMY_PAPER.titleText,
       textType: 'content',
     }),
     createTextElement({
@@ -1911,9 +2023,9 @@ function renderHumanitiesAnalysisTemplate(args: {
         top: rowTop,
         width: rightWidth - 18,
         height: rowHeight,
-        html: `<p style="font-size:13px;line-height:19px;color:#334155;"><span style="color:${tone.accent};font-weight:800;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
-        color: '#334155',
-        fill: '#ffffff',
+        html: `<p style="font-size:13px;line-height:19px;color:${ACADEMY_PAPER.bodyText};"><span style="color:${tone.accent};font-weight:800;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFill,
         outlineColor: tone.border,
         textType: 'content',
       }),
@@ -1977,7 +2089,14 @@ function renderDefinitionFocusTemplate(args: {
     ...(firstBulletList?.items || []),
     ...args.blocks
       .filter(
-        (block) => block !== definition && block !== firstParagraph && block !== firstBulletList,
+        (block) =>
+          shouldUseBlockAsDefinitionPoint(block) &&
+          block !== definition &&
+          block !== firstParagraph &&
+          block !== firstBulletList &&
+          block !== callout &&
+          block !== equation &&
+          block !== matrix,
       )
       .flatMap((block) => blockSummaryLines(args.language, block)),
   ]
@@ -1991,8 +2110,14 @@ function renderDefinitionFocusTemplate(args: {
   const rightLeft = CONTENT_LEFT + leftWidth + 28;
   const rightWidth = CONTENT_WIDTH - leftWidth - 28;
   const top = args.bodyTop;
-  const hasNote = Boolean(noteText);
-  const mainHeight = hasNote ? args.bodyHeight - 92 : args.bodyHeight;
+  const compactNoteText = noteText
+    .split(/[。.!?！？]\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(args.language === 'en-US' ? '. ' : '。');
+  const hasNote = Boolean(compactNoteText);
+  const mainHeight = hasNote ? args.bodyHeight - 110 : args.bodyHeight;
   const groupId = createCardGroupId('definition_focus');
   const elements: PPTElement[] = [
     createRectShape({
@@ -2000,14 +2125,14 @@ function renderDefinitionFocusTemplate(args: {
       top,
       width: leftWidth,
       height: mainHeight,
-      fill: '#ffffff',
-      outlineColor: '#dbeafe',
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: ACADEMY_PAPER.border,
       groupId,
       shadow: {
         h: 0,
-        v: 8,
-        blur: 22,
-        color: 'rgba(15,23,42,0.07)',
+        v: 14,
+        blur: 34,
+        color: ACADEMY_PAPER.shadow,
       },
     }),
     createTextElement({
@@ -2016,7 +2141,7 @@ function renderDefinitionFocusTemplate(args: {
       width: leftWidth - 48,
       height: 52,
       groupId,
-      html: `<p style="font-size:15px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+      html: `<p style="margin:0;font-size:15px;line-height:20px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
         args.language === 'en-US' ? 'Formal Definition' : '正式定义',
       )}</p>`,
       color: args.tokens.titleAccent,
@@ -2034,6 +2159,8 @@ function renderDefinitionFocusTemplate(args: {
         height: 126,
         align: 'center',
         color: args.tokens.titleText,
+        fill: ACADEMY_PAPER.formulaFill,
+        outlineColor: ACADEMY_PAPER.blueBorder,
         groupId,
       }),
       createTextElement({
@@ -2042,8 +2169,8 @@ function renderDefinitionFocusTemplate(args: {
         width: leftWidth - 60,
         height: mainHeight - 246,
         groupId,
-        html: `<p style="font-size:16px;line-height:24px;color:#334155;">${renderInlineLatexToHtml(leadText)}</p>`,
-        color: '#334155',
+        html: `<p style="margin:0;font-size:16px;line-height:24px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(leadText)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
         textType: 'content',
       }),
     );
@@ -2055,41 +2182,44 @@ function renderDefinitionFocusTemplate(args: {
         width: leftWidth - 60,
         height: mainHeight - 100,
         groupId,
-        html: `<p style="font-size:21px;line-height:31px;color:#0f172a;font-weight:720;">${renderInlineLatexToHtml(leadText)}</p>`,
-        color: '#0f172a',
+        html: `<p style="margin:0;font-size:21px;line-height:31px;color:${ACADEMY_PAPER.titleText};font-weight:720;">${renderInlineLatexToHtml(leadText)}</p>`,
+        color: ACADEMY_PAPER.titleText,
         textType: 'content',
       }),
     );
   }
 
   const conditionAreaHeight = mainHeight;
-  const rowHeight = Math.max(86, Math.floor((conditionAreaHeight - 24) / 3));
   const normalizedConditions =
     conditionLines.length > 0
       ? conditionLines
       : args.blocks.flatMap((block) => blockSummaryLines(args.language, block)).slice(1, 4);
-  normalizedConditions.slice(0, 3).forEach((line, index) => {
-    const rowTop = top + index * (rowHeight + 12);
+  const visibleConditions = normalizedConditions.slice(0, 3);
+  const conditionGap = visibleConditions.length >= 3 ? 10 : 12;
+  const rowHeight = Math.max(
+    92,
+    Math.floor(
+      (conditionAreaHeight - conditionGap * Math.max(0, visibleConditions.length - 1)) /
+        Math.max(1, visibleConditions.length),
+    ),
+  );
+  const conditionBodyFontSize = visibleConditions.some((line) => line.length > 42) ? 14 : 15;
+  const conditionBodyLineHeight = conditionBodyFontSize === 14 ? 20 : 22;
+  visibleConditions.forEach((line, index) => {
+    const rowTop = top + index * (rowHeight + conditionGap);
     const tone = args.cardPalettes[index % args.cardPalettes.length];
     elements.push(
-      createRectShape({
+      createTextElement({
         left: rightLeft,
         top: rowTop,
-        width: 5,
+        width: rightWidth,
         height: rowHeight,
-        fill: tone.accent,
-      }),
-      createTextElement({
-        left: rightLeft + 18,
-        top: rowTop,
-        width: rightWidth - 18,
-        height: rowHeight,
-        html: `<p style="font-size:13px;color:${tone.accent};font-weight:760;">${escapeHtml(
+        html: `<p style="margin:0 0 5px 0;font-size:13px;line-height:17px;color:${tone.accent};font-weight:760;">${escapeHtml(
           args.language === 'en-US' ? `Point ${index + 1}` : `要点 ${index + 1}`,
-        )}</p><p style="font-size:16px;line-height:24px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`,
-        color: '#334155',
-        fill: '#ffffff',
-        outlineColor: '#e2e8f0',
+        )}</p><p style="margin:0;font-size:${conditionBodyFontSize}px;line-height:${conditionBodyLineHeight}px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(line)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: tone.fill,
+        outlineColor: tone.border,
         textType: 'content',
       }),
     );
@@ -2102,12 +2232,12 @@ function renderDefinitionFocusTemplate(args: {
         top: CONTENT_BOTTOM - 78,
         width: CONTENT_WIDTH,
         height: 78,
-        html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+        html: `<p style="margin:0 0 5px 0;font-size:14px;line-height:18px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
           args.language === 'en-US' ? 'Common Confusion' : '容易混淆',
-        )}</p><p style="font-size:15px;line-height:22px;color:#334155;">${renderInlineLatexToHtml(noteText)}</p>`,
-        color: '#334155',
-        fill: '#f8fafc',
-        outlineColor: '#dbeafe',
+        )}</p><p style="margin:0;font-size:15px;line-height:22px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(compactNoteText)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.blueBorder,
         textType: 'content',
       }),
     );
@@ -2155,6 +2285,19 @@ function uniqueProblemLines(lines: string[], maxItems: number): string[] {
       normalized.push(line);
     });
   return normalized.slice(0, maxItems);
+}
+
+function selectProblemStrategyLines(parts: ProblemStatementParts): string[] {
+  const stepLines = uniqueProblemLines(
+    parts.supportLines.filter((line) =>
+      /^(?:\d+\.\s*)?(?:步骤|Step)\s*\d*|^(?:先|再|因此|所以|任取|Then|Thus|Therefore)\b/i.test(
+        stripProblemContextLabel(line),
+      ),
+    ),
+    3,
+  );
+  if (stepLines.length > 0) return stepLines;
+  return uniqueProblemLines([...parts.goals, ...parts.givens, ...parts.supportLines], 3);
 }
 
 function collectProblemStatementParts(args: {
@@ -2226,6 +2369,15 @@ function normalizeIntervalSnippet(value: string | undefined): string | undefined
   return value?.replace(/[［]/g, '[').replace(/[］]/g, ']').trim();
 }
 
+function normalizeProblemFormulaSnippet(value: string | undefined): string | undefined {
+  const normalized = value
+    ?.trim()
+    .replace(/^\$+|\$+$/g, '')
+    .replace(/^\\\(|\\\)$/g, '')
+    .trim();
+  return normalized || undefined;
+}
+
 function extractProblemVisualFacts(text: string): {
   inputSet?: string;
   outputSet?: string;
@@ -2239,8 +2391,29 @@ function extractProblemVisualFacts(text: string): {
     text.match(/f\s*\(\s*[［\[][^\]］]+[］\]]\s*\)\s*=\s*([［\[][^\]］]+[］\]])/i)?.[1] ||
       text.match(/像集\s*(?:为|是|=|等于|:|：)\s*([［\[][^\]］]+[］\]])/i)?.[1],
   );
-  const expression = text.match(/f\s*\(\s*x\s*\)\s*=\s*([^\s，。,；;）)]+)/i)?.[1];
+  const expression = normalizeProblemFormulaSnippet(
+    text.match(/f\s*\(\s*x\s*\)\s*=\s*([^\s，。,；;）)]+)/i)?.[1],
+  );
   return { inputSet, outputSet, expression };
+}
+
+function shouldUseProblemMappingVisual(text: string): boolean {
+  const facts = extractProblemVisualFacts(text);
+  const hasMappingFact = Boolean(facts.inputSet || facts.outputSet || facts.expression);
+  const mentionsFunctionMapping =
+    /(函数|映射|像集|原像|定义域|陪域|值域|function|mapping|image|preimage|domain|codomain|range)/i.test(
+      text,
+    );
+  const isNumberTheoryProblem =
+    /(丢番图|整除|质数|素数|最大公因数|公因数|裴蜀|gcd|diophantine|divisib|prime|bezout)/i.test(
+      text,
+    );
+  const isProofOrWorkedExample =
+    /(证明|任取|包含|步骤|求解|推导|先判断|双包含|subseteq|prove|show|step|derive|compute)/i.test(
+      text,
+    ) || /⊆|⊇/.test(text);
+
+  return hasMappingFact && mentionsFunctionMapping && !isNumberTheoryProblem && !isProofOrWorkedExample;
 }
 
 function renderProblemInfoRows(args: {
@@ -2290,9 +2463,9 @@ function renderProblemInfoRows(args: {
             ? 'Extract the usable facts from the prompt.'
             : '从题干中提取可用信息。',
         )}</p>`,
-        color: '#64748b',
-        fill: '#f8fafc',
-        outlineColor: '#e2e8f0',
+        color: '#6f6471',
+        fill: ACADEMY_PAPER.cardFillSoft,
+        outlineColor: ACADEMY_PAPER.border,
         textType: 'content',
       }),
     );
@@ -2310,9 +2483,9 @@ function renderProblemInfoRows(args: {
         top: args.top + 42 + index * (rowHeight + rowGap),
         width: args.width - 18,
         height: rowHeight,
-        html: `<p style="font-size:13px;line-height:19px;color:#334155;"><span style="color:${args.tone.accent};font-weight:800;">${index + 1}.</span> ${renderInlineLatexToHtml(item)}</p>`,
-        color: '#334155',
-        fill: '#ffffff',
+        html: `<p style="font-size:13px;line-height:19px;color:${ACADEMY_PAPER.bodyText};"><span style="color:${args.tone.accent};font-weight:800;">${index + 1}.</span> ${renderInlineLatexToHtml(item)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFill,
         outlineColor: args.tone.border,
         textType: 'content',
       }),
@@ -2349,8 +2522,8 @@ function renderProblemMappingVisual(args: {
       top: args.top,
       width: args.width,
       height: args.height,
-      fill: '#f8fbff',
-      outlineColor: '#dbeafe',
+      fill: ACADEMY_PAPER.cardFillSoft,
+      outlineColor: ACADEMY_PAPER.blueBorder,
       groupId,
     }),
     createTextElement({
@@ -2373,10 +2546,10 @@ function renderProblemMappingVisual(args: {
       groupId,
       html: `<p style="font-size:12px;color:#64748b;text-align:center;">${escapeHtml(
         args.language === 'en-US' ? 'Input' : '输入',
-      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:#0f172a;text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.inputSet || 'A')}</p>`,
-      color: '#0f172a',
-      fill: '#ffffff',
-      outlineColor: '#bfdbfe',
+      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:${ACADEMY_PAPER.titleText};text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.inputSet || 'A')}</p>`,
+      color: ACADEMY_PAPER.titleText,
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: ACADEMY_PAPER.blueBorder,
       textType: 'content',
     }),
     createTextElement({
@@ -2387,10 +2560,10 @@ function renderProblemMappingVisual(args: {
       groupId,
       html: `<p style="font-size:12px;color:#64748b;text-align:center;">${escapeHtml(
         args.language === 'en-US' ? 'Image' : '像集',
-      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:#0f172a;text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.outputSet || '?')}</p>`,
-      color: '#0f172a',
-      fill: '#ffffff',
-      outlineColor: '#bbf7d0',
+      )}</p><p style="font-size:${compact ? 15 : 18}px;line-height:${compact ? 20 : 24}px;color:${ACADEMY_PAPER.titleText};text-align:center;font-weight:760;">${renderInlineLatexToHtml(facts.outputSet || '?')}</p>`,
+      color: ACADEMY_PAPER.titleText,
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: 'rgba(79,174,132,0.26)',
       textType: 'content',
     }),
     createLineElement({
@@ -2444,6 +2617,80 @@ function renderProblemMappingVisual(args: {
       }),
     );
   }
+
+  return elements;
+}
+
+function renderProblemStrategyVisual(args: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  lines: string[];
+  tokens: ReturnType<typeof getProfileTokens>;
+  language: 'zh-CN' | 'en-US';
+}): PPTElement[] {
+  const groupId = createCardGroupId('problem_strategy');
+  const items =
+    args.lines.length > 0
+      ? uniqueProblemLines(args.lines, 3)
+      : args.language === 'en-US'
+        ? [
+            'Identify the target condition.',
+            'Select the theorem or criterion.',
+            'Compute cleanly and close the result.',
+          ]
+        : ['识别目标条件。', '选择对应判据或定理。', '完成计算并收束结论。'];
+  const cardGap = 10;
+  const headerHeight = 48;
+  const cardHeight = Math.max(
+    44,
+    Math.floor(
+      (args.height - headerHeight - cardGap * Math.max(0, items.length - 1) - 18) /
+        Math.max(1, items.length),
+    ),
+  );
+  const elements: PPTElement[] = [
+    createRectShape({
+      left: args.left,
+      top: args.top,
+      width: args.width,
+      height: args.height,
+      fill: ACADEMY_PAPER.cardFillSoft,
+      outlineColor: ACADEMY_PAPER.blueBorder,
+      groupId,
+    }),
+    createTextElement({
+      left: args.left + 20,
+      top: args.top + 18,
+      width: args.width - 40,
+      height: 30,
+      groupId,
+      html: `<p style="font-size:14px;color:${args.tokens.titleAccent};font-weight:760;">${escapeHtml(
+        args.language === 'en-US' ? 'Solution Route' : '解题路线',
+      )}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'content',
+    }),
+  ];
+
+  items.forEach((item, index) => {
+    const tone = args.tokens.cardPalettes[index % args.tokens.cardPalettes.length];
+    elements.push(
+      createTextElement({
+        left: args.left + 20,
+        top: args.top + headerHeight + index * (cardHeight + cardGap),
+        width: args.width - 40,
+        height: cardHeight,
+        groupId,
+        html: `<p style="margin:0;font-size:13px;line-height:18px;color:${ACADEMY_PAPER.bodyText};"><span style="color:${tone.accent};font-weight:800;">${index + 1}.</span> ${renderInlineLatexToHtml(item)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: tone.border,
+        textType: 'content',
+      }),
+    );
+  });
 
   return elements;
 }
@@ -2520,7 +2767,7 @@ function renderProblemStatementTemplate(args: {
   const activeIndex = args.continuation
     ? Math.min(2, Math.max(0, args.continuation.partNumber - 1))
     : 0;
-  const railHeight = 58;
+  const railHeight = parts.hasExplicitProblem ? 58 : 0;
   const railTop = args.bodyTop + args.bodyHeight - railHeight;
 
   if (parts.hasExplicitProblem) {
@@ -2547,10 +2794,10 @@ function renderProblemStatementTemplate(args: {
         height: problemHeight,
         html: `<p style="font-size:15px;line-height:22px;color:${args.tokens.titleAccent};font-weight:780;">${escapeHtml(
           args.language === 'en-US' ? 'Problem' : '题目',
-        )}</p><p style="font-size:${problemFontSize}px;line-height:${Math.round(problemFontSize * 1.5)}px;color:#334155;">${renderInlineLatexToHtml(parts.problem)}</p>`,
-        color: '#334155',
-        fill: '#ffffff',
-        outlineColor: '#bfdbfe',
+        )}</p><p style="font-size:${problemFontSize}px;line-height:${Math.round(problemFontSize * 1.5)}px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(parts.problem)}</p>`,
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.blueBorder,
         textType: 'content',
       }),
       ...renderProblemInfoRows({
@@ -2565,15 +2812,25 @@ function renderProblemStatementTemplate(args: {
         tone: args.cardPalettes[0],
         maxItems: 4,
       }),
-      ...renderProblemMappingVisual({
-        left: visualLeft,
-        top: lowerTop,
-        width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
-        height: lowerHeight,
-        text: allText,
-        tokens: args.tokens,
-        language: args.language,
-      }),
+      ...(shouldUseProblemMappingVisual(allText)
+        ? renderProblemMappingVisual({
+            left: visualLeft,
+            top: lowerTop,
+            width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+            height: lowerHeight,
+            text: allText,
+            tokens: args.tokens,
+            language: args.language,
+          })
+        : renderProblemStrategyVisual({
+            left: visualLeft,
+            top: lowerTop,
+            width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+            height: lowerHeight,
+            lines: selectProblemStrategyLines(parts),
+            tokens: args.tokens,
+            language: args.language,
+          })),
       ...renderProblemReasoningRail({
         top: railTop,
         tokens: args.tokens,
@@ -2591,18 +2848,26 @@ function renderProblemStatementTemplate(args: {
   const roleText = continuationLines.join('\n');
   const isConclusion = /结论|Conclusion|得到|therefore/i.test(roleText);
   const hasGoal = parts.goals.length > 0 || /目标|Goal|证明|Prove/i.test(roleText);
+  const hasStepLikeLine =
+    /步骤|Step|判定|检查|回代|放大|计算|代入|推导|求解|整除|gcd|derive|compute|check/i.test(
+      roleText,
+    );
   const headerTitle =
     args.language === 'en-US'
       ? isConclusion
         ? 'Conclusion'
         : hasGoal
           ? 'Proof Target'
-          : 'Known Conditions'
+          : hasStepLikeLine
+            ? 'Solution Step'
+            : 'Known Conditions'
       : isConclusion
         ? '结论收束'
         : hasGoal
           ? '证明目标'
-          : '已知条件';
+          : hasStepLikeLine
+            ? '解题步骤'
+            : '已知条件';
   const headerSubtitle =
     continuationLines[0] ||
     (args.language === 'en-US' ? 'Continue the worked-example reasoning.' : '继续推进例题讲解。');
@@ -2617,10 +2882,10 @@ function renderProblemStatementTemplate(args: {
       top: args.bodyTop,
       width: CONTENT_WIDTH,
       height: 72,
-      html: `<p style="font-size:17px;line-height:24px;color:${args.tokens.titleText};font-weight:780;">${escapeHtml(headerTitle)}</p><p style="font-size:15px;line-height:22px;color:#334155;">${renderInlineLatexToHtml(headerSubtitle)}</p>`,
-      color: '#334155',
-      fill: '#ffffff',
-      outlineColor: '#bfdbfe',
+      html: `<p style="font-size:17px;line-height:24px;color:${args.tokens.titleText};font-weight:780;">${escapeHtml(headerTitle)}</p><p style="font-size:15px;line-height:22px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(headerSubtitle)}</p>`,
+      color: ACADEMY_PAPER.bodyText,
+      fill: ACADEMY_PAPER.cardFill,
+      outlineColor: ACADEMY_PAPER.blueBorder,
       textType: 'content',
     }),
     ...renderProblemInfoRows({
@@ -2635,21 +2900,25 @@ function renderProblemStatementTemplate(args: {
       tone: isConclusion ? args.cardPalettes[2] : args.cardPalettes[0],
       maxItems: 4,
     }),
-    ...renderProblemMappingVisual({
-      left: visualLeft,
-      top: panelTop,
-      width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
-      height: panelHeight,
-      text: allText,
-      tokens: args.tokens,
-      language: args.language,
-    }),
-    ...renderProblemReasoningRail({
-      top: railTop,
-      tokens: args.tokens,
-      language: args.language,
-      activeIndex,
-    }),
+    ...(shouldUseProblemMappingVisual(allText)
+      ? renderProblemMappingVisual({
+          left: visualLeft,
+          top: panelTop,
+          width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+          height: panelHeight,
+          text: allText,
+          tokens: args.tokens,
+          language: args.language,
+        })
+      : renderProblemStrategyVisual({
+          left: visualLeft,
+          top: panelTop,
+          width: CONTENT_LEFT + CONTENT_WIDTH - visualLeft,
+          height: panelHeight,
+          lines: selectProblemStrategyLines(parts),
+          tokens: args.tokens,
+          language: args.language,
+        })),
   );
 
   return elements;
@@ -2670,49 +2939,172 @@ function collectCoverLines(language: 'zh-CN' | 'en-US', blocks: NotebookContentB
     .filter(Boolean);
 }
 
+function stripCoverRoutePrefix(item: string): string {
+  return item
+    .replace(/^(步骤|阶段)\s*\d+\s*[：:]\s*/i, '')
+    .replace(/^step\s*\d+\s*[:：]\s*/i, '')
+    .replace(/^(核心要点|学习路线|课堂推进顺序|Learning Roadmap|Roadmap)\s*[：:]\s*/i, '')
+    .trim();
+}
+
+function inferSupplementalCoverRouteItem(args: {
+  language: 'zh-CN' | 'en-US';
+  title: string;
+  lead: string;
+  existingItems: string[];
+}): string {
+  const haystack = [args.title, args.lead, ...args.existingItems].join('\n');
+  if (args.language === 'en-US') {
+    if (/prime|factorization|unique decomposition/i.test(haystack)) {
+      return 'Structure wrap-up - connect divisibility criteria with primes, factorization, and proof strategy.';
+    }
+    if (/proof|derive|criterion|theorem/i.test(haystack)) {
+      return 'Proof habits - state the criterion, choose the right direction, and test edge cases.';
+    }
+    return 'Synthesis - close the loop by turning the main ideas into usable problem-solving moves.';
+  }
+
+  if (/唯一分解|素数无穷|质数|素数/.test(haystack)) {
+    return '结构收束 - 把整除判据、质数性质与唯一分解串成可证明的知识框架。';
+  }
+  if (/证明|判据|定理|推导/.test(haystack)) {
+    return '证明习惯 - 先写判据，再选证明方向，最后用反例或边界条件检验。';
+  }
+  return '综合迁移 - 把本页主线转化成后续例题和证明中可复用的操作。';
+}
+
+function completeCoverRouteItems(args: {
+  language: 'zh-CN' | 'en-US';
+  title: string;
+  lead: string;
+  items: string[];
+}): string[] {
+  const normalized = args.items.map(stripCoverRoutePrefix).filter(Boolean);
+  const deduped = normalized.filter(
+    (item, index) => normalized.findIndex((candidate) => candidate === item) === index,
+  );
+  const next = [...deduped];
+  while (next.length < 3) {
+    const supplement = inferSupplementalCoverRouteItem({
+      language: args.language,
+      title: args.title,
+      lead: args.lead,
+      existingItems: next,
+    });
+    if (next.some((item) => item === supplement)) break;
+    next.push(supplement);
+  }
+  return next.slice(0, 3);
+}
+
+function splitCoverRouteItem(args: { item: string; index: number; language: 'zh-CN' | 'en-US' }): {
+  title: string;
+  detail: string;
+} {
+  const cleaned = stripCoverRoutePrefix(args.item);
+  const dashMatch = cleaned.match(/^(.{2,28}?)[\s]*[-—–][\s]*(.+)$/);
+  const colonMatch = cleaned.match(/^(.{2,16}?)[：:]\s*(.+)$/);
+  const match = dashMatch || colonMatch;
+  if (match?.[1] && match?.[2]) {
+    return {
+      title: match[1].trim(),
+      detail: match[2].trim(),
+    };
+  }
+  return {
+    title: args.language === 'en-US' ? `Stage ${args.index + 1}` : `阶段 ${args.index + 1}`,
+    detail: cleaned,
+  };
+}
+
 function renderCoverRouteStrip(args: {
+  title: string;
+  lead: string;
   items: string[];
   language: 'zh-CN' | 'en-US';
   tokens: ReturnType<typeof getProfileTokens>;
 }): PPTElement[] {
-  const normalizedItems =
-    args.items.length > 0
-      ? args.items.slice(0, 3)
-      : args.language === 'en-US'
-        ? ['Define precisely', 'Compute image/preimage', 'Classify mappings']
-        : ['严格定义', '像与原像', '单射满射双射'];
-  const top = 462;
+  const normalizedItems = completeCoverRouteItems({
+    language: args.language,
+    title: args.title,
+    lead: args.lead,
+    items:
+      args.items.length > 0
+        ? args.items
+        : args.language === 'en-US'
+          ? ['Define precisely', 'Work examples', 'Synthesize the proof habit']
+          : ['明确核心定义', '进入例题推导', '收束证明方法'],
+  });
+  const labelTop = 354;
+  const top = 384;
   const left = CONTENT_LEFT + 6;
   const width = CONTENT_WIDTH - 12;
   const gap = 18;
   const segmentWidth = (width - gap * (normalizedItems.length - 1)) / normalizedItems.length;
+  const cardHeight = 120;
 
   const elements: PPTElement[] = [
-    createLineElement({
-      start: [left, top + 12],
-      end: [left + width, top + 12],
-      color: '#dbeafe',
-      width: 2,
+    createTextElement({
+      left,
+      top: labelTop,
+      width: 220,
+      height: 24,
+      html: `<p style="font-size:15px;line-height:20px;color:${args.tokens.titleAccent};font-weight:800;">${escapeHtml(
+        args.language === 'en-US' ? 'Learning Roadmap' : '学习路线',
+      )}</p>`,
+      color: args.tokens.titleAccent,
+      textType: 'notes',
     }),
   ];
 
   normalizedItems.forEach((item, index) => {
     const x = left + index * (segmentWidth + gap);
     const accent = args.tokens.cardPalettes[index % args.tokens.cardPalettes.length].accent;
+    const parsed = splitCoverRouteItem({ item, index, language: args.language });
     elements.push(
-      createCircleShape({
+      createRectShape({
         left: x,
-        top: top + 3,
-        size: 18,
+        top,
+        width: segmentWidth,
+        height: cardHeight,
+        fill: 'rgba(255,253,248,0.82)',
+        outlineColor: 'rgba(119,148,191,0.28)',
+      }),
+      createCircleShape({
+        left: x + 18,
+        top: top + 18,
+        size: 28,
         fill: accent,
       }),
       createTextElement({
-        left: x + 28,
-        top,
-        width: segmentWidth - 28,
-        height: 48,
-        html: `<p style="font-size:13px;line-height:18px;color:#334155;"><strong style="color:${accent};">${index + 1}</strong> ${renderInlineLatexToHtml(item)}</p>`,
-        color: '#334155',
+        left: x + 26,
+        top: top + 23,
+        width: 12,
+        height: 18,
+        html: `<p style="font-size:12px;line-height:16px;color:#ffffff;text-align:center;font-weight:820;">${index + 1}</p>`,
+        color: '#ffffff',
+        textType: 'notes',
+      }),
+      createTextElement({
+        left: x + 58,
+        top: top + 18,
+        width: segmentWidth - 76,
+        height: 24,
+        html: `<p style="font-size:14px;line-height:19px;color:${accent};font-weight:820;">${renderInlineLatexToHtml(
+          parsed.title,
+        )}</p>`,
+        color: accent,
+        textType: 'content',
+      }),
+      createTextElement({
+        left: x + 18,
+        top: top + 54,
+        width: segmentWidth - 36,
+        height: 54,
+        html: `<p style="font-size:12px;line-height:17px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(
+          parsed.detail,
+        )}</p>`,
+        color: ACADEMY_PAPER.bodyText,
         textType: 'content',
       }),
     );
@@ -2765,11 +3157,13 @@ function renderCoverHeroSlide(args: {
       top: 232,
       width: hasVisual ? 510 : 720,
       height: 112,
-      html: `<p style="font-size:17px;line-height:26px;color:#334155;">${renderInlineLatexToHtml(lead)}</p>`,
-      color: '#334155',
+      html: `<p style="font-size:17px;line-height:26px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(lead)}</p>`,
+      color: ACADEMY_PAPER.bodyText,
       textType: 'subtitle',
     }),
     ...renderCoverRouteStrip({
+      title,
+      lead,
       items: routeItems,
       language: args.language,
       tokens: args.tokens,
@@ -2848,10 +3242,10 @@ function renderStructuredLayoutFamilySlide(args: {
         html: bodyText
           .map(
             (line) =>
-              `<p style="font-size:18px;line-height:26px;color:#334155;">${renderInlineLatexToHtml(line)}</p>`,
+              `<p style="font-size:18px;line-height:26px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(line)}</p>`,
           )
           .join(''),
-        color: '#334155',
+        color: ACADEMY_PAPER.bodyText,
         textType: 'subtitle',
       }),
     );
@@ -3137,8 +3531,8 @@ function renderStructuredLayoutFamilySlide(args: {
           top: bodyTop + index * (stepHeight + 8),
           width: CONTENT_LEFT + CONTENT_WIDTH - stepsLeft,
           height: stepHeight,
-          html: `<p style="font-size:13px;color:${args.tokens.titleAccent};"><strong>${args.language === 'en-US' ? `Step ${index + 1}` : `步骤 ${index + 1}`}</strong></p><p style="font-size:14px;line-height:20px;color:#334155;">${renderInlineLatexToHtml(item)}</p>`,
-          color: '#334155',
+          html: `<p style="font-size:13px;color:${args.tokens.titleAccent};"><strong>${args.language === 'en-US' ? `Step ${index + 1}` : `步骤 ${index + 1}`}</strong></p><p style="font-size:14px;line-height:20px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(item)}</p>`,
+          color: ACADEMY_PAPER.bodyText,
           fill: cardPalettes[index % cardPalettes.length].fill,
           outlineColor: cardPalettes[index % cardPalettes.length].border,
           textType: 'content',
@@ -3181,8 +3575,8 @@ function renderStructuredLayoutFamilySlide(args: {
           top: bodyTop,
           width: CONTENT_WIDTH,
           height: 238,
-          fill: '#ffffff',
-          outlineColor: '#bfdbfe',
+          fill: ACADEMY_PAPER.cardFill,
+          outlineColor: ACADEMY_PAPER.blueBorder,
           groupId,
         }),
         createLatexElement({
@@ -3221,42 +3615,66 @@ function renderStructuredLayoutFamilySlide(args: {
 
     const leftWidth = args.family === 'derivation' ? 520 : 420;
     const rightWidth = CONTENT_WIDTH - leftWidth - 24;
-    const stepHeight = Math.max(
-      62,
-      Math.floor((bodyHeight - 26) / Math.max(1, Math.min(5, steps.length))),
+    const visibleSteps = steps.slice(0, 5);
+    const stepGap = 10;
+    const naturalStepHeights = visibleSteps.map((step) =>
+      Math.min(138, Math.max(82, estimateParagraphHeight(step, 34, 21) + 38)),
     );
-    steps.slice(0, 5).forEach((step, index) => {
+    const availableStepHeight = Math.max(
+      70,
+      bodyHeight - stepGap * Math.max(0, visibleSteps.length - 1),
+    );
+    const naturalStepTotal = naturalStepHeights.reduce((sum, value) => sum + value, 0);
+    const stepScale =
+      naturalStepTotal > availableStepHeight ? availableStepHeight / naturalStepTotal : 1;
+    const stepHeights = naturalStepHeights.map((height) =>
+      Math.max(70, Math.floor(height * stepScale)),
+    );
+    let stepCursorTop = bodyTop;
+
+    visibleSteps.forEach((step, index) => {
+      const stepHeight = stepHeights[index] ?? 88;
       elements.push(
         createTextElement({
           left: CONTENT_LEFT,
-          top: bodyTop + index * (stepHeight + 8),
+          top: stepCursorTop,
           width: leftWidth,
           height: stepHeight,
-          html: `<p style="font-size:13px;color:${args.tokens.titleAccent};"><strong>${args.language === 'en-US' ? `Step ${index + 1}` : `步骤 ${index + 1}`}</strong></p><p style="font-size:15px;line-height:21px;color:#334155;">${renderInlineLatexToHtml(step)}</p>`,
-          color: '#334155',
-          fill: '#ffffff',
-          outlineColor: '#dbeafe',
+          html: `<p style="font-size:13px;color:${args.tokens.titleAccent};"><strong>${args.language === 'en-US' ? `Step ${index + 1}` : `步骤 ${index + 1}`}</strong></p><p style="font-size:15px;line-height:21px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(step)}</p>`,
+          color: ACADEMY_PAPER.bodyText,
+          fill: ACADEMY_PAPER.cardFill,
+          outlineColor: ACADEMY_PAPER.border,
           textType: 'content',
         }),
       );
+      stepCursorTop += stepHeight + stepGap;
     });
     const answer = example?.answer || contentBlocks.find((block) => block.type === 'callout');
     const answerText =
       typeof answer === 'object' && 'text' in answer
         ? answer.text
         : example?.answer || steps[steps.length - 1] || '';
+    const answerFit = fitParagraphBlockToHeight({
+      text: answerText,
+      widthPx: Math.max(120, rightWidth - CARD_INSET_X * 2),
+      fontSizePx: 18,
+      lineHeightPx: 27,
+      maxHeightPx: Math.min(170, bodyHeight - 54),
+      color: ACADEMY_PAPER.titleText,
+    });
+    const answerCardHeight = Math.min(bodyHeight, Math.max(128, answerFit.height + 54));
     elements.push(
       createTextElement({
         left: CONTENT_LEFT + leftWidth + 24,
         top: bodyTop,
         width: rightWidth,
-        height: bodyHeight,
+        height: answerCardHeight,
         html: `<p style="font-size:15px;color:${args.tokens.titleAccent};"><strong>${escapeHtml(
           args.language === 'en-US' ? 'Key Takeaway' : '关键结论',
-        )}</strong></p><p style="font-size:18px;line-height:27px;color:#0f172a;">${renderInlineLatexToHtml(answerText)}</p>`,
-        color: '#0f172a',
-        fill: '#f5f9ff',
-        outlineColor: '#bfdbfe',
+        )}</strong></p>${answerFit.html}`,
+        color: ACADEMY_PAPER.titleText,
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.border,
         textType: 'content',
       }),
     );
@@ -3275,8 +3693,8 @@ function renderStructuredLayoutFamilySlide(args: {
           top: bodyTop,
           width: CONTENT_WIDTH,
           height: 240,
-          fill: '#ffffff',
-          outlineColor: '#bfdbfe',
+          fill: ACADEMY_PAPER.cardFill,
+          outlineColor: ACADEMY_PAPER.blueBorder,
           groupId,
         }),
         createLatexElement({
@@ -3328,12 +3746,12 @@ function renderStructuredLayoutFamilySlide(args: {
           .slice(0, 4)
           .map(
             (line) =>
-              `<p style="font-size:18px;line-height:27px;color:#0f172a;">${renderInlineLatexToHtml(line)}</p>`,
+              `<p style="font-size:18px;line-height:27px;color:${ACADEMY_PAPER.titleText};">${renderInlineLatexToHtml(line)}</p>`,
           )
           .join('')}`,
-        color: '#0f172a',
-        fill: '#ffffff',
-        outlineColor: '#bfdbfe',
+        color: ACADEMY_PAPER.titleText,
+        fill: ACADEMY_PAPER.cardFill,
+        outlineColor: ACADEMY_PAPER.blueBorder,
         textType: 'content',
       }),
       createTextElement({
@@ -3345,12 +3763,12 @@ function renderStructuredLayoutFamilySlide(args: {
           .slice(2, 6)
           .map(
             (line, index) =>
-              `<p style="font-size:16px;line-height:25px;color:#334155;"><span style="color:${args.tokens.titleAccent};font-weight:700;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
+              `<p style="font-size:16px;line-height:25px;color:${ACADEMY_PAPER.bodyText};"><span style="color:${args.tokens.titleAccent};font-weight:700;">${index + 1}</span> ${renderInlineLatexToHtml(line)}</p>`,
           )
           .join(''),
-        color: '#334155',
-        fill: '#f8fafc',
-        outlineColor: '#e2e8f0',
+        color: ACADEMY_PAPER.bodyText,
+        fill: ACADEMY_PAPER.cardFillSoft,
+        outlineColor: ACADEMY_PAPER.border,
         textType: 'content',
       }),
     );
@@ -3439,12 +3857,42 @@ function renderSlotTemplateDocumentToSlide(args: {
   });
 }
 
+function fallbackSlotTemplateDocument(document: NotebookContentDocument): NotebookContentDocument {
+  const template = document.layoutTemplate;
+  const spec = template ? getSlotTemplateSpec(template) : undefined;
+  const slotDocument = document as NotebookContentDocument & {
+    layoutTemplate: NotebookContentLayoutTemplate;
+    slots: NotebookContentSlot[];
+  };
+  const blocks =
+    spec && document.slots?.length
+      ? flattenSlotBlocksForTemplate(slotDocument, spec)
+      : (document.slots || []).flatMap((slot) => slot.blocks);
+  const { slots: _slots, layoutTemplate: _layoutTemplate, ...rest } = document;
+
+  return {
+    ...rest,
+    version: 1,
+    blocks: blocks.length ? blocks : document.blocks,
+    layoutFamily: document.layoutFamily || spec?.family,
+    layout: document.layout || { mode: 'stack' },
+  };
+}
+
 export function renderNotebookContentDocumentToSlide(args: {
   document: NotebookContentDocument;
   fallbackTitle: string;
 }): Slide {
   if (isSlotOnlyDocument(args.document)) {
-    return renderSlotTemplateDocumentToSlide(args);
+    try {
+      return renderSlotTemplateDocumentToSlide(args);
+    } catch (error) {
+      if (!isNotebookSlotLayoutError(error)) throw error;
+      return renderNotebookContentDocumentToSlide({
+        document: fallbackSlotTemplateDocument(args.document),
+        fallbackTitle: args.fallbackTitle,
+      });
+    }
   }
 
   const language = args.document.language || 'zh-CN';
@@ -3542,8 +3990,8 @@ export function renderNotebookContentDocumentToSlide(args: {
         top: archetypeLayout.titleTop + 6,
         width: 158,
         height: 24,
-        fill: '#eef2ff',
-        outlineColor: '#c7d2fe',
+        fill: 'rgba(244,247,255,0.78)',
+        outlineColor: ACADEMY_PAPER.blueBorder,
       }),
       createTextElement({
         left: CONTENT_LEFT + CONTENT_WIDTH - 170,
@@ -3578,7 +4026,7 @@ export function renderNotebookContentDocumentToSlide(args: {
         text: heading,
         widthPx: innerWidth,
         maxHeightPx: 52,
-        color: '#0f172a',
+        color: ACADEMY_PAPER.titleText,
       }).height;
       const bodyHeightEstimate = estimateGridBodyHeight({
         language,
@@ -3648,7 +4096,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           width: cellWidthWithSpan,
           height: cellHeightWithSpan,
           html: `${headingFit.html}${bodyFit.html}`,
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           fill: tone.fill,
           outlineColor: tone.accent,
@@ -3656,7 +4104,7 @@ export function renderNotebookContentDocumentToSlide(args: {
             h: 0,
             v: 8,
             blur: 24,
-            color: 'rgba(15,23,42,0.08)',
+            color: ACADEMY_PAPER.shadow,
           },
         }),
       );
@@ -3743,7 +4191,7 @@ export function renderNotebookContentDocumentToSlide(args: {
         fontSizePx: 16,
         lineHeightPx: 22,
         maxHeightPx: maxContentHeight,
-        color: '#334155',
+        color: ACADEMY_PAPER.bodyText,
       });
       const contentHeight = titleFit.height + titleGap + paragraph.height;
       const cardHeight = contentHeight + CARD_INSET_Y * 2;
@@ -3753,7 +4201,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: cardHeight,
           tone,
           html: `${titleFit.html}${paragraph.html}`,
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           lineHeight: 1.35,
         }),
@@ -3788,7 +4236,7 @@ export function renderNotebookContentDocumentToSlide(args: {
         fontSizePx: 16,
         lineHeightPx: 20,
         maxHeightPx: maxContentHeight,
-        color: '#334155',
+        color: ACADEMY_PAPER.bodyText,
         bulletColor: tone.accent,
       });
       const contentHeight = titleFit.height + titleGap + bulletList.height;
@@ -3799,7 +4247,7 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: cardHeight,
           tone,
           html: `${titleFit.html}${bulletList.html}`,
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           lineHeight: 1.35,
         }),
@@ -4041,9 +4489,12 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: stepCardHeight,
           tone,
           html: stepItems
-            .map((item) => `<p style="font-size:15px;color:#334155;">${escapeHtml(item)}</p>`)
+            .map(
+              (item) =>
+                `<p style="font-size:15px;color:${ACADEMY_PAPER.bodyText};">${escapeHtml(item)}</p>`,
+            )
             .join(''),
-          color: '#334155',
+          color: ACADEMY_PAPER.bodyText,
           textType: 'content',
           lineHeight: 1.35,
         }),
@@ -4197,7 +4648,7 @@ export function renderNotebookContentDocumentToSlide(args: {
         widthPx: CONTENT_WIDTH - 22 - 10,
         fontSizePx: 15,
         lineHeightPx: 21,
-        color: '#334155',
+        color: ACADEMY_PAPER.bodyText,
       });
       const height =
         (measuredBodyHeight ?? estimateParagraphHeight(bodyText, 36, 20)) +
@@ -4213,14 +4664,14 @@ export function renderNotebookContentDocumentToSlide(args: {
           text: createShapeText({
             html: [
               `<p style="font-size:15px;color:${templateTone.accent};"><strong>${renderInlineLatexToHtml(block.title || (language === 'en-US' ? (block.type === 'definition' ? 'Definition' : 'Theorem') : block.type === 'definition' ? '定义' : '定理'))}</strong></p>`,
-              `<p style="font-size:15px;color:#334155;">${renderInlineLatexToHtml(block.text)}</p>`,
+              `<p style="font-size:15px;color:${ACADEMY_PAPER.bodyText};">${renderInlineLatexToHtml(block.text)}</p>`,
               supportText
                 ? `<p style="font-size:14px;color:${templateTone.accent};">${renderInlineLatexToHtml(supportText)}</p>`
                 : '',
             ]
               .filter(Boolean)
               .join(''),
-            color: '#334155',
+            color: ACADEMY_PAPER.bodyText,
             textType: 'content',
             align: 'top',
           }),
@@ -4246,12 +4697,12 @@ export function renderNotebookContentDocumentToSlide(args: {
           height: cardHeight,
           tone,
           html: [
-            `<p style="font-size:20px;color:#0f172a;">${chemistryTextToHtml(raw)}</p>`,
+            `<p style="font-size:20px;color:${ACADEMY_PAPER.titleText};">${chemistryTextToHtml(raw)}</p>`,
             caption ? `<p style="font-size:13px;color:#64748b;">${escapeHtml(caption)}</p>` : '',
           ]
             .filter(Boolean)
             .join(''),
-          color: '#0f172a',
+          color: ACADEMY_PAPER.titleText,
           textType: 'content',
           lineHeight: 1.35,
         }),

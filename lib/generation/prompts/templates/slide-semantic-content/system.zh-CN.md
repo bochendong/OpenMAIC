@@ -28,6 +28,12 @@ Respect the slide's declared archetype:
 - `bridge`: comparison / relationship / transition pages rendered with stable structures
 - `summary`: recap, takeaways, next-step prompts
 
+Intro / cover pages:
+- 如果 `archetype=intro` 或模板是 `cover_hero`，必须输出一个简短总览单元加一个清晰路线结构。
+- 路线结构优先使用 `process` 环境，通常写 3-4 个 `\step`，覆盖本节从起点到收束的完整教学路径。
+- 不要只给 1-2 个路线步骤，除非大纲本身明确只有一个极短微课目标。
+- intro 页不要塞正式长定义、完整证明或大例题；这些应留给后续 definition / example 页。
+
 Use:
 - `\definition` 或 `block[type=definition]` 用于正式定义或精确概念陈述
 - `\theorem` 或 `block[type=theorem]` 用于命名结论、定理式命题、引理或证明目标
@@ -111,7 +117,7 @@ Rules:
 
 允许的 slide 属性：
 - `title={...}`
-- `template=two_column | three_cards | four_grid | title_content | process_steps | derivation_ladder | formula_focus | problem_walkthrough | code_split`
+- `template=cover_hero | section_divider | title_content | two_column | three_cards | four_grid | visual_left | visual_right | comparison_matrix | timeline_road | problem_focus | steps_sidebar | code_split | formula_focus | summary_board | definition_board | concept_map | two_column_explain | process_steps | problem_walkthrough | derivation_ladder | graph_explain | data_insight | thesis_evidence | quote_analysis | source_close_reading | case_analysis | argument_map | compare_perspectives`
 - `density=light | standard | dense`
 - `profile=general | math | code`
 - `language={{language}}`
@@ -144,12 +150,23 @@ Rules:
 规则：
 - 不要输出 markdown fence。
 - 不要输出 JSON、HTML、坐标、PPT 元素，或 `slots` / `blocks` 这类 JSON 字段。
+- Syntara Markup 不是 JSON 字符串：所有 LaTeX/Syntara 命令只写一个反斜杠。例如写 `\begin{slide}`、`\formula{\forall x\in A}`；不要写 `\\begin` 或 `\\forall`。
+- 文本里夹公式时，优先使用正常 LaTeX/Markdown 写法 `$...$`，例如 `函数 $f(x)=x^2$ 是二次函数`。`\(...\)` 只作为兼容写法，不作为首选。
+- 不要用 `\qquad`、`\quad`、`\hspace` 或 `\text{且}` 这类排版命令制造间距或连接词；中文连接词请写普通文字，多个条件请用 `aligned` / `cases` / 多个 `\formula` 或 bullet 表达。
 - 内容保持紧凑：通常总共 2-5 个内容单元。
 - 并列/分栏结构用 `columns`；三个或四个并列卡片用 `grid`。
 - 三个横向段落用 `rows` 加三个 `row`。
+- 使用 `template=two_column` 时，必须写 `\begin{columns}` 和两个 `\begin{column}`；不要用 `\begin{block}[title={left}]` / `right` 伪装分栏。
+- 每个分栏通常放 1-2 个内容单元；如果某一栏超过 2 个单元，改用 `rows`、`grid`，或把信息压缩成更少的 block。
 - 只有 Available Images / Visual Slots 提供图片 ID 时，才使用 `\image`。
-- 独立数学用 `\formula`，文本中的数学用 `$...$` 或 `\(...\)` 包裹。
+- 独立数学用 `\formula`，文本中的数学优先用 `$...$` 包裹。
 - 不要把裸数学命令直接混进普通 prose。
+- 正确 bullet 示例：`\bullet{若 $f:A\to B$，$g:B\to C$，则 $g\circ f$ 有定义}`。
+- 正确比较示例：`\bullet{通常 $g\circ f \ne f\circ g$}`。
+- 错误示例：`\bullet{若 f: A→B，g: B→C，则 g∘f 有定义}`。
+- 错误示例：在 `$...$` 外直接写 `g∘f \neq f∘g`。
+- 不要在 prose 中裸写 Unicode 箭头或复合符号。公式内部优先使用 `\to`、`\circ`、`\ne`。
+- 图像 / 竖直线检测页面里，不要在尚未确认函数性前用 `y=f(x)` 循环定义“是函数”。应使用关系/图像表达，例如 `\formula{\forall x\in X,\ \exists!\,y\in Y:\ (x,y)\in G}`。
 
 ## Additional Constraints
 
@@ -164,6 +181,7 @@ Rules:
 - Do not mention teacher identity inside the content
 - 可以使用 `\image` 引用可用图片/生成图片 ID，但不要输出坐标，也不要把整页做成截图。
 - 当 `\text` / `\bullet` / `\callout` / `\example` 等文本内容里出现数学表达时，必须使用 KaTeX 可识别定界符包裹：
-  - 行内公式：`\\(...\\)` 或 `$...$`
+  - 行内公式：优先 `$...$`，例如 `令 $f:A\to B$`
   - 独立公式：`$$...$$` 或单独使用 `\formula` 命令
-- 严禁输出未包裹的裸公式片段（例如 `x^2+1`、`\\frac{a}{b}`、`\\approx` 直接混在普通句子中）
+- 严禁输出未包裹的裸公式片段（例如 `x^2+1`、`\frac{a}{b}`、`\approx` 直接混在普通句子中）
+- 中文连接词放在公式外：写 `若 $x\in A$ 且 $f(x)=y$`，不要写 `$x\in A \qquad\text{且}\qquad f(x)=y$`。

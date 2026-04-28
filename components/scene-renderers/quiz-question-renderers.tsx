@@ -22,6 +22,7 @@ import { code } from '@streamdown/code';
 import { Streamdown } from 'streamdown';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { renderInlineMathAwareHtml } from '@/lib/math-engine';
 import type { QuizQuestion } from '@/lib/types/stage';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { Badge } from '@/components/ui/badge';
@@ -191,6 +192,18 @@ function RichText({
 }) {
   if (!content?.trim()) return null;
   const markdown = normalizeMarkdownForHighlightedCode(content, languageHint);
+  if (!markdown.includes('```')) {
+    return (
+      <span
+        className={cn(
+          'whitespace-pre-wrap [&_.katex]:text-[1em] [&_.math-engine-inline]:align-baseline',
+          className,
+        )}
+        dangerouslySetInnerHTML={{ __html: renderInlineMathAwareHtml(markdown) }}
+      />
+    );
+  }
+
   return (
     <Streamdown
       mode="static"
@@ -936,4 +949,3 @@ export function renderQuestion(
     />
   );
 }
-

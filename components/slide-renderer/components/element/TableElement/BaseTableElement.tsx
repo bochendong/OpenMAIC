@@ -1,6 +1,7 @@
 'use client';
 
 import type { PPTTableElement } from '@/lib/types/slides';
+import { academyPaperBackground, academyPaperTheme } from '../academyPaperTheme';
 import { StaticTable } from './StaticTable';
 
 export interface BaseTableElementProps {
@@ -26,7 +27,15 @@ export function BaseTableElement({ elementInfo, target }: BaseTableElementProps)
         className="rotate-wrapper w-full h-full"
         style={{ transform: `rotate(${elementInfo.rotate}deg)` }}
       >
-        <div className="element-content relative w-full h-full overflow-hidden">
+        <div
+          className="element-content relative w-full h-full overflow-hidden"
+          style={{
+            background: academyPaperBackground(academyPaperTheme.primary),
+            border: `1px solid ${academyPaperTheme.cardBorder}`,
+            borderRadius: 18,
+            boxShadow: academyPaperTheme.quietShadow,
+          }}
+        >
           <StaticTable elementInfo={elementInfo} />
         </div>
       </div>

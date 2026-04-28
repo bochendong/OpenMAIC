@@ -1,5 +1,9 @@
 import { nanoid } from 'nanoid';
 import { normalizeSceneOutlineContentProfile } from '@/lib/generation/content-profile';
+import {
+  isFinalSummaryOutline,
+  normalizeOutlineStructure,
+} from '@/lib/generation/outline-structure';
 import type { SceneOutline } from '@/lib/types/generation';
 import type {
   OrchestratorOutlineLength,
@@ -214,7 +218,7 @@ export function analyzeOutlineCoverage(args: {
 
 export function normalizeOutlineCollection(outlines: SceneOutline[]): SceneOutline[] {
   const seenIds = new Set<string>();
-  return outlines.map((outline, index) => {
+  const normalized = outlines.map((outline, index) => {
     let id = outline.id?.trim() || nanoid();
     if (seenIds.has(id)) id = nanoid();
     seenIds.add(id);
@@ -224,6 +228,7 @@ export function normalizeOutlineCollection(outlines: SceneOutline[]): SceneOutli
       order: index + 1,
     });
   });
+  return normalizeOutlineStructure(normalized);
 }
 
 function buildOutlineDedupSignature(outline: SceneOutline): string {
@@ -272,6 +277,7 @@ export function buildOutlineRepairRequirement(args: {
       return `${index + 1}. [${outline.type}] ${outline.title}${suffix} — ${outline.description}`;
     })
     .join('\n');
+  const hasExistingSummary = args.currentOutlines.some(isFinalSummaryOutline);
 
   if (args.language === 'zh-CN') {
     const topicLines =
@@ -301,7 +307,11 @@ export function buildOutlineRepairRequirement(args: {
       '- 不要复用已有标题，不要生成近似重复的页面。',
       '- 如果补充例题序列，优先使用 `slide` + `workedExampleConfig`，并让序列首张通常为 `role: "problem_statement"`。',
       '- 每个新增例题都必须有具体原题；数学/矩阵/线性系统类例题必须写出实际方程、矩阵、行变换、中间结果，不能写成“给定一个矩阵”这种空壳题。',
-      '- 若页数不足但例题数量已够，请优先补充承上启下的概念解释、易错点、总结、对比页，而不是堆空标题。',
+      hasExistingSummary
+        ? '- 已有总结/回顾页时，不要再补充新的总结页；新增例题、概念或练习必须放在最终总结之前。'
+        : '- 如果确实需要补充总结页，只能补 1 页，并且它必须是整本 notebook 的最后一页。',
+      '- 如果补充 quiz，只能作为某个知识点后的轻量即时检查；每个 quiz 通常 1–2 题，不要生成同主题变体。',
+      '- 若页数不足但例题数量已够，请优先补充承上启下的概念解释、易错点或对比页，而不是堆空标题或重复总结。',
       '- 新增内容必须与已有 notebook 连续衔接，形成“概念 -> 例题 -> 概念 -> 例题”的节奏。',
     ].join('\n');
   }
@@ -333,7 +343,11 @@ export function buildOutlineRepairRequirement(args: {
     '- Do not reuse existing titles or produce near-duplicate pages.',
     '- When adding worked-example sequences, prefer `slide` scenes with `workedExampleConfig`, and usually start each new sequence with `role: "problem_statement"`.',
     '- Every new worked example must contain a concrete original problem. For math / matrix / linear-system topics, include actual equations, matrices, row operations, and intermediate results instead of placeholder wording.',
-    '- If page count is short but worked-example count is already sufficient, add bridging concept slides, pitfalls, comparisons, or recap pages instead of hollow filler.',
+    hasExistingSummary
+      ? '- If a summary/recap page already exists, do not add another one; any new example, concept, or practice page must come before the final summary.'
+      : '- If a summary page is truly needed, add at most one and make it the final notebook page.',
+    '- If adding quiz scenes, use them only as lightweight checks after a knowledge point; keep each quiz to 1-2 questions and do not create same-topic variants.',
+    '- If page count is short but worked-example count is already sufficient, add bridging concept slides, pitfalls, or comparisons instead of hollow filler or duplicate recap pages.',
     '- The added pages should create a clear "concept -> worked example -> concept -> worked example" rhythm with the existing notebook.',
   ].join('\n');
 }

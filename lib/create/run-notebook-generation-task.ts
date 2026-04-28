@@ -30,9 +30,7 @@ import {
   estimateNotebookGenerationComputeCredits,
 } from '@/lib/utils/generation-credit-preflight';
 import { writePersistedStageOutlines } from '@/lib/utils/stage-outline-storage';
-import {
-  getApiHeaders,
-} from './generation-headers';
+import { getApiHeaders } from './generation-headers';
 import {
   isMarkdownSourceFile,
   isPdfSourceFile,
@@ -56,6 +54,8 @@ import {
   buildShortFailureReason,
   readApiErrorMessage,
 } from './api-errors';
+import { normalizeOutlineStructure } from '@/lib/generation/outline-structure';
+import { ensureTitleCoverOutline } from '@/lib/generation/title-cover';
 import {
   createLinkedAbortController,
   errorMessage,
@@ -750,6 +750,12 @@ export async function runNotebookGenerationTask(
       effectiveMediaFlags,
       getHeaders,
     });
+    outlines = normalizeOutlineStructure(
+      ensureTitleCoverOutline(outlines, {
+        title: stage.name,
+        language,
+      }),
+    );
 
     if (!outlines.length) throw new Error('未生成任何课程大纲');
     writePersistedStageOutlines(stage.id, outlines);

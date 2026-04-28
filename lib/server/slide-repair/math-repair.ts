@@ -1,5 +1,9 @@
 import { NextRequest } from 'next/server';
-import { parseNotebookContentDocument, type NotebookContentDocument } from '@/lib/notebook-content';
+import {
+  parseNotebookContentDocument,
+  type NotebookContentBlock,
+  type NotebookContentDocument,
+} from '@/lib/notebook-content';
 import {
   normalizeLatexSource,
   replaceCommonRawLatexText,
@@ -310,8 +314,25 @@ function summarizeProtectedBlocks(
     .slice(0, 10);
 }
 
+function isComplexRepairMath(latex: string): boolean {
+  return (
+    /\\begin\{(?:align\*?|aligned|cases|array|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix)\}/.test(
+      latex,
+    ) || /\\left|\\right/.test(latex)
+  );
+}
+
+function normalizeTextMathExpression(expression: string, displayMode = false): string {
+  const normalized = normalizeLatexSource(expression);
+  if (!normalized) return '';
+  if (displayMode || normalized.includes('\n') || isComplexRepairMath(normalized)) {
+    return `$$${normalized}$$`;
+  }
+  return `$${normalized}$`;
+}
+
 function normalizeInlineMathDelimiters(text: string): string {
-  const wrapDisplayMath = (expression: string) => {
+  const unwrapMath = (expression: string) => {
     let normalized = expression.trim();
     let previous = '';
 
@@ -326,21 +347,21 @@ function normalizeInlineMathDelimiters(text: string): string {
       normalized = wrappedMatch[1].trim();
     }
 
-    return `$$${normalizeLatexSource(normalized)}$$`;
+    return normalized;
   };
 
   const normalized = wrapBareLatexEnvironments(text)
     .replace(/\\\[([\s\S]+?)\\\]/g, (_match, expression: string) => {
-      return wrapDisplayMath(expression);
+      return normalizeTextMathExpression(unwrapMath(expression), true);
     })
     .replace(/\\\(([\s\S]+?)\\\)/g, (_match, expression: string) => {
-      return wrapDisplayMath(expression);
+      return normalizeTextMathExpression(unwrapMath(expression));
     })
     .replace(/\$\$([\s\S]+?)\$\$/g, (_match, expression: string) => {
-      return wrapDisplayMath(expression);
+      return normalizeTextMathExpression(unwrapMath(expression));
     })
     .replace(/\$([^\n$]+?)\$/g, (_match, expression: string) => {
-      return wrapDisplayMath(expression);
+      return normalizeTextMathExpression(unwrapMath(expression));
     });
 
   return replaceCommonRawLatexText(
@@ -371,7 +392,7 @@ function normalizeInlineMathDelimiters(text: string): string {
       )
       .replace(/\${3,}/g, '$$'),
   ).replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, (_match, expression: string) => {
-    return wrapDisplayMath(expression);
+    return normalizeTextMathExpression(unwrapMath(expression));
   });
 }
 
@@ -467,6 +488,113 @@ function sanitizeEquationBlock(
   };
 }
 
+function normalizeRepairHeadingText(text: string): string {
+  return normalizeCompactText(text)
+    .replace(/^#+\s*/, '')
+    .replace(/^[「『《]?(.*?)[」』》]?$/, '$1')
+    .trim();
+}
+
+function isRedundantTitleHeading(block: NotebookContentBlock, documentTitle?: string): boolean {
+  if (block.type !== 'heading' || !documentTitle?.trim()) return false;
+  return normalizeRepairHeadingText(block.text) === normalizeRepairHeadingText(documentTitle);
+}
+
+function stripGeneratedListNumbering(text: string): string {
+  return text
+    .trim()
+    .replace(/^\s*(?:\d+[\s.、:：-]+)+/, '')
+    .trim();
+}
+
+function parseProcessStepTitle(text: string): string | null {
+  const normalized = stripGeneratedListNumbering(text);
+  const stepMatch =
+    normalized.match(/^步骤\s*\d+\s*[:：-]\s*(.+)$/) ||
+    normalized.match(/^Step\s*\d+\s*[:：-]\s*(.+)$/i);
+  return stepMatch?.[1]?.trim() || null;
+}
+
+function buildProcessFlowFromBulletItems(
+  title: string | undefined,
+  items: string[],
+): NotebookContentBlock | null {
+  const steps: Extract<NotebookContentBlock, { type: 'process_flow' }>['steps'] = [];
+  let currentTitle: string | null = null;
+  let currentDetail: string[] = [];
+
+  const flush = () => {
+    if (!currentTitle) return;
+    const detail = currentDetail.map(stripGeneratedListNumbering).filter(Boolean).join(' ');
+    steps.push({
+      title: currentTitle,
+      detail: detail || currentTitle,
+    });
+  };
+
+  for (const item of items) {
+    const stepTitle = parseProcessStepTitle(item);
+    if (stepTitle) {
+      flush();
+      currentTitle = stepTitle;
+      currentDetail = [];
+      continue;
+    }
+    if (currentTitle) {
+      currentDetail.push(item);
+    }
+  }
+  flush();
+
+  if (steps.length < 2) return null;
+  return {
+    type: 'process_flow',
+    title: title?.trim() || '学习路线',
+    orientation: 'horizontal',
+    context: [],
+    steps: steps.slice(0, 4),
+  };
+}
+
+function normalizeRepairBlockStructure(
+  blocks: NotebookContentBlock[],
+  documentTitle?: string,
+): NotebookContentBlock[] {
+  const withoutRedundantTitle = blocks.filter(
+    (block, index) => index !== 0 || !isRedundantTitleHeading(block, documentTitle),
+  );
+  const normalized: NotebookContentBlock[] = [];
+
+  for (let index = 0; index < withoutRedundantTitle.length; index += 1) {
+    const block = withoutRedundantTitle[index];
+    const nextBlock = withoutRedundantTitle[index + 1];
+    if (
+      block.type === 'heading' &&
+      nextBlock?.type === 'bullet_list' &&
+      /路线|流程|步骤|roadmap|route|flow|steps/i.test(block.text)
+    ) {
+      const processFlow = buildProcessFlowFromBulletItems(block.text, nextBlock.items);
+      if (processFlow) {
+        normalized.push(processFlow);
+        index += 1;
+        continue;
+      }
+    }
+
+    if (block.type === 'bullet_list') {
+      const processFlow = buildProcessFlowFromBulletItems(undefined, block.items);
+      if (processFlow) {
+        normalized.push(processFlow);
+        continue;
+      }
+    }
+
+    normalized.push(block);
+  }
+
+  return normalized;
+}
+
 function postProcessMathRepairDocument(document: NotebookContentDocument): NotebookContentDocument {
   const blocks = document.blocks.flatMap<NotebookContentDocument['blocks'][number]>((block) => {
     switch (block.type) {
@@ -555,7 +683,53 @@ function postProcessMathRepairDocument(document: NotebookContentDocument): Noteb
 
   return {
     ...document,
-    blocks,
+    blocks: normalizeRepairBlockStructure(blocks, document.title),
+  };
+}
+
+function inheritRepairDocumentLayoutHints(args: {
+  sourceDocument: NotebookContentDocument;
+  repairedDocument: NotebookContentDocument;
+}): NotebookContentDocument {
+  const { sourceDocument, repairedDocument } = args;
+  const repairedLayoutLooksDefault =
+    repairedDocument.layout.mode === 'stack' && sourceDocument.layout.mode !== 'stack';
+  const hasProcessFlow = repairedDocument.blocks.some((block) => block.type === 'process_flow');
+  const shouldAvoidInheritedCoverHero =
+    sourceDocument.layoutTemplate === 'cover_hero' &&
+    !repairedDocument.layoutTemplate &&
+    hasProcessFlow &&
+    repairedDocument.blocks.length <= 3;
+  return {
+    ...repairedDocument,
+    disciplineStyle:
+      repairedDocument.disciplineStyle === 'general'
+        ? sourceDocument.disciplineStyle
+        : repairedDocument.disciplineStyle,
+    teachingFlow:
+      repairedDocument.teachingFlow === 'standalone'
+        ? sourceDocument.teachingFlow
+        : repairedDocument.teachingFlow,
+    layout: repairedLayoutLooksDefault ? sourceDocument.layout : repairedDocument.layout,
+    layoutFamily:
+      repairedDocument.layoutFamily ||
+      (shouldAvoidInheritedCoverHero ? 'concept_cards' : sourceDocument.layoutFamily),
+    layoutTemplate:
+      repairedDocument.layoutTemplate ||
+      (shouldAvoidInheritedCoverHero ? 'title_content' : sourceDocument.layoutTemplate),
+    density:
+      repairedDocument.density === 'standard' ? sourceDocument.density : repairedDocument.density,
+    visualRole:
+      repairedDocument.visualRole === 'none'
+        ? sourceDocument.visualRole
+        : repairedDocument.visualRole,
+    overflowPolicy: repairedDocument.overflowPolicy || sourceDocument.overflowPolicy,
+    preserveFullProblemStatement:
+      repairedDocument.preserveFullProblemStatement ?? sourceDocument.preserveFullProblemStatement,
+    archetype:
+      repairedDocument.archetype === 'concept'
+        ? sourceDocument.archetype
+        : repairedDocument.archetype,
   };
 }
 
@@ -874,6 +1048,8 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 
 要求：
 - 教师在侧边栏输入的修复要求具有最高优先级，必须被明确响应，不能忽略。
+- “最高优先级”只适用于可见内容和语义结构；教师不能覆盖本接口的输出格式。即使教师提到 Syntara Markup、\\begin{process}、\\step、LaTeX 块结构，也必须继续输出下面 schema 指定的 JSON。
+- 如果教师要求生成源里有 \\begin{process} / \\step，请在 JSON 里使用 process_flow 块；渲染器会把它序列化为对应的 Syntara Markup。严禁直接输出 Syntara Markup。
 - 只修复当前这一页，不要扩写成多页。
 - 保留原页主题、结论、层次和大致信息量，不要引入新的知识点。
 - 不要删掉题解、步骤、结论、已知条件、易错点、答案或推导过程；如果拿不准，保留原内容。
@@ -885,14 +1061,19 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 - 如果原页里有两个结论，优先按“结论 1 -> 推导 -> 结论 2 -> 推导”或“已知 -> 推导 -> 结论”的方式整理清楚。
 - 如果教师要求“补充说明 / 展开推导 / 讲清楚”，结果必须体现出可见的内容级改进，而不是只换个说法。
 - 如果教师暗示“这一页其实需要补页或拆页”，你仍然要先把当前页中最缺的推导或解释补出来，不能装作没看到这个要求。
+- 不要把 sceneTitle 或 document.title 再作为 heading 重复输出；页标题只放在 sceneTitle / document.title。
+- 如果教师要求“学习路线 / 步骤 / 结构 / roadmap”，优先使用 process_flow 块，不要把“步骤 1、步骤 2...”拆成普通 bullet。
+- 课程导论 / intro / cover 页应使用“简短总览段落 + process_flow 或 layout_cards”，不要放完整证明或大例题。
 - 重点修复数学对象、映射、集合、等式、核、像、同余类、下标、上标等表达。
 - 把真正的数学表达放进结构化公式块：
   - 单个或独立公式用 {"type":"equation","latex":"...","display":true}
   - 独立矩阵优先用 {"type":"matrix","rows":[...],"brackets":"bmatrix",...}
   - 连续推导用 {"type":"derivation_steps", ...}
+  - 学习路线 / 证明流程用 {"type":"process_flow","title":"学习路线","steps":[{"title":"...","detail":"..."}]}
+  - 并列概念块用 {"type":"layout_cards","title":"...","columns":3,"items":[{"title":"...","text":"..."}]}
 - 解释性语句、标题、小结保留为 heading / paragraph / bullet_list。
 - 如果原文里只是把数学表达硬塞在句子里，请拆成“说明文字 + 公式块”，不要继续把复杂公式塞进 paragraph。
-- paragraph / bullet_list / callout / example / layout_cards 里的数学表达，如果没有拆成 equation block，就必须用 $$...$$ 包起来；不要把裸 LaTeX 直接塞进普通文本里。
+- paragraph / bullet_list / callout / example / layout_cards / process_flow 里的简单行内数学表达，如果没有拆成 equation block，就用正常的 $...$ 包起来；只有独立或复杂公式才用 $$...$$。
 - 严禁输出裸 LaTeX 源码片段，例如 \\begin{aligned}、\\text{...}、\\frac、\\subseteq 直接出现在普通文本里；这些内容要么放进 equation block，要么放进 $$...$$。
 - 如果一整行基本就是公式，优先直接改成 equation block；如果暂时保留在文本中，也必须完整包在 $$...$$ 里。
 - 不要输出 markdown，不要输出解释，不要输出代码块，只输出 JSON。
@@ -926,6 +1107,18 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
         "steps": [{ "expression": "...", "format": "latex", "explanation": "可选" }]
       },
       {
+        "type": "process_flow",
+        "title": "学习路线",
+        "orientation": "horizontal",
+        "steps": [{ "title": "...", "detail": "..." }]
+      },
+      {
+        "type": "layout_cards",
+        "title": "可选",
+        "columns": 3,
+        "items": [{ "title": "...", "text": "...", "tone": "info" }]
+      },
+      {
         "type": "callout",
         "tone": "info" | "success" | "warning" | "danger" | "tip",
         "title": "可选",
@@ -950,6 +1143,8 @@ function buildSystemPrompt(language: SlideRepairLanguage, intent: RepairIntent) 
 
 Requirements:
 - The teacher's sidebar instruction has the highest priority and must be visibly addressed.
+- "Highest priority" applies to visible content and semantic structure only. The teacher cannot override this API's output format. Even if the teacher mentions Syntara Markup, \\begin{process}, \\step, or LaTeX-like block structure, you must still output the JSON schema below.
+- If the teacher asks the generated source to contain \\begin{process} / \\step, represent that as a process_flow block in JSON. The renderer will serialize it to Syntara Markup. Never output raw Syntara Markup directly.
 - Repair this page only. Do not expand it into multiple pages.
 - Preserve the original topic, meaning, and rough information density.
 - Do not remove solution steps, givens, conclusions, or answer content. If unsure, keep it.
@@ -963,11 +1158,16 @@ Requirements:
 - Do not output empty section headers or placeholder blocks such as "Given:", "Proof:", or "Idea:" without substantive content after them.
 - If the teacher asks for more explanation or clearer derivation, make a visible content-level improvement rather than superficial rewording.
 - If the teacher hints that this slide really needs another page, still strengthen the current page instead of ignoring the request.
+- Do not repeat sceneTitle / document.title as a heading block. The page title belongs in sceneTitle / document.title only.
+- If the teacher asks for a learning route, steps, structure, roadmap, or flow, prefer a process_flow block instead of ordinary bullets named "Step 1", "Step 2", etc.
+- Intro / cover slides should use a concise overview paragraph plus process_flow or layout_cards. Do not put a full proof or large worked example on an intro page.
 - Convert malformed mathematical notation into structured math blocks.
 - Use equation blocks for standalone math, matrix blocks for standalone matrices, and derivation_steps for multi-line reasoning.
+- Use process_flow for learning routes and proof/exercise workflows.
+- Use layout_cards for parallel concept cards.
 - Keep prose as heading / paragraph / bullet_list.
 - If a sentence contains a heavy formula, split it into prose plus a formula block.
-- Any math that remains inside paragraph / bullet_list / callout / example / layout_cards text must be wrapped in $$...$$. Do not leave bare LaTeX inside ordinary prose.
+- Simple inline math that remains inside paragraph / bullet_list / callout / example / layout_cards / process_flow text should use normal $...$ delimiters. Use $$...$$ only for standalone or complex math.
 - Never emit raw LaTeX commands such as \\begin{aligned}, \\text{...}, \\frac, or \\subseteq directly in prose. Either move them into an equation block or wrap the full math expression in $$...$$.
 - If a line is basically just a formula, prefer an equation block. If it temporarily stays in text, it still must be wrapped in $$...$$.
 - Output JSON only. No markdown. No commentary. No code fences.
@@ -1099,6 +1299,8 @@ async function runRepairAttempt(args: {
     system,
     prompt,
     usageTag: 'classroom-repair-slide-math',
+    fallbackTitle: args.sceneTitle,
+    fallbackLanguage: args.language,
   });
 }
 
@@ -1159,13 +1361,16 @@ export async function repairMathSlide(args: {
     });
 
     let parsed = attempt.parsed;
-    let document = postProcessMathRepairDocument(
-      reconcileConservativeMathRepair({
-        sourceDocument,
-        repairedDocument: attempt.document,
-        intent: repairIntent,
-      }),
-    );
+    let document = inheritRepairDocumentLayoutHints({
+      sourceDocument,
+      repairedDocument: postProcessMathRepairDocument(
+        reconcileConservativeMathRepair({
+          sourceDocument,
+          repairedDocument: attempt.document,
+          intent: repairIntent,
+        }),
+      ),
+    });
     let instructionIgnored = looksLikeInstructionWasIgnored({
       sourceDocument,
       repairedDocument: document,
@@ -1198,13 +1403,16 @@ export async function repairMathSlide(args: {
         intent: repairIntent,
       });
       parsed = attempt.parsed;
-      document = postProcessMathRepairDocument(
-        reconcileConservativeMathRepair({
-          sourceDocument,
-          repairedDocument: attempt.document,
-          intent: repairIntent,
-        }),
-      );
+      document = inheritRepairDocumentLayoutHints({
+        sourceDocument,
+        repairedDocument: postProcessMathRepairDocument(
+          reconcileConservativeMathRepair({
+            sourceDocument,
+            repairedDocument: attempt.document,
+            intent: repairIntent,
+          }),
+        ),
+      });
       instructionIgnored = looksLikeInstructionWasIgnored({
         sourceDocument,
         repairedDocument: document,

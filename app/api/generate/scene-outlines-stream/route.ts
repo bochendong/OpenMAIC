@@ -15,6 +15,7 @@ import { NextRequest } from 'next/server';
 import { callLLM, streamLLM } from '@/lib/ai/llm';
 import { buildPrompt, PROMPT_IDS } from '@/lib/generation/prompts';
 import { normalizeSceneOutlineContentProfile } from '@/lib/generation/content-profile';
+import { normalizeOutlineStructure } from '@/lib/generation/outline-structure';
 import {
   formatImageDescription,
   formatImagePlaceholder,
@@ -57,7 +58,8 @@ function buildOrchestratorPreferencesBlock(
   const exampleLevel: OrchestratorWorkedExampleLevel = prefs.workedExampleLevel ?? 'moderate';
 
   const lengthZh: Record<OrchestratorOutlineLength, string> = {
-    minimal: '**篇幅**：极简——总场景数（与幻灯页数大致对应）宜在 **5 个以下**，只保留最核心的成课骨架。',
+    minimal:
+      '**篇幅**：极简——总场景数（与幻灯页数大致对应）宜在 **5 个以下**，只保留最核心的成课骨架。',
     compact: '**篇幅**：简短——总场景数（与幻灯页数大致对应）宜在 **10 个以下**，紧凑成课。',
     standard: '**篇幅**：中等——总场景数（与幻灯页数大致对应）宜在 **约 10–20 个** 范围内。',
     extended: '**篇幅**：深入——总场景数（与幻灯页数大致对应）宜 **超过 20 个**，可分阶段展开。',
@@ -93,10 +95,10 @@ function buildOrchestratorPreferencesBlock(
   };
 
   const quizZh = prefs.includeQuizScenes
-    ? '**测验与题目**：请在合适位置安排若干 `quiz` 场景，用于练习与自测；讲题与例题仍以 `slide` 为主。'
+    ? '**测验与题目**：允许在每个主要知识点结束后安排一个轻量 `quiz` 场景作为即时检查；每个 quiz 通常 1–2 题即可。讲题与例题仍以 `slide` 为主，不要生成多个同主题 quiz 变体，也不要把 quiz 集中堆在结尾。'
     : '**测验与题目**：不要规划独立的 `quiz` 类型场景；知识点以 `slide`（及必要的 `interactive`）呈现，尽量不安排测验页。';
   const quizEn = prefs.includeQuizScenes
-    ? '**Quizzes**: Include several `quiz` scenes for practice/self-check; keep worked teaching mainly on `slide`.'
+    ? '**Quizzes**: You may add a lightweight `quiz` scene after each major knowledge point as an immediate check; keep each quiz to about 1-2 questions. Keep worked teaching on `slide`, do not create multiple same-topic quiz variants, and do not cluster all quizzes at the end.'
     : '**Quizzes**: Do **not** plan standalone `quiz` scenes; teach with `slide` (and `interactive` when helpful), avoid quiz pages.';
 
   const title =
@@ -548,7 +550,9 @@ export async function POST(req: NextRequest) {
 
           if (parsedOutlines.length > 0) {
             // Replace sequential gen_img_N/gen_vid_N with globally unique IDs
-            const uniquifiedOutlines = uniquifyMediaElementIds(parsedOutlines);
+            const uniquifiedOutlines = uniquifyMediaElementIds(
+              normalizeOutlineStructure(parsedOutlines),
+            );
             // Send done event with all outlines
             const doneEvent = JSON.stringify({
               type: 'done',

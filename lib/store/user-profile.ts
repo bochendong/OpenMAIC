@@ -17,10 +17,20 @@ import {
   isValidNotificationBarStageId,
 } from '@/lib/notifications/notification-bar-stage-ids';
 import type { NotificationCardStyleChoice } from '@/lib/notifications/card-theme';
+import {
+  DEFAULT_SLIDE_BACKGROUND_STYLE_ID,
+  isValidSlideBackgroundStyleId,
+  type SlideBackgroundStyleId,
+} from '@/lib/constants/slide-backgrounds';
 
 function isValidNotificationStyleChoice(v: unknown): v is NotificationCardStyleChoice {
   return (
-    v === 'auto' || v === 'green' || v === 'blue' || v === 'yellow' || v === 'purple' || v === 'pink'
+    v === 'auto' ||
+    v === 'green' ||
+    v === 'blue' ||
+    v === 'yellow' ||
+    v === 'purple' ||
+    v === 'pink'
   );
 }
 
@@ -49,12 +59,15 @@ export interface UserProfileState {
   avatarFrameId: UserAvatarFrameId;
   /** 课程工作区左侧栏背景动效；`default` 为仅顶部径向光晕、无 WebGL */
   leftRailBarStageId: LeftRailBarStageChoice;
+  /** 幻灯片默认背景款式；用于覆盖未设置专属背景的纯色幻灯片 */
+  slideBackgroundStyleId: SlideBackgroundStyleId;
   setAvatar: (avatar: string) => void;
   setNickname: (nickname: string) => void;
   setBio: (bio: string) => void;
   setNotificationCardStyle: (choice: NotificationCardStyleChoice) => void;
   setNotificationBarStageId: (id: NotificationBarStageId) => void;
   setLeftRailBarStageId: (id: LeftRailBarStageChoice) => void;
+  setSlideBackgroundStyleId: (id: SlideBackgroundStyleId) => void;
   setAvatarFrameId: (id: UserAvatarFrameId) => void;
 }
 
@@ -67,6 +80,7 @@ export const useUserProfileStore = create<UserProfileState>()(
       notificationCardStyle: 'auto',
       notificationBarStageId: 'soft-aurora',
       leftRailBarStageId: 'default',
+      slideBackgroundStyleId: DEFAULT_SLIDE_BACKGROUND_STYLE_ID,
       avatarFrameId: DEFAULT_USER_AVATAR_FRAME_ID,
       setAvatar: (avatar) => set({ avatar }),
       setNickname: (nickname) => set({ nickname }),
@@ -88,6 +102,12 @@ export const useUserProfileStore = create<UserProfileState>()(
           isValidLeftRailBarStageChoice(id)
             ? { leftRailBarStageId: id }
             : { leftRailBarStageId: 'default' },
+        ),
+      setSlideBackgroundStyleId: (id) =>
+        set(
+          isValidSlideBackgroundStyleId(id)
+            ? { slideBackgroundStyleId: id }
+            : { slideBackgroundStyleId: DEFAULT_SLIDE_BACKGROUND_STYLE_ID },
         ),
       setAvatarFrameId: (id) =>
         set(
@@ -111,6 +131,9 @@ export const useUserProfileStore = create<UserProfileState>()(
         }
         if (!isValidLeftRailBarStageChoice((next as UserProfileState).leftRailBarStageId)) {
           (next as UserProfileState).leftRailBarStageId = 'default';
+        }
+        if (!isValidSlideBackgroundStyleId((next as UserProfileState).slideBackgroundStyleId)) {
+          (next as UserProfileState).slideBackgroundStyleId = DEFAULT_SLIDE_BACKGROUND_STYLE_ID;
         }
         if (!isValidUserAvatarFrameId((next as UserProfileState).avatarFrameId)) {
           (next as UserProfileState).avatarFrameId = DEFAULT_USER_AVATAR_FRAME_ID;

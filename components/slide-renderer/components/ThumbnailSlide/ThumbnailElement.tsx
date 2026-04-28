@@ -6,6 +6,7 @@ import { BaseTextElement } from '../element/TextElement/BaseTextElement';
 import { BaseLineElement } from '../element/LineElement/BaseLineElement';
 import { BaseChartElement } from '../element/ChartElement/BaseChartElement';
 import { BaseLatexElement } from '../element/LatexElement/BaseLatexElement';
+import { BaseShapeElement } from '../element/ShapeElement/BaseShapeElement';
 import { BaseTableElement } from '../element/TableElement/BaseTableElement';
 import { BaseVideoElement } from '../element/VideoElement/BaseVideoElement';
 
@@ -25,6 +26,7 @@ export function ThumbnailElement({ elementInfo, elementIndex }: ThumbnailElement
     const elementTypeMap: Record<string, any> = {
       [ElementTypes.IMAGE]: BaseImageElement,
       [ElementTypes.TEXT]: BaseTextElement,
+      [ElementTypes.SHAPE]: BaseShapeElement,
       [ElementTypes.LINE]: BaseLineElement,
       [ElementTypes.CHART]: BaseChartElement,
       [ElementTypes.LATEX]: BaseLatexElement,

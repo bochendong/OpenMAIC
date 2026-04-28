@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
 import { parseJsonResponse } from '@/lib/generation/json-repair';
 import {
+  compileSyntaraMarkupToNotebookDocument,
+  extractSyntaraMarkup,
   parseNotebookContentDocument,
   type NotebookContentDocument,
   type NotebookContentProfile,
@@ -354,8 +356,8 @@ function summarizeBlockForComparison(block: NotebookContentDocument['blocks'][nu
         block.answer || '',
         ...block.pitfalls,
       ];
-      case 'layout_cards':
-        return [block.title || '', ...block.items.flatMap((item) => [item.title, item.text])];
+    case 'layout_cards':
+      return [block.title || '', ...block.items.flatMap((item) => [item.title, item.text])];
     case 'chem_formula':
       return [block.caption || '', block.formula];
     case 'chem_equation':
@@ -418,11 +420,43 @@ export function repairOutputHasUnexpectedCjk(
   return CJK_TEXT_REGEX.test(text);
 }
 
+function collectSyntaraTextCandidates(value: unknown, depth = 0): string[] {
+  if (depth > 3 || value == null) return [];
+  if (typeof value === 'string') return [value];
+  if (typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const directKeys = ['syntaraMarkup', 'markup', 'source', 'content', 'text'];
+  const direct = directKeys.flatMap((key) => collectSyntaraTextCandidates(record[key], depth + 1));
+  const nested = ['document', 'scene', 'slide'].flatMap((key) =>
+    collectSyntaraTextCandidates(record[key], depth + 1),
+  );
+  return [...direct, ...nested];
+}
+
+function extractRepairSyntaraMarkup(value: unknown): string | null {
+  const candidates = collectSyntaraTextCandidates(value);
+  for (const candidate of candidates) {
+    const variants = [
+      candidate,
+      candidate.replace(/\\n/g, '\n'),
+      candidate.replace(/\\\\/g, '\\').replace(/\\n/g, '\n'),
+    ];
+    for (const variant of variants) {
+      const markup = extractSyntaraMarkup(variant);
+      if (markup) return markup;
+    }
+  }
+  return null;
+}
+
 export async function runSlideRepairAttempt(args: {
   req: NextRequest;
   system: string;
   prompt: string;
   usageTag: string;
+  fallbackTitle?: string;
+  fallbackLanguage?: SlideRepairLanguage;
 }) {
   const { model, modelInfo, modelString } = await resolveModelFromHeaders(args.req);
 
@@ -438,11 +472,51 @@ export async function runSlideRepairAttempt(args: {
 
   const parsed = parseJsonResponse<RepairResponsePayload>(result.text);
   if (!parsed) {
+    const syntaraMarkup = extractRepairSyntaraMarkup(result.text);
+    const syntaraDocument = syntaraMarkup
+      ? compileSyntaraMarkupToNotebookDocument(syntaraMarkup, {
+          title: args.fallbackTitle,
+          language: args.fallbackLanguage,
+        })
+      : null;
+    if (syntaraDocument) {
+      return {
+        modelString,
+        parsed: {
+          sceneTitle: syntaraDocument.title || args.fallbackTitle,
+          assistantReply: '',
+          document: syntaraDocument,
+        } satisfies RepairResponsePayload,
+        document: syntaraDocument,
+      };
+    }
+
     throw new Error('Failed to parse repaired slide response');
   }
 
   const document = parseNotebookContentDocument(parsed.document);
   if (!document) {
+    const syntaraMarkup =
+      extractRepairSyntaraMarkup(parsed.document) ||
+      extractRepairSyntaraMarkup(parsed) ||
+      extractRepairSyntaraMarkup(result.text);
+    const syntaraDocument = syntaraMarkup
+      ? compileSyntaraMarkupToNotebookDocument(syntaraMarkup, {
+          title: parsed.sceneTitle || args.fallbackTitle,
+          language: args.fallbackLanguage,
+        })
+      : null;
+    if (syntaraDocument) {
+      return {
+        modelString,
+        parsed: {
+          ...parsed,
+          sceneTitle: parsed.sceneTitle || syntaraDocument.title || args.fallbackTitle,
+          document: syntaraDocument,
+        },
+        document: syntaraDocument,
+      };
+    }
     throw new Error('Model did not return a valid notebook content document');
   }
 

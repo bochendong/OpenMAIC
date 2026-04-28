@@ -13,6 +13,7 @@ import { retryMediaTask } from '@/lib/media/media-orchestrator';
 import { RotateCcw, Paintbrush, ShieldAlert, ImageOff, ImageIcon } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { mediaPlaceholderUi } from '../media-placeholder-ui';
+import { academyPaperBackground, academyPaperTheme } from '../academyPaperTheme';
 
 export interface BaseImageElementProps {
   elementInfo: PPTImageElement;
@@ -49,9 +50,14 @@ export function BaseImageElement({ elementInfo }: BaseImageElementProps) {
         ? ''
         : elementInfo.src;
   const showDisabled = isPlaceholder && !task && !imageGenerationEnabled;
-  const showSkeleton = isPlaceholder && !showDisabled && !!task && task.status !== 'done' && task.status !== 'failed';
+  const showSkeleton =
+    isPlaceholder && !showDisabled && !!task && task.status !== 'done' && task.status !== 'failed';
   const showError = isPlaceholder && task?.status === 'failed';
   const showIdle = isPlaceholder && !showDisabled && !showSkeleton && !showError && !resolvedSrc;
+  const isFullSlideImage = elementInfo.width >= 1500 && elementInfo.height >= 840;
+  const usePaperFrame =
+    !isFullSlideImage &&
+    (isPlaceholder || Boolean(elementInfo.outline) || elementInfo.width <= 620);
 
   return (
     <div
@@ -67,6 +73,12 @@ export function BaseImageElement({ elementInfo }: BaseImageElementProps) {
         <div
           className="w-full h-full relative"
           style={{
+            background: usePaperFrame
+              ? academyPaperBackground(academyPaperTheme.primary)
+              : undefined,
+            border: usePaperFrame ? `1px solid ${academyPaperTheme.cardBorder}` : undefined,
+            borderRadius: usePaperFrame ? 18 : undefined,
+            boxShadow: usePaperFrame && !shadowStyle ? academyPaperTheme.quietShadow : undefined,
             filter: shadowStyle ? `drop-shadow(${shadowStyle})` : '',
             transform: flipStyle,
           }}
@@ -75,7 +87,10 @@ export function BaseImageElement({ elementInfo }: BaseImageElementProps) {
 
           <div
             className="w-full h-full overflow-hidden relative"
-            style={{ clipPath: clipShape.style }}
+            style={{
+              clipPath: clipShape.style,
+              borderRadius: usePaperFrame ? 17 : undefined,
+            }}
           >
             {showDisabled ? (
               <div className={mediaPlaceholderUi.disabledWrap}>

@@ -65,6 +65,7 @@ export {
 export {
   compileSyntaraMarkupToNotebookDocument,
   extractSyntaraMarkup,
+  normalizeSyntaraMarkupLayout,
   parseSyntaraMarkup,
 } from './markup';
 export {
@@ -84,6 +85,7 @@ export {
 } from './slide-adapter';
 export {
   shouldLockNotebookSemanticLayout,
+  SEMANTIC_WEB_LONG_PAGE_MODE,
   measureNotebookSemanticLayout,
   paginateNotebookSemanticLayout,
   renderNotebookSemanticPages,

@@ -16,7 +16,10 @@ import {
   resolveRewriteOutline,
   resolveSlideRepairProfile,
 } from '@/components/stage/stage-helpers';
-import type { SlideEditTab, SlideEditorSidebarTab } from '@/components/stage/stage-toolbar-controls';
+import type {
+  SlideEditTab,
+  SlideEditorSidebarTab,
+} from '@/components/stage/stage-toolbar-controls';
 
 export function useSlideRepair({
   currentScene,
@@ -174,10 +177,7 @@ export function useSlideRepair({
           language: rewriteLanguage,
           content: currentScene.content,
           repairInstructions: userMessageContent,
-          repairConversation: [
-            ...repairConversation,
-            { role: 'user' as const, content: userMessageContent },
-          ],
+          repairConversation: [{ role: 'user' as const, content: userMessageContent }],
         }),
       });
 
@@ -271,7 +271,6 @@ export function useSlideRepair({
   }, [
     currentScene,
     outlines,
-    repairConversation,
     repairInstructions,
     setOutlines,
     slideRepairPending,

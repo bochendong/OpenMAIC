@@ -127,10 +127,10 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
   const railDividers = (() => {
     if (onDefaultWhite) {
       return {
-        edge: 'border-slate-300/90',
-        b: 'border-b border-slate-300/85',
-        t: 'border-t border-slate-300/85',
-        headerRule: 'bg-slate-300/85',
+        edge: 'border-muted/40',
+        b: 'border-b border-border/60',
+        t: 'border-t border-border/60',
+        headerRule: 'bg-border/60',
       };
     }
     if (onLightRail && isLeftRailSolidColor) {
@@ -166,7 +166,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
             : 'shadow-[0_20px_50px_rgba(0,0,0,0.5),0_0_0_1px_rgba(255,255,255,0.04)_inset]',
         )
       : onDefaultWhite
-        ? 'bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_12px_40px_rgba(15,23,42,0.1)]'
+        ? 'bg-[linear-gradient(180deg,rgba(239,244,252,0.86),rgba(248,250,252,0.76))] shadow-xl backdrop-blur-xl'
         : 'bg-[linear-gradient(180deg,rgba(16,16,20,0.98),rgba(5,5,5,0.98))] shadow-[0_20px_50px_rgba(0,0,0,0.55),0_0_0_1px_rgba(255,255,255,0.04)_inset]',
     railDividers.edge,
     'transition-[width,box-shadow,background,border-color] duration-300 ease-[cubic-bezier(0.25,0.46,0.45,0.94)]',
@@ -322,7 +322,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                   className={cn(
                     'relative w-full rounded-[18px] border p-3 shadow-sm backdrop-blur-md',
                     onLightRail
-                      ? 'border-slate-200/70 bg-white/60 shadow-slate-950/[0.035]'
+                      ? 'border-border/60 bg-card/70 shadow-slate-950/[0.035]'
                       : 'border-white/10 bg-white/[0.055] shadow-black/15',
                   )}
                 >
@@ -459,7 +459,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                         className={cn(
                           'inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 py-1.5',
                           onLightRail
-                            ? 'border-slate-200/80 bg-white/48'
+                            ? 'border-border/60 bg-background/55'
                             : 'border-white/10 bg-black/12',
                         )}
                       >
@@ -481,7 +481,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                         className={cn(
                           'inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 py-1.5',
                           onLightRail
-                            ? 'border-slate-200/80 bg-white/48'
+                            ? 'border-border/60 bg-background/55'
                             : 'border-white/10 bg-black/12',
                         )}
                       >
@@ -501,7 +501,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                         className={cn(
                           'inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full border px-2 py-1.5',
                           onLightRail
-                            ? 'border-slate-200/80 bg-white/48'
+                            ? 'border-border/60 bg-background/55'
                             : 'border-white/10 bg-black/12',
                         )}
                       >
@@ -717,7 +717,7 @@ export function AppLeftRail({ collapsed, onCollapsedChange }: AppLeftRailProps) 
                     className={cn(
                       'ml-auto flex w-fit items-center gap-0.5 rounded-full border p-1 backdrop-blur-md',
                       onLightRail
-                        ? 'border-slate-200/80 bg-white/56 shadow-sm shadow-slate-950/[0.03]'
+                        ? 'border-border/60 bg-card/70 shadow-sm shadow-slate-950/[0.03]'
                         : 'border-white/10 bg-white/[0.055] shadow-sm shadow-black/20',
                     )}
                   >

@@ -24,6 +24,7 @@ type MarkupNode =
       name: string;
       attrs: Record<string, string>;
       args: string[];
+      raw: string;
     }
   | {
       type: 'text';
@@ -31,6 +32,19 @@ type MarkupNode =
     };
 
 type ParseResult<T> = { value: T; index: number };
+
+function hasInlineMathDelimiter(text: string): boolean {
+  return /(?<!\\)\$[^$\n]+(?<!\\)\$|\\\(|\\\[/.test(text);
+}
+
+function shouldTreatDerivationExpressionAsText(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  if (hasInlineMathDelimiter(value) && /[\u3400-\u9fff]|[，。！？；]/.test(value)) return true;
+  return (
+    /[\u3400-\u9fff]/.test(value) && !/^\\(?:begin|left|frac|dfrac|sqrt|sum|int)\b/.test(value)
+  );
+}
 
 const TEMPLATE_VALUES = new Set<NotebookContentLayoutTemplate>([
   'cover_hero',
@@ -87,6 +101,15 @@ const COMMAND_ARG_COUNTS: Record<string, number> = {
   example: 2,
   step: 2,
 };
+
+const SYNTARA_COMMAND_ESCAPE_PATTERN = new RegExp(
+  String.raw`\\\\(?=(?:begin|end|${Object.keys(COMMAND_ARG_COUNTS).join('|')})\b)`,
+  'g',
+);
+
+function normalizeSyntaraCommandEscapes(source: string): string {
+  return source.includes('\\\\') ? source.replace(SYNTARA_COMMAND_ESCAPE_PATTERN, '\\') : source;
+}
 
 function skipWhitespace(source: string, index: number): number {
   let i = index;
@@ -194,7 +217,7 @@ function parseCommand(source: string, index: number): ParseResult<MarkupNode> | 
 
   if (argCount > 0 && args.length === 0) return null;
   return {
-    value: { type: 'command', name, attrs: attrResult.value, args },
+    value: { type: 'command', name, attrs: attrResult.value, args, raw: source.slice(index, i) },
     index: i,
   };
 }
@@ -312,6 +335,82 @@ function parseTableBlock(node: Extract<MarkupNode, { type: 'command' }>): Notebo
   ];
 }
 
+function splitDetachedMathLines(text: string): { text: string; equations: string[] } {
+  const proseLines: string[] = [];
+  const equations: string[] = [];
+
+  for (const line of text.split(/\n+/)) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const commandCount = (trimmed.match(/\\{1,2}[a-zA-Z]+/g) || []).length;
+    const looksLikeDetachedMath =
+      commandCount >= 2 &&
+      (/\\{1,2}(to|forall|exists|in|subseteq|Rightarrow|land|begin|end|qquad)/.test(trimmed) ||
+        /^[A-Za-z0-9_{}\\()[\],.:;+\-=\s^!]+$/.test(trimmed));
+
+    if (looksLikeDetachedMath) {
+      equations.push(normalizeMathSource(trimmed.replace(/^\\\[/, '').replace(/\\\]$/, '')));
+    } else {
+      proseLines.push(trimmed);
+    }
+  }
+
+  return {
+    text: proseLines.join('\n'),
+    equations,
+  };
+}
+
+function stripEmptyDisplayMath(text: string): string {
+  return text
+    .replace(/^\s*\\{1,2}\[\s*\\{1,2}\]\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function normalizeFormulaLatex(text: string): string {
+  return normalizeMathSource(text)
+    .replace(/(?:\\{2,}|\s*\\)\s*$/g, '')
+    .replace(/\s+$/g, '')
+    .trim();
+}
+
+function formulaCommandToBlocks(text: string): NotebookContentBlock[] {
+  const normalizedDelimiters = text.replace(/\\\\(?=[()[\]])/g, '\\').trim();
+  const containsProse = /[\u3400-\u9fff]|[。！？；：]/.test(normalizedDelimiters);
+  const containsInlineDelimiter = /\\\(|\\\[|\$\$?/.test(normalizedDelimiters);
+  const textOnly = normalizedDelimiters.match(/^\\qquad\\text\{([^{}]+)\}\\qquad$/);
+
+  if (textOnly?.[1]) {
+    return [{ type: 'paragraph', text: textOnly[1].trim() }];
+  }
+
+  if (containsProse && containsInlineDelimiter) {
+    return [{ type: 'paragraph', text: normalizedDelimiters }];
+  }
+
+  const latex = normalizeFormulaLatex(text);
+  return latex ? [{ type: 'equation', latex, display: true }] : [];
+}
+
+function textBlockWithDetachedEquations(
+  block: Extract<NotebookContentBlock, { type: 'definition' | 'theorem' }>,
+  text: string,
+): NotebookContentBlock[] {
+  const split = splitDetachedMathLines(stripEmptyDisplayMath(text));
+  const result: NotebookContentBlock[] = split.text ? [{ ...block, text: split.text }] : [];
+  result.push(
+    ...split.equations.map(
+      (latex): NotebookContentBlock => ({
+        type: 'equation',
+        latex,
+        display: true,
+      }),
+    ),
+  );
+  return result;
+}
+
 function commandToBlock(node: Extract<MarkupNode, { type: 'command' }>): NotebookContentBlock[] {
   const [first = '', second = ''] = node.args;
   switch (node.name) {
@@ -322,7 +421,7 @@ function commandToBlock(node: Extract<MarkupNode, { type: 'command' }>): Noteboo
     case 'bullet':
       return first ? [{ type: 'bullet_list', items: [first] }] : [];
     case 'formula':
-      return first ? [{ type: 'equation', latex: normalizeMathSource(first), display: true }] : [];
+      return first ? formulaCommandToBlocks(first) : [];
     case 'code':
       return first
         ? [
@@ -355,9 +454,13 @@ function commandToBlock(node: Extract<MarkupNode, { type: 'command' }>): Noteboo
           ]
         : [];
     case 'definition':
-      return second ? [{ type: 'definition', title: first, text: second }] : [];
+      return second
+        ? textBlockWithDetachedEquations({ type: 'definition', title: first, text: second }, second)
+        : [];
     case 'theorem':
-      return second ? [{ type: 'theorem', title: first, text: second }] : [];
+      return second
+        ? textBlockWithDetachedEquations({ type: 'theorem', title: first, text: second }, second)
+        : [];
     case 'callout':
     case 'note':
     case 'summary':
@@ -483,11 +586,15 @@ function derivationEnvironmentToBlock(
       (child): child is Extract<MarkupNode, { type: 'command' }> =>
         child.type === 'command' && child.name === 'step',
     )
-    .map((step) => ({
-      explanation: step.args[0] || undefined,
-      expression: normalizeMathSource(step.args[1] || step.args[0] || ''),
-      format: 'latex' as const,
-    }))
+    .map((step) => {
+      const expression = step.args[1] || step.args[0] || '';
+      const isTextExpression = shouldTreatDerivationExpressionAsText(expression);
+      return {
+        explanation: step.args[0] || undefined,
+        expression: isTextExpression ? expression : normalizeMathSource(expression),
+        format: isTextExpression ? ('text' as const) : ('latex' as const),
+      };
+    })
     .filter((step) => step.expression);
 
   return {
@@ -539,6 +646,149 @@ function validLanguage(value: string | undefined): NotebookContentLanguage {
     : 'zh-CN';
 }
 
+function escapeMarkupAttr(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('{', '\\{').replaceAll('}', '\\}');
+}
+
+function stringifyAttrs(attrs: Record<string, string>): string {
+  const entries = Object.entries(attrs).filter(([, value]) => value !== undefined);
+  if (!entries.length) return '';
+  return `[${entries
+    .map(([key, value]) => {
+      if (value === 'true') return key;
+      const needsBraces = /[\s,{}[\]\\]/.test(value);
+      return `${key}=${needsBraces ? `{${escapeMarkupAttr(value)}}` : value}`;
+    })
+    .join(',')}]`;
+}
+
+function stringifyMarkupNodes(nodes: MarkupNode[], indent = ''): string {
+  return nodes
+    .map((node) => {
+      if (node.type === 'text') return node.value.trim();
+      if (node.type === 'command') return node.raw;
+      return stringifyEnvironment(node, indent);
+    })
+    .filter((value) => value.trim())
+    .join('\n');
+}
+
+function stringifyEnvironment(
+  node: Extract<MarkupNode, { type: 'environment' }>,
+  indent = '',
+): string {
+  const body = stringifyMarkupNodes(node.children, `${indent}  `);
+  return [
+    `${indent}\\begin{${node.name}}${stringifyAttrs(node.attrs)}`,
+    body
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line) => `${indent}  ${line.trim()}`)
+      .join('\n'),
+    `${indent}\\end{${node.name}}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function getLayoutSlotBlock(
+  nodes: MarkupNode[],
+  slotId: string,
+): Extract<MarkupNode, { type: 'environment' }> | null {
+  return (
+    nodes.find(
+      (node): node is Extract<MarkupNode, { type: 'environment' }> =>
+        node.type === 'environment' &&
+        node.name === 'block' &&
+        (node.attrs.slot || node.attrs.name || node.attrs.title) === slotId,
+    ) ?? null
+  );
+}
+
+function nodeIsLayoutSlotBlock(node: MarkupNode, slotIds: Set<string>): boolean {
+  if (node.type !== 'environment' || node.name !== 'block') return false;
+  const slotId = node.attrs.slot || node.attrs.name || node.attrs.title;
+  return Boolean(slotId && slotIds.has(slotId));
+}
+
+function canonicalizeLegacySlotBlocks(
+  slide: Extract<MarkupNode, { type: 'environment' }>,
+): Extract<MarkupNode, { type: 'environment' }> | null {
+  const template = validTemplate(slide.attrs.template);
+  if (!template) return null;
+  if (firstEnvironment(slide.children, 'columns') || firstEnvironment(slide.children, 'grid')) {
+    return null;
+  }
+
+  if (template === 'two_column') {
+    const left = getLayoutSlotBlock(slide.children, 'left');
+    const right = getLayoutSlotBlock(slide.children, 'right');
+    if (!left || !right) return null;
+    const slotIds = new Set(['left', 'right']);
+    const layoutNode: MarkupNode = {
+      type: 'environment',
+      name: 'columns',
+      attrs: {},
+      raw: '',
+      children: [
+        {
+          type: 'environment',
+          name: 'column',
+          attrs: { name: 'left' },
+          children: left.children,
+          raw: '',
+        },
+        {
+          type: 'environment',
+          name: 'column',
+          attrs: { name: 'right' },
+          children: right.children,
+          raw: '',
+        },
+      ],
+    };
+    return {
+      ...slide,
+      children: [
+        ...slide.children.filter((node) => !nodeIsLayoutSlotBlock(node, slotIds)),
+        layoutNode,
+      ],
+    };
+  }
+
+  if (template === 'three_cards' || template === 'four_grid') {
+    const ids =
+      template === 'four_grid'
+        ? ['card_1', 'card_2', 'card_3', 'card_4']
+        : ['card_1', 'card_2', 'card_3'];
+    const slotBlocks = ids.map((id) => getLayoutSlotBlock(slide.children, id));
+    if (slotBlocks.some((block) => !block)) return null;
+    const slotIds = new Set(ids);
+    const layoutNode: MarkupNode = {
+      type: 'environment',
+      name: 'grid',
+      attrs: {},
+      raw: '',
+      children: ids.map((id, index) => ({
+        type: 'environment',
+        name: 'cell',
+        attrs: { name: id },
+        children: slotBlocks[index]?.children || [],
+        raw: '',
+      })),
+    };
+    return {
+      ...slide,
+      children: [
+        ...slide.children.filter((node) => !nodeIsLayoutSlotBlock(node, slotIds)),
+        layoutNode,
+      ],
+    };
+  }
+
+  return null;
+}
+
 function makeSlot(
   slotId: string,
   blocks: NotebookContentBlock[],
@@ -560,6 +810,28 @@ function slotsFromColumns(
         index,
       ),
     )
+    .filter((slot): slot is NotebookContentSlot => Boolean(slot));
+}
+
+function slotsFromNamedBlocks(
+  nodes: MarkupNode[],
+  template: NotebookContentLayoutTemplate | undefined,
+): NotebookContentSlot[] {
+  if (!template) return [];
+  const spec = getSlotTemplateSpec(template);
+  if (!spec) return [];
+  const allowedSlotIds = new Set(spec.slots.map((slot) => slot.slotId));
+  const blockNodes = nodes.filter(
+    (node): node is Extract<MarkupNode, { type: 'environment' }> =>
+      node.type === 'environment' && node.name === 'block',
+  );
+
+  return blockNodes
+    .map((block, index) => {
+      const slotId = block.attrs.slot || block.attrs.name || block.attrs.title;
+      if (!slotId || !allowedSlotIds.has(slotId)) return null;
+      return makeSlot(slotId, nodesToBlocks(block.children), index);
+    })
     .filter((slot): slot is NotebookContentSlot => Boolean(slot));
 }
 
@@ -598,6 +870,11 @@ function inferDocumentLayout(
         slots,
       };
     }
+  }
+
+  const namedBlockSlots = slotsFromNamedBlocks(slide.children, explicitTemplate);
+  if (namedBlockSlots.length >= 2) {
+    return { layoutTemplate: explicitTemplate, slots: namedBlockSlots };
   }
 
   if (rows) {
@@ -650,14 +927,15 @@ function inferDocumentLayout(
 
 export function parseSyntaraMarkup(markup: string): MarkupNode | null {
   try {
-    const nodes = parseNodes(markup).value;
+    const normalizedMarkup = normalizeSyntaraCommandEscapes(markup);
+    const nodes = parseNodes(normalizedMarkup).value;
     return (
       firstEnvironment(nodes, 'slide') ?? {
         type: 'environment',
         name: 'slide',
         attrs: {},
         children: nodes,
-        raw: markup,
+        raw: normalizedMarkup,
       }
     );
   } catch {
@@ -665,18 +943,33 @@ export function parseSyntaraMarkup(markup: string): MarkupNode | null {
   }
 }
 
+export function normalizeSyntaraMarkupLayout(markup: string): string {
+  const normalizedMarkup = normalizeSyntaraCommandEscapes(markup);
+  const slide = parseSyntaraMarkup(normalizedMarkup);
+  if (!slide || slide.type !== 'environment') return markup;
+  const canonicalSlide = canonicalizeLegacySlotBlocks(slide);
+  return canonicalSlide ? stringifyEnvironment(canonicalSlide) : normalizedMarkup.trim();
+}
+
 export function compileSyntaraMarkupToNotebookDocument(
   markup: string,
   defaults: Partial<Pick<NotebookContentDocument, 'language' | 'title'>> = {},
 ): NotebookContentDocument | null {
-  const slide = parseSyntaraMarkup(markup);
+  const slide = parseSyntaraMarkup(normalizeSyntaraMarkupLayout(markup));
   if (!slide || slide.type !== 'environment') return null;
 
   const blocks = nodesToBlocks(slide.children);
   if (!blocks.length) return null;
 
   const layout = inferDocumentLayout(slide, blocks);
-  const template = layout.layoutTemplate;
+  const hasDefinition = blocks.some(
+    (block) => block.type === 'definition' || block.type === 'theorem',
+  );
+  const hasFormula = blocks.some((block) => block.type === 'equation' || block.type === 'matrix');
+  const template =
+    layout.layoutTemplate === 'title_content' && hasDefinition && hasFormula
+      ? 'definition_board'
+      : layout.layoutTemplate;
   const spec = template ? getSlotTemplateSpec(template) : undefined;
   const slots = spec
     ? layout.slots?.filter((slot) => spec.slots.some((slotSpec) => slotSpec.slotId === slot.slotId))

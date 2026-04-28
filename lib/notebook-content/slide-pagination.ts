@@ -143,7 +143,7 @@ function getLayoutFamilyBlockBudget(
 ): number | null {
   switch (family) {
     case 'problem_statement':
-      return 2;
+      return 5;
     case 'formula_focus':
     case 'visual_split':
       return 4;

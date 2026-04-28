@@ -75,6 +75,14 @@ By default:
 - teacher-led example / problem explanation scenes should be added mainly for university-oriented courses, or when the user explicitly asks for exercises, exam prep, proving, tracing, coding practice, or problem solving
 - quiz scenes are for student practice/self-check, and are different from teacher-led example explanation scenes
 
+### Structural Guardrails
+
+- Follow a clear teaching spine: intro / roadmap -> concept block -> lightweight quiz/self-check -> next concept block -> lightweight quiz/self-check -> final summary.
+- The final summary must be the last scene. Do not place examples, new concepts, quizzes, or continuation teaching after a summary/recap scene.
+- Do not create repeated title/theme pages. If two scenes would have the same title or teaching job, merge them into one stronger outline.
+- A quiz should close the knowledge point that immediately precedes it. Keep each quiz small, usually 1-2 questions, and do not create multiple same-topic quiz variants.
+- Section recaps are allowed only when they introduce no new teaching and do not look like the final summary.
+
 ### Special Notes
 
 1. **quiz scenes must include quizConfig**:
@@ -103,9 +111,9 @@ By default:
 7. **Worked examples and question explanation**:
    - Mainly add these for university-oriented courses or when the user explicitly asks for them.
    - Use `slide` scenes with `workedExampleConfig` for teacher-led example explanation.
-   - The first scene of an example sequence should usually be a `problem_statement` scene that clearly shows the question before solving it.
+   - Each worked example should be a single coherent page that clearly shows the question before solving it.
    - The example must contain a concrete original problem. If the source does not provide one, create a representative self-contained problem with actual numbers / matrices / expressions / case details instead of placeholder wording.
-   - If the source notes are long and contain multiple major knowledge points, important methods, or multiple exercises, do **not** cover the whole notebook with only one example. Usually give each major knowledge point its own corresponding worked example or worked-example sequence.
+   - If the source notes are long and contain multiple major knowledge points, important methods, or multiple exercises, do **not** cover the whole notebook with only one example. Usually give each major knowledge point its own corresponding worked example page.
    - For university-style lecture notes with many concepts and many problems, prefer repeated "concept -> example explanation" coverage instead of one global concept block followed by one isolated example.
    - For programming topics, use slide scenes that explain code line by line, trace execution, or analyze state changes.
    - For proof-heavy topics, use slide scenes that explain proof format, proof strategy, and the sequence of justified steps.
@@ -114,9 +122,9 @@ By default:
    - For other subjects, use subject-appropriate explanation such as case analysis, source interpretation, essay structure, evidence chains, or problem decomposition.
    - If the user asks for homework, exercises, exam prep, interview prep, practice,刷题, tracing, proving, or solving problems, increase the proportion of worked-example scenes first; add quiz scenes only when student practice is also desired.
 8. **Long questions / long examples**:
-   - If a problem statement is too long for one slide, split it into multiple consecutive scenes.
-   - Use one slide for setup/question text, then follow with slides for constraints, solving plan, step-by-step walkthrough, and takeaway.
-   - Never overload one slide with the full long problem plus the full solution.
+   - If a problem statement is long, keep it in one worked-example scene and rely on vertical scrolling.
+   - Put setup/question text, constraints, solving plan, step-by-step walkthrough, and takeaway in that same scene.
+   - Avoid "Part 1 / Part 2 / Part 3" scenes for one example.
 9. **Language**: Strictly output all content in the specified course language
 10. **If no suitable PDF images exist** for a slide scene that would benefit from visuals, add `mediaGenerations` array with image generation prompts. Write prompts in English. Use `elementId` format like "gen_img_1", "gen_img_2" — IDs must be **globally unique across all scenes** (do NOT restart numbering per scene). To reuse a generated image in a different scene, reference the same elementId without re-declaring it in mediaGenerations. Each generated image should be visually distinct — avoid near-identical media across slides.
 11. **If web search results are provided**, reference specific findings and sources in scene descriptions and keyPoints. The search results provide up-to-date information — incorporate it to make the course content current and accurate.

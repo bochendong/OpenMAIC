@@ -19,7 +19,7 @@ import type { EngineMode, TriggerEvent, Effect } from '@/lib/playback';
 import { ActionEngine } from '@/lib/action/engine';
 import { createAudioPlayer } from '@/lib/utils/audio-player';
 import type { Action, MouthShape, SpeechAction } from '@/lib/types/action';
-import type { SceneType } from '@/lib/types/stage';
+import type { Scene, SceneType } from '@/lib/types/stage';
 import type { SceneOutline } from '@/lib/types/generation';
 import {
   normalizeAzureVisemesToMouthCues,
@@ -92,6 +92,16 @@ const SIDEBAR_VOICE_REPLY_PREFERRED_VOICE: Partial<Record<TTSProviderId, string>
   'openai-tts': 'nova',
   'elevenlabs-tts': 'EXAVITQu4vr4xnSDxMaL',
 };
+
+function isSemanticScrollScene(scene: Scene | null): boolean {
+  return Boolean(
+    scene?.type === 'slide' &&
+    scene.content.type === 'slide' &&
+    scene.content.semanticDocument &&
+    scene.content.semanticRenderMode !== 'manual' &&
+    scene.content.webRenderMode !== 'slide',
+  );
+}
 
 /**
  * Stage Component
@@ -181,8 +191,8 @@ export function Stage({
   );
   /** 原始数据下的子 Tab：按场景类型（slide / quiz / interactive / …） */
   const [rawDataSubTab, setRawDataSubTab] = useState<SceneType>('slide');
-  /** 幻灯片原始数据细分：生成结果 / 大纲 / 讲解动作 / UI衍生数据 */
-  const [rawSlideDataView, setRawSlideDataView] = useState<RawSlideDataView>('generated');
+  /** 幻灯片原始数据细分：生成源 / 编译结果 / 渲染摘要 / 大纲 / 讲解动作 / UI衍生数据 */
+  const [rawSlideDataView, setRawSlideDataView] = useState<RawSlideDataView>('source');
   /** 课堂内当前页编辑模式：页面布局 / 讲解稿 */
   const [slideEditorOpen, setSlideEditorOpen] = useState(false);
   const [slideEditTab, setSlideEditTab] = useState<SlideEditTab>('canvas');
@@ -1055,6 +1065,36 @@ export function Stage({
     () => currentScene?.actions?.find((a): a is SpeechAction => a.type === 'speech')?.text ?? null,
     [currentScene],
   );
+
+  useEffect(() => {
+    if (!lectureSpeechActive || !currentSpeechAction || !isSemanticScrollScene(currentScene)) {
+      return;
+    }
+
+    const speechActions =
+      currentScene?.actions?.filter((action): action is SpeechAction => action.type === 'speech') ??
+      [];
+    const speechIndex = speechActions.findIndex((action) => action.id === currentSpeechAction.id);
+    if (speechIndex < 0) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      const root = window.document.querySelector<HTMLElement>('[data-semantic-scroll-root="true"]');
+      const targets = root?.querySelectorAll<HTMLElement>('[data-semantic-scroll-target="true"]');
+      if (!targets?.length) return;
+
+      const maxSpeechIndex = Math.max(1, speechActions.length - 1);
+      const maxTargetIndex = Math.max(0, targets.length - 1);
+      const targetIndex = Math.min(
+        maxTargetIndex,
+        Math.round((speechIndex / maxSpeechIndex) * maxTargetIndex),
+      );
+      targets[targetIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [currentScene, currentSpeechAction, lectureSpeechActive]);
 
   // Whether the speaking agent is a student (for bubble role derivation)
   const speakingStudentFlag = useMemo(() => {

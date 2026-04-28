@@ -88,17 +88,32 @@ export function CanvasArea({
   playPauseBusy = false,
 }: CanvasAreaProps) {
   const { t } = useI18n();
+  const isSemanticScrollSlide =
+    currentScene?.type === 'slide' &&
+    currentScene.content.type === 'slide' &&
+    Boolean(currentScene.content.semanticDocument) &&
+    currentScene.content.semanticRenderMode !== 'manual' &&
+    currentScene.content.webRenderMode !== 'slide';
   const showControls = mode === 'playback' && !whiteboardOpen;
   const showPlayHint =
     showControls &&
     engineState !== 'playing' &&
     currentScene?.type === 'slide' &&
+    !isSemanticScrollSlide &&
     !isLiveSession &&
     !isPendingScene;
 
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
-      if (!showControls || isLiveSession || currentScene?.type !== 'slide' || playPauseDisabled) return;
+      if (
+        !showControls ||
+        isLiveSession ||
+        currentScene?.type !== 'slide' ||
+        isSemanticScrollSlide ||
+        playPauseDisabled
+      ) {
+        return;
+      }
       // Don't trigger page play/pause when clicking inside a video element's visual area.
       // Video elements may be visually covered by other slide elements (e.g. text),
       // so we check click coordinates against all video element bounding rects.
@@ -117,7 +132,14 @@ export function CanvasArea({
       }
       onPlayPause();
     },
-    [showControls, isLiveSession, onPlayPause, currentScene?.type, playPauseDisabled],
+    [
+      showControls,
+      isLiveSession,
+      onPlayPause,
+      currentScene?.type,
+      isSemanticScrollSlide,
+      playPauseDisabled,
+    ],
   );
 
   return (
@@ -155,8 +177,13 @@ export function CanvasArea({
         <div className="flex min-h-0 min-w-0 flex-1 items-stretch justify-center overflow-hidden">
           <div
             className={cn(
-              'relative aspect-[16/9] h-full overflow-hidden rounded-[20px] bg-white shadow-[0_8px_40px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-700 dark:bg-[#1c1c1e] dark:shadow-[0_12px_48px_rgba(0,0,0,0.45)]',
-              showControls && !isLiveSession && currentScene?.type === 'slide' && 'cursor-pointer',
+              'relative overflow-hidden rounded-[20px] bg-white shadow-[0_8px_40px_rgba(0,0,0,0.08),0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-700 dark:bg-[#1c1c1e] dark:shadow-[0_12px_48px_rgba(0,0,0,0.45)]',
+              isSemanticScrollSlide ? 'h-full w-full max-w-[1160px]' : 'aspect-[16/9] h-full',
+              showControls &&
+                !isLiveSession &&
+                currentScene?.type === 'slide' &&
+                !isSemanticScrollSlide &&
+                'cursor-pointer',
               currentScene?.type === 'interactive'
                 ? 'ring-1 ring-blue-500/[0.12] dark:ring-blue-400/20'
                 : 'ring-1 ring-slate-900/[0.08] dark:ring-white/[0.1]',

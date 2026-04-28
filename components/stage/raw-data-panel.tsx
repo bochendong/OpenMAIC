@@ -65,10 +65,22 @@ export function RawDataPanel({
             aria-label="幻灯片原始数据视图"
           >
             <RawSlideDataButton
-              active={rawSlideDataView === 'generated'}
-              onClick={() => onRawSlideDataViewChange('generated')}
+              active={rawSlideDataView === 'source'}
+              onClick={() => onRawSlideDataViewChange('source')}
             >
-              生成数据
+              生成源
+            </RawSlideDataButton>
+            <RawSlideDataButton
+              active={rawSlideDataView === 'compiled'}
+              onClick={() => onRawSlideDataViewChange('compiled')}
+            >
+              编译结果
+            </RawSlideDataButton>
+            <RawSlideDataButton
+              active={rawSlideDataView === 'render'}
+              onClick={() => onRawSlideDataViewChange('render')}
+            >
+              渲染摘要
             </RawSlideDataButton>
             <RawSlideDataButton
               active={rawSlideDataView === 'outline'}
@@ -118,12 +130,27 @@ export function RawDataPanel({
         ) : null}
         <p className="ml-auto min-w-0 text-[10px] text-slate-500">{rawDataCaption}</p>
       </div>
+      {rawDataSubTab === 'slide' ? (
+        <div className="border-b border-white/10 px-4 py-2 text-[11px] leading-relaxed text-slate-400">
+          {RAW_SLIDE_VIEW_DESCRIPTIONS[rawSlideDataView]}
+        </div>
+      ) : null}
       <pre className="min-h-0 flex-1 overflow-auto p-4 text-[11px] leading-relaxed whitespace-pre-wrap break-words font-mono">
         {rawTypePayloadJson}
       </pre>
     </div>
   );
 }
+
+const RAW_SLIDE_VIEW_DESCRIPTIONS: Record<RawSlideDataView, string> = {
+  source:
+    '生成源：模型输出或从语义文档还原的 Syntara Markup，适合检查 \\begin{slide}、\\definition、\\block 等块结构。',
+  compiled: '编译结果：Syntara Markup 解析后的 contentDocument，适合检查内容语义和版式意图。',
+  render: '渲染摘要：语义文档生成画布后的摘要，适合检查元素数量、主题和渲染模式。',
+  outline: '大纲：本页来自课程规划阶段的章节目标和生成提示上下文。',
+  narration: '讲解数据：本页绑定的 speech、spotlight、laser 等课堂动作。',
+  ui: 'UI 计算：最终进入画布的完整 scene/canvas/elements 数据。',
+};
 
 function RawSlideDataButton({
   active,

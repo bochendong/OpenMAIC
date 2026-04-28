@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PPTTableElement } from '@/lib/types/slides';
 import { getTableSubThemeColor } from '@/lib/utils/element';
+import {
+  academyPaperTheme,
+  isLightPaperColor,
+  mixHexColor,
+  normalizeAccentForAcademyPaper,
+} from '../academyPaperTheme';
 import { formatPlainText, formatText, getHiddenCells, getTextStyle } from './tableUtils';
 
 interface StaticTableProps {
@@ -23,15 +29,19 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
 
   const hiddenCells = useMemo(() => getHiddenCells(data), [data]);
 
-  const [subThemeDark, subThemeLight] = useMemo(() => {
+  const [, subThemeLight] = useMemo(() => {
     if (!theme) return ['', ''];
     return getTableSubThemeColor(theme.color);
   }, [theme]);
+  const tableAccent = normalizeAccentForAcademyPaper(theme?.color || academyPaperTheme.primary);
 
   const borderStyle = useMemo(() => {
-    if (!outline) return 'none';
+    if (!outline) return `1px solid ${academyPaperTheme.softBorder}`;
     const w = outline.width ?? 1;
-    const c = outline.color ?? '#000';
+    const c =
+      isLightPaperColor(outline.color) || outline.color === '#000'
+        ? academyPaperTheme.softBorder
+        : outline.color;
     const s = outline.style === 'dashed' ? 'dashed' : 'solid';
     return `${w}px ${s} ${c}`;
   }, [outline]);
@@ -41,7 +51,8 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
     if (!tableElement) return;
 
     const updateContentSize = () => {
-      const nextWidth = tableElement.scrollWidth || tableElement.getBoundingClientRect().width || width;
+      const nextWidth =
+        tableElement.scrollWidth || tableElement.getBoundingClientRect().width || width;
       const nextHeight =
         tableElement.scrollHeight || tableElement.getBoundingClientRect().height || height;
 
@@ -90,26 +101,32 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
     colIdx: number,
     cellBackcolor?: string,
   ): string | undefined => {
-    if (cellBackcolor) return cellBackcolor;
-    if (!theme) return undefined;
+    if (cellBackcolor && !isLightPaperColor(cellBackcolor)) return cellBackcolor;
+    if (!theme) return rowIdx % 2 === 0 ? 'rgba(255,253,248,0.62)' : 'rgba(255,255,255,0.36)';
 
     const rowCount = data.length;
     const colCount = data[0]?.length ?? 0;
 
     // Row header (first row) gets theme color
-    if (theme.rowHeader && rowIdx === 0) return theme.color;
+    if (theme.rowHeader && rowIdx === 0) return mixHexColor(tableAccent, '#ffffff', 0.76);
     // Row footer (last row) gets theme color
-    if (theme.rowFooter && rowIdx === rowCount - 1) return theme.color;
+    if (theme.rowFooter && rowIdx === rowCount - 1)
+      return mixHexColor(tableAccent, '#ffffff', 0.82);
     // Col header (first col) gets dark sub-theme
-    if (theme.colHeader && colIdx === 0) return subThemeDark;
+    if (theme.colHeader && colIdx === 0) return mixHexColor(tableAccent, '#ffffff', 0.84);
     // Col footer (last col) gets dark sub-theme
-    if (theme.colFooter && colIdx === colCount - 1) return subThemeDark;
+    if (theme.colFooter && colIdx === colCount - 1)
+      return mixHexColor(tableAccent, '#ffffff', 0.84);
 
     // Alternating row colors (skip header row for counting)
     const effectiveRow = theme.rowHeader ? rowIdx - 1 : rowIdx;
-    if (effectiveRow >= 0 && effectiveRow % 2 === 0) return subThemeLight;
+    if (effectiveRow >= 0 && effectiveRow % 2 === 0) {
+      return isLightPaperColor(subThemeLight)
+        ? 'rgba(255,253,248,0.66)'
+        : mixHexColor(subThemeLight, '#ffffff', 0.64);
+    }
 
-    return undefined;
+    return 'rgba(255,255,255,0.38)';
   };
 
   /**
@@ -118,8 +135,8 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
   const getHeaderTextColor = (rowIdx: number): string | undefined => {
     if (!theme) return undefined;
     const rowCount = data.length;
-    if (theme.rowHeader && rowIdx === 0) return '#fff';
-    if (theme.rowFooter && rowIdx === rowCount - 1) return '#fff';
+    if (theme.rowHeader && rowIdx === 0) return academyPaperTheme.ink;
+    if (theme.rowFooter && rowIdx === rowCount - 1) return academyPaperTheme.ink;
     return undefined;
   };
 
@@ -138,8 +155,10 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
           style={{
             width: `${width}px`,
             minWidth: `${width}px`,
-            borderCollapse: 'collapse',
+            borderCollapse: 'separate',
+            borderSpacing: 0,
             tableLayout: 'fixed',
+            color: academyPaperTheme.body,
           }}
         >
           <colgroup>
@@ -169,7 +188,7 @@ export function StaticTable({ elementInfo }: StaticTableProps) {
                       style={{
                         border: borderStyle,
                         backgroundColor: bgColor,
-                        padding: '5px',
+                        padding: '7px 8px',
                         verticalAlign: 'middle',
                         wordBreak: 'break-word',
                         ...textStyle,

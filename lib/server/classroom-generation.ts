@@ -11,6 +11,8 @@ import {
   generateSceneActions,
   generateSceneContent,
 } from '@/lib/generation/scene-generator';
+import { normalizeOutlineStructure } from '@/lib/generation/outline-structure';
+import { ensureTitleCoverOutline } from '@/lib/generation/title-cover';
 import type { AICallFn } from '@/lib/generation/pipeline-types';
 import type { AgentInfo } from '@/lib/generation/pipeline-types';
 import { formatTeacherPersonaForPrompt } from '@/lib/generation/prompt-formatters';
@@ -21,9 +23,7 @@ import { resolveModel } from '@/lib/server/resolve-model';
 import { getSystemLLMRuntimeConfig } from '@/lib/server/system-llm-config';
 import { searchWithTavily, formatSearchResultsAsContext } from '@/lib/web-search/tavily';
 import { persistClassroom } from '@/lib/server/classroom-storage';
-import {
-  generateTTSForClassroom,
-} from '@/lib/server/classroom-media-generation';
+import { generateTTSForClassroom } from '@/lib/server/classroom-media-generation';
 import type { UserRequirements } from '@/lib/types/generation';
 import type { Scene, Stage } from '@/lib/types/stage';
 
@@ -276,7 +276,11 @@ export async function generateClassroom(
     throw new Error(outlinesResult.error || 'Failed to generate scene outlines');
   }
 
-  const outlines = outlinesResult.data;
+  const outlines = normalizeOutlineStructure(
+    ensureTitleCoverOutline(outlinesResult.data, {
+      language: lang,
+    }),
+  );
   log.info(`Generated ${outlines.length} scene outlines`);
 
   await options.onProgress?.({

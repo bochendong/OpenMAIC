@@ -39,6 +39,8 @@ import {
   buildBudgetedGenerationMedia,
   SAFE_GENERATION_REQUEST_BYTES,
 } from '@/lib/generation/request-payload-budget';
+import { normalizeOutlineStructure } from '@/lib/generation/outline-structure';
+import { ensureTitleCoverOutline } from '@/lib/generation/title-cover';
 import { ensureSpeechActionsHaveAudio } from '@/lib/hooks/use-scene-generator';
 import type { SpeechAction } from '@/lib/types/action';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
@@ -758,10 +760,6 @@ function GenerationPreviewContent() {
             .catch(reject);
         });
 
-        const updatedSession = { ...currentSession, sceneOutlines: outlines };
-        setSession(updatedSession);
-        sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
-
         // Outline generation succeeded — clear homepage draft cache
         try {
           localStorage.removeItem('requirementDraft');
@@ -771,6 +769,19 @@ function GenerationPreviewContent() {
 
         // Brief pause to let user see the final outline state
         await new Promise((resolve) => setTimeout(resolve, 800));
+      }
+
+      if (outlines?.length) {
+        outlines = normalizeOutlineStructure(
+          ensureTitleCoverOutline(outlines, {
+            title: stage.name,
+            language: currentSession.requirements.language,
+          }),
+        );
+        const updatedSession = { ...currentSession, sceneOutlines: outlines };
+        setSession(updatedSession);
+        setStreamingOutlines(outlines);
+        sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
       }
 
       // Move to scene generation step

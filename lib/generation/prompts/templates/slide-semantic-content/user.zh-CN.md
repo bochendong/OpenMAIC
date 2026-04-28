@@ -35,6 +35,9 @@ Important:
 7. 如果场景包含公式、讲题、矩阵运算、代码或表格，优先使用 `\formula`、`derivation`、`\code` 或 `\table`
 8. 矩阵 / 证明 / 推导页设置 slide `profile=math`，代码页设置 `profile=code`，其他为 `profile=general`
 9. 如果版式意图给出了模板，用 `template=...`；否则自然选择 `rows`、`columns` 或 `grid`
-10. 优先保证单页可读：先压缩表述，再考虑增加块数量
-11. 如果题干必须完整，保留关键条件、数据、代码和问题要求
-12. 只有 Available Images / Visual Slots 提供图片 ID 时，才输出 `\image[source=...]`
+10. `two_column` 必须使用 `columns` / `column` 环境；不要用 `block title=left/right` 代替分栏
+11. 文本内公式优先写成 `$f(x)=x^2$`；不要写成 `\\(f(x)=x^2\\)`，也不要把普通连接词写成 `\text{且}`
+12. LaTeX/Syntara 命令只写一个反斜杠，例如 `\forall`，不要写 `\\forall`
+13. 优先保证单页可读：先压缩表述，再考虑增加块数量
+14. 如果题干必须完整，保留关键条件、数据、代码和问题要求
+15. 只有 Available Images / Visual Slots 提供图片 ID 时，才输出 `\image[source=...]`

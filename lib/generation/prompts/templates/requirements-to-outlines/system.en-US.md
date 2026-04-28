@@ -249,22 +249,18 @@ For these scenes:
 - The `keyPoints` should be procedural, e.g. "identify assumptions", "trace variable changes", "justify the induction step", "check edge cases"
 - Prefer 1-2 focused questions/examples per walkthrough scene rather than broad survey content
 - If the course is not university-oriented and the user did not ask for exercises, prefer lighter examples/cases over formal problem sheets
-- If the source material covers multiple major knowledge points or methods, do not collapse all application into one single example. Usually create at least one corresponding worked example (or short worked-example sequence) for each major knowledge point that benefits from application.
+- If the source material covers multiple major knowledge points or methods, do not collapse all application into one single example. Usually create at least one corresponding worked example page for each major knowledge point that benefits from application.
 - For long university notes with many exercises, aim for repeated "concept -> worked example" pacing rather than "many concept slides -> one example at the end"
 
 ### Long Problem Handling
 
-If a question or example is too long to fit comfortably on one slide:
+If a question or example is long, keep it as **one worked-example page**:
 
-- Do **not** cram the entire problem statement onto a single page
-- Split it into 2-4 consecutive slide scenes, for example:
-  - problem statement / setup
-  - known conditions / constraints / diagram
-  - solution plan
-  - step-by-step walkthrough / answer / takeaway
-- On each slide, show only the part that is needed for the current explanation
-- Prefer summaries like "Given / Find / Constraints / Key Idea" over pasting long paragraphs verbatim
-- Use titles such as "Example 1 (Part 1)", "Example 1 (Part 2)", or "题目拆解 / 解法步骤 / 易错点" so the continuity is obvious
+- Do **not** split one example into "Part 1 / Part 2 / Part 3" scenes
+- Use one `slide` scene with `workedExampleConfig.role: "walkthrough"`
+- Put the full problem, known conditions, goal, plan, derivation steps, pitfalls, and final answer in the same `workedExampleConfig`
+- Prefer compact structures like "Given / Find / Key Idea / Steps / Answer" over repeating the same text in multiple sections
+- The web classroom can scroll vertically, so preserving a coherent one-page explanation is more important than fitting a fixed slide height
 
 ### PBL Scene Guidelines
 
@@ -404,8 +400,6 @@ Use this optional object on `slide` scenes when the slide is a teacher-led examp
     "kind": "code" | "proof" | "math" | "case_analysis" | "general",
     "role": "problem_statement" | "givens_and_goal" | "constraints" | "solution_plan" | "walkthrough" | "pitfalls" | "summary",
     "exampleId": "example_1",
-    "partNumber": 1,
-    "totalParts": 3,
     "problemStatement": "Original or summarized problem statement",
     "givens": ["Known condition 1", "Known condition 2"],
     "asks": ["What needs to be solved / proved / explained"],
@@ -421,9 +415,9 @@ Use this optional object on `slide` scenes when the slide is a teacher-led examp
 
 Guidance:
 
-- The first slide in a worked-example sequence should usually use `role: "problem_statement"` and include `problemStatement`
-- Use the same `exampleId` across multi-slide example sequences
-- For long problems, split across multiple slide scenes and advance the `role` across those scenes
+- A worked example should normally be one coherent page with `role: "walkthrough"` and a complete `problemStatement`
+- Do not use `partNumber` or `totalParts` for normal generation; avoid multi-slide example sequences
+- For long problems, keep the setup, plan, derivation, pitfalls, and answer together in one worked-example scene
 - Prefer summarized but faithful statements over dropping the problem entirely
 - Worked examples must be **self-contained and concrete**, not placeholders
 - If the source material does not provide an exact exercise, invent a representative but specific example that matches the topic and difficulty
@@ -472,7 +466,7 @@ Guidance:
 10. **Language Requirement**: Strictly output all content in the language specified by the user
 11. Regardless of information completeness, always output conforming JSON - do not ask questions or request more information
 12. **No teacher identity on slides**: Scene titles and keyPoints must be neutral and topic-focused. Never include the teacher's name or role (e.g., avoid "Teacher Wang's Tips", "Teacher's Wishes"). Use generic labels like "Tips", "Summary", "Key Takeaways" instead.
-13. When a problem statement is too long for one slide, split it across multiple consecutive scenes rather than overloading a single page
-14. For every worked-example sequence, include the original problem text or a faithful excerpt before solving
+13. When a problem statement is long, keep one worked-example scene and use the page's vertical scroll instead of creating Part 1/Part 2 scenes
+14. For every worked example, include the original problem text or a faithful excerpt before solving
 15. Set `contentProfile` to `math` for formula / proof / matrix-heavy slide scenes, `code` for programming walkthrough scenes, otherwise `general`
 15. For every worked-example walkthrough page, include enough detail that the learner can follow the full reasoning or calculation, not just the section labels

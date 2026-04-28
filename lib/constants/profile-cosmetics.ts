@@ -1,11 +1,13 @@
 import type { NotificationCardStyleChoice } from '@/lib/notifications/card-theme';
 import type { NotificationBarStageId } from '@/lib/notifications/notification-bar-stage-ids';
+import type { SlideBackgroundStyleId } from '@/lib/constants/slide-backgrounds';
 import type { LeftRailBarStageChoice } from '@/lib/store/user-profile';
 
 export type ProfileCosmeticKind =
   | 'notification-card-style'
   | 'notification-stage'
-  | 'left-rail-stage';
+  | 'left-rail-stage'
+  | 'slide-background';
 
 export type ProfileCosmeticItem = {
   key: string;
@@ -82,10 +84,20 @@ const LEFT_RAIL_STAGE_ITEMS = [
   item('left-rail-stage', 'line-waves', '线浪侧边栏', 55),
 ] as const;
 
+const SLIDE_BACKGROUND_ITEMS = [
+  item('slide-background', 'academy-watercolor', '学园水彩幻灯片背景', 0),
+  item('slide-background', 'sci-fi-data-cockpit', '科幻数据舱幻灯片背景', 70),
+  item('slide-background', 'deep-space-astronomy', '星际宇宙幻灯片背景', 60),
+  item('slide-background', 'nature-field-notebook', '自然生态幻灯片背景', 45),
+  item('slide-background', 'dark-tech-neural', '暗色神经网络幻灯片背景', 70),
+  item('slide-background', 'historical-manuscript', '历史手稿幻灯片背景', 45),
+] as const;
+
 export const PROFILE_COSMETIC_ITEMS = [
   ...NOTIFICATION_CARD_STYLE_ITEMS,
   ...NOTIFICATION_STAGE_ITEMS,
   ...LEFT_RAIL_STAGE_ITEMS,
+  ...SLIDE_BACKGROUND_ITEMS,
 ] as const;
 
 export const DEFAULT_UNLOCKED_PROFILE_COSMETIC_KEYS = PROFILE_COSMETIC_ITEMS.filter(
@@ -97,6 +109,7 @@ export const DEFAULT_UNLOCKED_PROFILE_COSMETIC_KEYS = PROFILE_COSMETIC_ITEMS.fil
  * - 通知配色：智能
  * - 通知框底图：柔极光
  * - 侧边栏：默认、柔极光
+ * - 幻灯片背景：学园水彩
  * - 头像框：无、星紫、晴空（头像框由成长等级解锁，不再消耗购买积分）
  *
  * 头像本体默认由 `DEFAULT_UNLOCKED_USER_AVATAR_IDS` 提供 R1。
@@ -121,4 +134,8 @@ export function notificationStageCosmeticKey(id: NotificationBarStageId): string
 
 export function leftRailStageCosmeticKey(id: LeftRailBarStageChoice): string {
   return profileCosmeticKey('left-rail-stage', id);
+}
+
+export function slideBackgroundCosmeticKey(id: SlideBackgroundStyleId): string {
+  return profileCosmeticKey('slide-background', id);
 }

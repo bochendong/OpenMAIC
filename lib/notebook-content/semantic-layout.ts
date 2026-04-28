@@ -27,6 +27,8 @@ const DEFAULT_SEMANTIC_LAYOUT_VIEWPORT: SlideViewport = {
   height: 562.5,
 };
 
+export const SEMANTIC_WEB_LONG_PAGE_MODE = true;
+
 export interface NotebookSemanticRenderedPage {
   document: NotebookContentDocument;
   slide: Slide;
@@ -65,6 +67,20 @@ export function paginateNotebookSemanticLayout(args: {
   document: NotebookContentDocument;
   rootOutlineId: string;
 }): NotebookDocumentPaginationResult {
+  if (SEMANTIC_WEB_LONG_PAGE_MODE) {
+    return {
+      pages: [
+        {
+          ...args.document,
+          continuation: undefined,
+        },
+      ],
+      wasSplit: false,
+      reasons: [],
+      unpageableBlockTypes: [],
+    };
+  }
+
   return paginateNotebookContentDocument(args);
 }
 
@@ -109,9 +125,13 @@ export function renderNotebookSemanticPages(args: {
         type: 'content',
       };
     }
-    const normalizedElements = shouldLockNotebookSemanticLayout(pageDocument)
-      ? renderedSlide.elements
-      : normalizeSlideTextLayout(renderedSlide.elements, viewport);
+    const lockedLayoutValidation = shouldLockNotebookSemanticLayout(pageDocument)
+      ? validateSlideTextLayout(renderedSlide.elements, viewport)
+      : null;
+    const normalizedElements =
+      lockedLayoutValidation && lockedLayoutValidation.isValid
+        ? renderedSlide.elements
+        : normalizeSlideTextLayout(renderedSlide.elements, viewport);
     const layoutValidation = validateSlideTextLayout(normalizedElements, viewport);
     layoutValidation.issues.push(...compileIssues);
     layoutValidation.isValid = layoutValidation.issues.length === 0;
